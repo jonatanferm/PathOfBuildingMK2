@@ -2055,19 +2055,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pob-data"
-version = "0.0.1"
-dependencies = [
- "ahash",
- "bitflags 2.11.1",
- "indexmap",
- "serde",
- "serde_json",
- "smallvec",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "pob-desktop"
 version = "0.0.1"
 dependencies = [
@@ -2095,38 +2082,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
-]
-
-[[package]]
-name = "pob-engine"
-version = "0.0.1"
-dependencies = [
- "ahash",
- "base64",
- "bitflags 2.11.1",
- "flate2",
- "indexmap",
- "pob-data",
- "quick-xml 0.36.2",
- "serde",
- "serde_json",
- "smallvec",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "pob-extract"
-version = "0.0.1"
-dependencies = [
- "ahash",
- "anyhow",
- "indexmap",
- "mlua",
- "pob-data",
- "pob-engine",
- "serde",
- "serde_json",
- "smallvec",
 ]
 
 [[package]]
@@ -2391,16 +2346,6 @@ name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
-
-[[package]]
-name = "quick-xml"
-version = "0.36.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7649a7b4df05aed9ea7ec6f628c67c9953a43869b8bc50929569b2999d443fe"
-dependencies = [
- "memchr",
- "serde",
-]
 
 [[package]]
 name = "quick-xml"
@@ -3339,7 +3284,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c324a910fd86ebdc364a3e61ec1f11737d3b1d6c273c0239ee8ff4bc0d24b4a"
 dependencies = [
  "proc-macro2",
- "quick-xml 0.39.3",
+ "quick-xml",
  "quote",
 ]
 

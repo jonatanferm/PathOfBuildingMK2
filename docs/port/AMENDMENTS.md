@@ -566,3 +566,65 @@ rust-port b9888df vs LEAK1, output and power digests identical): power report al
 50.9 ms (+7-9 %): freeing the graphs costs what the leak saved (CCR-0135 §4). RSS after one power
 report 2,770 → 691 MB and 2,033 → 452 MB. With LuaJIT in the same run, LEAK1 stays below it
 (power 0.73 / 0.71, recalc 0.77 / 0.81).
+
+## A13. INT-4: legacy crates retired (2026-11-12)
+
+The last calc row (calc doc §11.1 INT-4), after U53's cut-over (the product UI is `pob-app` on
+`RustCalc`; `crates/pob-ui` and the legacy apps were already deleted, CCR-0145 §6).
+
+**Deleted.** `crates/pob-engine`, `crates/pob-data` and `crates/pob-extract`. Before deleting:
+`cargo tree --workspace -i pob-engine -e normal,dev,build` and `-i pob-data` listed only
+`pob-extract` (and pob-engine for pob-data); `-i pob-extract` listed nothing; a grep for
+`pob_engine`, `pob_data`, `pob-extract` over `crates/`, `app/` and `scripts/` found no other
+user, and no remaining crate reads the files pob-extract wrote (`data/*.json`, `data/trees`,
+`data/skills`, `data/timeless`, the `data/pob/` runtime copy: the app reads `data/dump/` and PoB's
+`src/`; only the lua2rs tests still accept an existing `data/pob/` as a fallback for
+`.PathOfBuilding`). So nothing was ported or redirected; pob-extract went with the two crates
+(A1 already made `pob-dump` the data tool). Also deleted: `scripts/parity/run.sh` (ran
+pob-extract's `pob_diff`; `report.py` stays, `pob_calc_diff` writes its input), CI's engine
+build/test/clippy jobs and its manual `pob_diff` job, and the workspace keys only the deleted
+crates or the deleted egui app used (`pob-engine`, `pob-data`, `thiserror`, `base64`,
+`quick-xml`, `eframe`, `egui`, `rfd`, `wgpu = "22"`). CI's calc job now runs the `mlua` gate below,
+a wasm32 check of the calc crates and the pob-lua / pob-gamedata / pob-modparser tests
+(`POB_ALLOW_SKIP=1`; not run on GitHub by INT-4).
+
+**`pob-luahost` stays, dev-only.** It is `crates/pob-oracle` (A1). The oracle tests need it, and
+so does pob-ui-oracle (`jit::PRELUDE`/`install_natives` in `boot.rs`, `headless` and `jit` in
+`LuaCalcBridge`), so it is kept as a dev-only crate (its manifest description and README say so).
+No shipping package depends on it or on pob-ui-oracle: `cargo tree -e normal` of pob-calc,
+pob-app, pob-desktop and pob-web lists neither. Its `worker` module (the legacy app's calc
+thread) is now used only by `tests/worker_smoke.rs`, and its `mod_parser` module by nothing
+(its input `data/lua/modparser_env.lua` was written by `pob_diff --dump-modparser-env`, now
+deleted; a doc note in `mod_parser.rs` says so). Removing those, and the pure-Rust interpreter
+`lua/` that `headless` boots, is a pob-oracle change left to its owner.
+
+**Gates (measured on port/INT-4).**
+
+| `scripts/port/cargo.sh tree -p <p> -e normal \| grep -c mlua` | count |
+|---|---|
+| pob-calc | **0** |
+| pob-lua, pob-gamedata, pob-modparser, pob-calc-{core,setup,config,defence,offence,perform} | 0 each |
+| pob-sg, pob-sg-wgpu, pob-host, pob-ui-core | 0 each |
+| **pob-app**, **pob-desktop**, **pob-web** (shipped products) | **0, 0, 0** |
+| pob-app, pob-web with `--target wasm32-unknown-unknown` | 0, 0 |
+| pob-desktop `--features lua-calc` (non-default, dev: LuaCalcBridge) | 3 |
+
+So the `POB_UI_CALC=lua` bridge is already behind a non-default feature (pob-desktop's `lua-calc`,
+`dep:pob-ui-oracle`); nothing had to move. `mlua` remains a normal dependency only of the dev and
+build-time crates (pob-oracle under its `luajit` feature, pob-ui-oracle, pob-dump) and a
+dev-dependency of pob-lua, pob-calc and pob-ui-core. `cargo check --target wasm32-unknown-unknown`
+of the 16 runtime packages (pob-lua, pob-gamedata, pob-modparser, the six calc crates and
+pob-calc, pob-sg, pob-sg-wgpu, pob-host, pob-ui-core, pob-app, pob-web) is green (7 dead-code
+warnings in `pob-calc-perform/src/modules/power.rs`, wasm32 only: the parallel power report is
+native-only; pre-existing). docs/port/testing.md "Runtime and dev-only crates" lists the commands.
+
+**Tests.** `scripts/port/cargo.sh check --workspace --tests`: green, 0 warnings. Quick corpus
+(`.parity-quick`, 14 builds), `cargo.sh test -p pob-oracle --test CA`: 5 passed, 0 failed (L6
+headline 182/182, all keys 11,990/11,990, CALCS lists 42/42, used-tracking 126/126, misc
+308/308, 0 Rust errors; L5 used-tracking and CALCS lists 14/14 clean; D13 19/19 fixed points, 0
+Lua errors). `cargo.sh test -p pob-ui-oracle --test u53_e2e`: 1 passed (27 runs, 1,668,755 Lua draw ops, 0 T3
+divergences, T4 33 pairs identical, 0 failed; 317 s, peak RSS 1,450 MB).
+
+**Docs.** calc doc D4, D18, §2 rules 2 and 5, the INT-4 row; ui doc D1, D16, §3 and the U53 row
+(CCR-0145 §6, now applied); STATUS.md (port and root), testing.md, README.md, packaging.md, and
+history notes on docs/divergences.md, docs/parity-plan.md and ADR 0001.

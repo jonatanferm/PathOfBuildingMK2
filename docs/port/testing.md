@@ -1,7 +1,39 @@
 # Testing the port
 
 How the oracle test suites stay fast. Sections by unit: TP1 (pob-oracle, below), TP2
-(pob-ui-oracle), TP3 (runners: `scripts/port/cargo.sh`, `full_suite.sh`).
+(pob-ui-oracle), TP3 (runners: `scripts/port/cargo.sh`, `full_suite.sh`), INT-4 (crates and the
+`mlua` gate, next).
+
+## Runtime and dev-only crates, the `mlua` gate (INT-4)
+
+INT-4 deleted the legacy `pob-engine`, `pob-data` and `pob-extract` (with its `pob_diff` binary
+and `scripts/parity/run.sh`); parity against PoB is only the oracle suites below. AMENDMENTS A13.
+
+- **Runtime crates** (no `mlua` in `cargo tree -e normal`, and `cargo check --target
+  wasm32-unknown-unknown` green): `pob-lua`, `pob-gamedata`, `pob-modparser`, `pob-calc` and its
+  six crates, `pob-sg`, `pob-sg-wgpu`, `pob-host`, `pob-ui-core`, `pob-app`, `pob-web`
+  (`pob-desktop` is native-only, and its default normal tree has no `mlua` either).
+- **Dev-only crates** (LuaJIT through `mlua`; never a normal dependency of a runtime crate):
+  `pob-oracle` (the calc oracle; it is the docs' `pob-luahost`, AMENDMENTS A1), `pob-ui-oracle`
+  (the UI oracle and `LuaCalcBridge`), and the build-time data tool `pob-dump`. `pob-testpaths`
+  (test-input locator) is dev-only too, without `mlua`.
+  `mlua` also appears as a dev-dependency of `pob-lua`, `pob-calc` and `pob-ui-core` (L0/HYG1
+  tests against real LuaJIT).
+- **The one opt-in path** from a shipping package to LuaJIT is `pob-desktop`'s non-default feature
+  `lua-calc` (`pob-ui-oracle`'s `LuaCalcBridge`; `POB_UI_CALC=lua` selects the bridge's Lua side
+  in the UI harnesses, which are dev-only too).
+- **Gates** (CI's calc job runs the first two):
+
+  ```sh
+  for p in pob-calc pob-app pob-desktop pob-web; do
+      echo "$p $(scripts/port/cargo.sh tree -p $p -e normal | grep -c mlua)"   # 0 each
+  done
+  scripts/port/cargo.sh check --target wasm32-unknown-unknown -p pob-lua -p pob-gamedata \
+      -p pob-modparser -p pob-calc-core -p pob-calc-setup -p pob-calc-config -p pob-calc-defence \
+      -p pob-calc-offence -p pob-calc-perform -p pob-calc -p pob-sg -p pob-sg-wgpu -p pob-host \
+      -p pob-ui-core -p pob-app -p pob-web
+  scripts/port/cargo.sh tree -p pob-desktop -e normal --features lua-calc | grep -c mlua   # 3: opt-in
+  ```
 
 ## Runners
 

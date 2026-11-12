@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Aggregate per-build {build, pob, ours} documents into a parity scoreboard.
 
-Reads the --json-out output of pob_diff (legacy) and of pob_calc_diff
-(crates/pob-oracle): one <build>.json per build whose "pob" and "ours"
+Reads the --json-out output of pob_calc_diff (crates/pob-oracle; the legacy
+pob_diff, deleted by INT-4, wrote the same shape): one <build>.json per build whose "pob" and "ours"
 members map flattened output keys (`Life`, `MainHand.Speed`) to values.
 Non-finite numbers may be written as {"$num": "inf"|"-inf"|"nan"}; other
 non-numeric values (strings, booleans, markers) are not scored. Other

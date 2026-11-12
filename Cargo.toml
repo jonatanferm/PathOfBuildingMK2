@@ -4,7 +4,6 @@ members = [
     "crates/pob-lua",
     "crates/pob-gamedata",
     "crates/pob-modparser",
-    "crates/pob-engine",
     "crates/pob-calc",
     # The pob-calc split (CCR-0131): pob-calc is their facade.
     "crates/pob-calc-core",
@@ -15,9 +14,9 @@ members = [
     "crates/pob-calc-perform",
     "crates/pob-oracle",
     "crates/pob-sg",
-    "crates/pob-data",
+    # Build-time data dump tool (LuaJIT; AMENDMENTS A1/A2). INT-4 deleted the legacy
+    # `pob-engine`, `pob-data` and `pob-extract` (AMENDMENTS A13).
     "crates/pob-dump",
-    "crates/pob-extract",
     # UI port (ui doc §3, D16). U53's cut-over deleted the legacy egui UI (`crates/pob-ui`) and
     # renamed `app/pob-port-{desktop,web}` to `app/pob-{desktop,web}`.
     "crates/pob-sg-wgpu",
@@ -42,7 +41,6 @@ repository = "https://github.com/jferm/PathOfBuildingMK2"
 pob-lua = { path = "crates/pob-lua" }
 pob-gamedata = { path = "crates/pob-gamedata" }
 pob-modparser = { path = "crates/pob-modparser" }
-pob-engine = { path = "crates/pob-engine" }
 pob-calc = { path = "crates/pob-calc" }
 # The crates pob-calc is split into (CCR-0131). Only the calc crates depend on them; everything
 # else depends on pob-calc.
@@ -53,7 +51,6 @@ pob-calc-defence = { path = "crates/pob-calc-defence" }
 pob-calc-offence = { path = "crates/pob-calc-offence" }
 pob-calc-perform = { path = "crates/pob-calc-perform" }
 pob-oracle = { path = "crates/pob-oracle" }
-pob-data = { path = "crates/pob-data" }
 # UI port crates (ui doc §3).
 pob-sg = { path = "crates/pob-sg" }
 pob-sg-wgpu = { path = "crates/pob-sg-wgpu" }
@@ -67,7 +64,6 @@ pob-testpaths = { path = "crates/pob-testpaths" }
 # General
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "2"
 anyhow = "1"
 smallvec = { version = "1", features = ["serde", "union"] }
 indexmap = { version = "2", features = ["serde"] }
@@ -76,30 +72,20 @@ bitflags = { version = "2", features = ["serde"] }
 # Interned strings (pob-lua `Name`).
 ustr = "1"
 
-# Lua data ingest (for pob-extract only — engine must not depend on it)
+# LuaJIT, for the build-time dump tool (pob-dump), the dev-only oracles (pob-oracle,
+# pob-ui-oracle) and dev-dependencies. No runtime crate may depend on it (calc doc D4, §2 rule 3;
+# INT-4 gate: `cargo tree -p pob-calc -e normal | grep -c mlua` = 0).
 mlua = { version = "0.10", features = ["luajit", "vendored", "send"] }
 
-# Compression / encoding (for POB share codes)
+# Compression (PoB share codes, Lua Inflate/Deflate)
 flate2 = "1"
-base64 = "0.22"
-
-# XML (for build files)
-quick-xml = { version = "0.36", features = ["serialize"] }
 
 # UI
-# `x11` + `wayland` enable winit's Linux backends. Without them, building any
-# eframe crate on Linux fails with `compile_error!("…not supported by winit")`
-# (macOS/web backends are unconditional, so this only bites Linux — e.g. CI).
-# They pull no extra deps on macOS/wasm, where winit target-gates them out.
-eframe = { version = "0.29", default-features = false, features = ["default_fonts", "wgpu", "persistence", "x11", "wayland"] }
-rfd = "0.15"
-egui = "0.29"
-wgpu = { version = "22", features = ["webgl"] }
 bytemuck = { version = "1", features = ["derive"] }
 
-# UI port pins (ui doc §3 "Pinned versions (new crates only)"). wgpu for the new
-# crates is pinned per crate (`wgpu = "=30.0.1"`, newest stable at UI-U0) because
-# the workspace key `wgpu` above stays at 22 for the legacy eframe app (D1).
+# UI port pins (ui doc §3 "Pinned versions (new crates only)"). wgpu is pinned per crate
+# (`wgpu = "=30.0.1"`, newest stable at UI-U0); the workspace key `wgpu = "22"` of the legacy
+# eframe app is gone with that app (U53, INT-4).
 winit = "=0.30.13"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
 slotmap = "1.1"
@@ -153,7 +139,7 @@ unnested_or_patterns = "allow"
 # general but in our case it's noise.
 float_cmp = "allow"
 # Issue #49: pedantic stylistic lints we trade away to keep the
-# pob_data extractor + parser path tractable. Each is a real
+# (now deleted, INT-4) pob_data extractor + parser path tractable. Each is a real
 # preference signal in greenfield code but not worth a churn pass
 # in already-shipping modules.
 manual_strip = "allow"

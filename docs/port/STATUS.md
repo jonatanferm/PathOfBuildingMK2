@@ -81,7 +81,7 @@ At most 3 heavy agents run at once. Script (session-local copy):
 - **Oracle corpus:** `.parity/builds` holds 57 builds; oracle dumps are in `.parity/oracle/`; the probe cache is `.parity/probe-cache/`.
 - **Data dump:** `data/dump/`. Regenerate it with `cargo run -p pob-dump --release -- --pob .PathOfBuilding/src --out data/dump`.
 - **Host architecture:** this machine is **aarch64**. LuaJIT is dual-number here. Decision: the product follows x64 PoB semantics; the oracle runs with `jit.off()`; ±0 differences are tolerated.
-- **Legacy app:** the old egui app (`app/pob-desktop`, PoB Lua at runtime) still builds and runs. It is replaced at cut-over (UI U53, calc INT-4).
+- **Legacy app:** the old egui app (`app/pob-desktop`, PoB Lua at runtime) still builds and runs. It is replaced at cut-over (UI U53, calc INT-4). *Since 2026-11-12: replaced; U53 deleted it and INT-4 deleted `pob-engine`/`pob-data`/`pob-extract` (sections below).*
 - **Wine:** not installed. The real-SimpleGraphic pixel checks (ui doc T6) stay pending until it is.
 
 ## Update 2026-11-10 03:30 (resumed 2026-11-09 via /goal "complete the full Rust port")
@@ -210,6 +210,34 @@ On `port/U53` (merged rust-port, fix round 1). CCR-0145 lists every cross-unit e
   hover tooltips with the worker's stat differences, a click allocates (1/123, Life 60 → 72).
 - **Renames:** `app/pob-port-{desktop,web}` → `app/pob-{desktop,web}`; the egui `crates/pob-ui`
   and the legacy apps are deleted (before the T6 gate, which stays open: orchestrator's call).
-  `pob-engine`/`pob-data` stay for calc:INT-4. The web page runs the app by default
+  `pob-engine`/`pob-data` stay for calc:INT-4 (deleted since, see below). The web page runs the app by default
   (`?app=testcard` for the test card).
 - **Open (FOLLOWUPS "U53"):** T6 (Wine not installed).
+
+## INT-4 retire (2026-11-12)
+
+On `port/INT-4` (from rust-port af4f731). The last calc row (calc doc §11.1). AMENDMENTS A13 has
+the details.
+
+- **Deleted:** `crates/pob-engine`, `crates/pob-data` and `crates/pob-extract` (the legacy
+  extractor and its `pob_diff`, the only user of the other two: `cargo tree --workspace -i
+  pob-engine` / `-i pob-data` listed only `pob-extract`, and a grep found no `pob_engine` /
+  `pob_data` use anywhere else), `scripts/parity/run.sh` (ran `pob_diff`), the workspace keys
+  only they or the legacy egui app used (`thiserror`, `base64`, `quick-xml`, `eframe`, `egui`,
+  `rfd`, `wgpu = "22"`), and CI's engine build/test/clippy and manual `pob_diff` jobs (the calc
+  job now runs the `mlua` gate, a wasm32 check of the calc crates and the pob-lua / pob-gamedata
+  / pob-modparser tests).
+- **Kept, dev-only:** `pob-luahost` is `pob-oracle` (A1). The oracle tests and pob-ui-oracle
+  (its LuaJIT boot: `jit::PRELUDE`, `install_natives`; its `LuaCalcBridge`: `jit`, `headless`,
+  `inject`) need it, so it stays as a dev-only crate; no shipping package depends on it.
+- **Gates:** `cargo tree -p pob-calc -e normal | grep -c mlua` = **0**; the same count is 0 for
+  every runtime crate (pob-lua, pob-gamedata, pob-modparser, the six calc crates, pob-sg,
+  pob-sg-wgpu, pob-host, pob-ui-core) and for the products **pob-app 0, pob-desktop 0, pob-web 0**
+  (pob-app and pob-web also 0 for `--target wasm32-unknown-unknown`). The one path to `mlua` is
+  pob-desktop's non-default feature `lua-calc` (3 lines). wasm32 check of all 16 runtime
+  packages: green (7 pre-existing wasm32-only dead-code warnings in `power.rs`).
+- **Tests:** `cargo.sh check --workspace --tests` green, 0 warnings; quick corpus
+  (`.parity-quick`, 14 builds) pob-oracle `CA`: 5/5 passed (L6 headline 182/182, all keys
+  11,990/11,990, CALCS lists 42/42, used-tracking 126/126, misc 308/308, 0 Rust errors; D13 19/19
+  fixed points); `pob-ui-oracle --test u53_e2e`: 1 passed (27 runs, 1,668,755 Lua draw ops,
+  0 T3 divergences, T4 33 pairs identical).

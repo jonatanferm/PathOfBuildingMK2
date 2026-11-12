@@ -7,6 +7,10 @@
 //! `pob_diff --dump-modparser-env`). The one change to the Lua source is that
 //! the hot `scan` helper is replaced by a native implementation with the same
 //! contract.
+//!
+//! INT-4 (AMENDMENTS A13) deleted `pob_diff` with pob-extract, so an existing
+//! `data/lua/modparser_env.lua` can no longer be regenerated; nothing in the
+//! workspace uses this module any more.
 
 use std::cell::RefCell;
 use std::path::Path;

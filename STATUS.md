@@ -1,6 +1,11 @@
 # Project status
 
-> **Rust port in progress:** see `docs/port/STATUS.md` (branch `rust-port`). The text below describes the earlier Lua-at-runtime architecture.
+> **History only.** The current state is in `docs/port/STATUS.md` (branch `rust-port`): the app is
+> the Rust port (`pob-app` on `pob-calc`, no Lua at runtime). The text below describes the earlier
+> Lua-at-runtime architecture, whose pieces are deleted: the egui `pob-ui` and legacy apps (U53),
+> and `pob-engine`, `pob-data`, `pob-extract` (with `pob_diff`, `scripts/parity/run.sh` and the
+> `data/pob/` runtime copy it wrote) by INT-4 (docs/port/AMENDMENTS.md A13). `pob_oracle`'s
+> headless/worker modules survive only as the dev-only test oracle.
 
 Status as of 2026-09-30 (branch `parity/real-builds`).
 

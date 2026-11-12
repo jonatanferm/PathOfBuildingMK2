@@ -1,5 +1,8 @@
 # Parity plan — faithful port of PoB's calc pipeline
 
+> **History only.** Superseded by docs/port/ (STATUS.md, calc-architecture.md). `pob-engine`,
+> `pob_diff` and `scripts/parity/run.sh` named below were deleted by INT-4 (docs/port/AMENDMENTS.md A13).
+
 Status as of 2026-09-29. Owner: the parity branch (`parity/real-builds`).
 
 ## Why
