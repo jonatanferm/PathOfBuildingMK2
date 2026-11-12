@@ -1,0 +1,14 @@
+# U25: the idle Tree tab of a build with two trees (allflame_compare): the control lines at the bottom (two lines at
+# 1280 wide, three with the heat-map controls shown), the spec, version and search controls; P toggles the heat map
+# (U26 stand-in powers), which shows the stat dropdown and the power report button; then the build XML.
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_compare.xml"
+frames 3
+move 800 400
+press p
+frames 2
+press p
+frames 1
+snapshot idle
+frames 1

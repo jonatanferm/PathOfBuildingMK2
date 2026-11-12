@@ -1,0 +1,49 @@
+# U25: the mastery popup and ModifyNodePopup at 1280x800 (allflame_compare zoomed in): click the unallocated Life
+# Mastery (OpenMasteryPopup: five effects, the sixth is taken by another Life Mastery), hover an effect
+# (AddValueTooltip writes it into the node and shows the node tooltip stand-in), Cancel (the node's stats restored),
+# open it again and pick the second effect (SaveMasteryPopup: allocates along the path, AddUndoState); then
+# right-click the allocated Pain Attunement keystone (ModifyNodePopup: the tattoo groups for a keystone, the labels
+# of the default group, the tattoo count), drop the modifier list, pick an entry (constructUI resizes the popup), Add
+# (RETURN: hashOverrides, ReplaceNode); then the build XML.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_compare.xml"
+frames 3
+move 1100 250
+wheel up 3
+frames 2
+move 1195 352
+frames 1
+click LEFTBUTTON
+frames 2
+move 640 362
+frames 2
+move 640 453
+frames 1
+click LEFTBUTTON
+frames 2
+move 1195 352
+frames 1
+click LEFTBUTTON
+frames 2
+move 640 378
+frames 1
+click LEFTBUTTON
+frames 3
+move 822 110
+frames 1
+click RIGHTBUTTON
+frames 2
+move 640 381
+frames 1
+click LEFTBUTTON
+frames 2
+move 640 420
+frames 1
+click LEFTBUTTON
+frames 2
+press RETURN
+frames 3
+snapshot tattooed
+frames 1
