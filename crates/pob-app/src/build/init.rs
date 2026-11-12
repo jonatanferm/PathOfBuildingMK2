@@ -408,9 +408,7 @@ pub fn default_hooks() -> BuildHooks {
         }),
         items_set_active_item_set: Rc::new(crate::tabs::items::core::SetActiveItemSet),
         items_equip_item_in_set: Rc::new(crate::tabs::items::core::EquipItemInSet),
-        items_add_item_set_tooltip: Rc::new(|_, _, _| {
-            not_ported("ItemsTab:AddItemSetTooltip", "U34")
-        }),
+        items_add_item_set_tooltip: Rc::new(crate::tabs::items::craft_b::AddItemSetTooltip),
         skills_set_active_skill_set: Rc::new(crate::tabs::skills::core::set_active_skill_set_hook),
         skills_add_socket_group_tooltip: Rc::new(crate::tabs::skills::core::add_socket_group_tooltip_hook),
         config_set_active_config_set: Rc::new(crate::tabs::config::core::set_active_config_set_hook),

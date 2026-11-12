@@ -1,0 +1,188 @@
+screen 1280 800 dpi 1.0
+# U37: AddCustomModifierToDisplayItem on a rare body armour, where every source has mods (the
+# source test loop of L3788-3796 keeps all ten, plus Custom). Crafting Bench: open the modifier
+# dropdown and hover an entry (the tooltip: the mod lines and AddModComparisonTooltip through the
+# calc), pick it, hover Add (addModifier through AddItemTooltip). Beastcraft, then the sort set
+# to the second stat (applySort: getSortValue through calcFunc for every entry, the selection
+# reset to the first entry), then Necropolis with that sort active (buildMods, SetSel(1),
+# applySort(stat, true) on the new list), the sort back to Default, then Essence, Veiled,
+# Fossil, Delve and Incursion drop-restricted, Prefix and Suffix (each list drawn open), then
+# Custom (the modifier dropdown and the sort hidden, the edit box shown): type a line and Add
+# (the custom line; SetDisplayItem, ClosePopup).
+#! u37-expect display: U37 Plate, Glorious Plate
+#! u37-expect Adding this mod will give
+#! u37-expect ^7exp +12 to Strength U
+fixture userdir=user
+frames 2
+load-build "Builds/u37_items.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 118
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 858 190
+click LEFTBUTTON
+frames 3
+move 685 401
+click LEFTBUTTON
+frames 3
+move 685 433
+frames 3
+click LEFTBUTTON
+frames 3
+move 595 432
+frames 3
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 435
+frames 2
+click LEFTBUTTON
+frames 3
+move 760 376
+click LEFTBUTTON
+frames 2
+move 760 408
+frames 2
+click LEFTBUTTON
+frames 3
+move 685 401
+click LEFTBUTTON
+frames 3
+move 685 433
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 449
+frames 2
+click LEFTBUTTON
+frames 3
+move 685 401
+click LEFTBUTTON
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 760 376
+click LEFTBUTTON
+frames 2
+move 760 394
+frames 2
+click LEFTBUTTON
+frames 3
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 407
+click LEFTBUTTON
+frames 2
+move 685 401
+click LEFTBUTTON
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 421
+click LEFTBUTTON
+frames 2
+move 685 401
+click LEFTBUTTON
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 463
+click LEFTBUTTON
+frames 2
+move 685 401
+click LEFTBUTTON
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 477
+click LEFTBUTTON
+frames 2
+move 685 401
+click LEFTBUTTON
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 491
+click LEFTBUTTON
+frames 2
+move 685 401
+click LEFTBUTTON
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 505
+click LEFTBUTTON
+frames 2
+move 685 401
+click LEFTBUTTON
+frames 3
+move 685 447
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 519
+click LEFTBUTTON
+frames 2
+move 685 401
+click LEFTBUTTON
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 460 376
+click LEFTBUTTON
+frames 2
+move 460 533
+click LEFTBUTTON
+frames 3
+move 605 401
+click LEFTBUTTON
+frames 1
+type "+12 to Strength"
+frames 3
+move 595 432
+frames 3
+click LEFTBUTTON
+frames 3
+move 1270 700
+frames 3
+move 848 50
+click LEFTBUTTON
+frames 3
+snapshot crafted
+frames 1
