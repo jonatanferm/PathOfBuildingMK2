@@ -29,8 +29,12 @@
 //!   Gate (INT-1): every build runs and is a fixed point.
 //!
 //! PoB runs (probe dumps + `ca.lua`) are cached in `target/tmp/ca-probe/<stem>/`. Knobs:
-//! `CA_BUILDS=stem1,stem2`, `CA_LIMIT=n`, `CA_VERBOSE=1`. A missing input skips with a message;
-//! with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! `CA_BUILDS=stem1,stem2`, `CA_LIMIT=n`, `CA_VERBOSE=1`; `CA_CORPUS_DIR=dir` takes the corpus
+//! from `dir/*.xml` instead of `.parity/builds` (and D13 then skips slice5; the full-corpus pins
+//! do not apply), e.g. `.parity/fresh` (INT-1-FRESH, docs/port/parity/fresh-corpus.md);
+//! `CA_L6_DIFFS=file` appends every L6 value that is not exact to `file` as TSV
+//! (`stem block key rust pob`). A missing input skips with a message; with
+//! `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
 #![allow(non_snake_case)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -120,9 +124,19 @@ fn setup_luts() -> bool {
     true
 }
 
-/// `.parity/builds/*.xml`, filtered by `CA_BUILDS` / `CA_LIMIT`.
+/// `CA_CORPUS_DIR` is set: the corpus is that directory instead of `.parity/builds`.
+fn custom_corpus() -> bool {
+    std::env::var_os("CA_CORPUS_DIR").is_some_and(|v| !v.is_empty())
+}
+
+/// `.parity/builds/*.xml` (or `$CA_CORPUS_DIR/*.xml`), filtered by `CA_BUILDS` / `CA_LIMIT`.
 fn corpus(parity: &Path) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(parity.join("builds"))
+    let dir = if custom_corpus() {
+        std::env::var_os("CA_CORPUS_DIR").map(PathBuf::from).unwrap_or_default()
+    } else {
+        parity.join("builds")
+    };
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|r| {
             r.filter_map(Result::ok)
                 .map(|e| e.path())
@@ -446,7 +460,7 @@ fn ca_d13_fixed_point() {
     }
     quiet_lua_errors();
     setup_luts();
-    let mut builds = slice5_xmls();
+    let mut builds = if custom_corpus() { Vec::new() } else { slice5_xmls() };
     if let Some(parity) = find_parity_dir() {
         for p in corpus(&parity) {
             if let Ok(x) = std::fs::read_to_string(&p) {
@@ -1272,6 +1286,7 @@ mod oracle_side {
         assert!(pob_failed.is_empty(), "PoB runs failed: {pob_failed:#?}");
         let full = std::env::var_os("CA_BUILDS").is_none()
             && std::env::var_os("CA_LIMIT").is_none()
+            && !custom_corpus()
             && !pob_testpaths::quick_corpus();
         for ((name, b), max_limited) in
             [("cost warnings", &cost), ("used-tracking", &main), ("CALCS lists", &calcs)].into_iter().zip(L5_MAX_LIMITED)
@@ -1317,6 +1332,26 @@ mod oracle_side {
     fn fmt_num(l: Option<&Leaf>) -> String {
         match l {
             Some(Leaf::Num(x)) => format!("{x:.6}"),
+            Some(other) => format!("{other:?}"),
+            None => "nil".to_owned(),
+        }
+    }
+
+    /// `CA_L6_DIFFS=file`: append one TSV line per L6 value that is not exact
+    /// (`stem block key rust pob`; a missing side is `nil`).
+    fn l6_diff(stem: &str, block: &str, key: &str, ours: &str, pob: &str) {
+        use std::io::Write as _;
+        let Some(path) = std::env::var_os("CA_L6_DIFFS") else { return };
+        let clean = |s: &str| s.replace(['\t', '\n'], " ");
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(f, "{stem}\t{block}\t{}\t{}\t{}", clean(key), clean(ours), clean(pob));
+        }
+    }
+
+    fn fmt_leaf(l: Option<&Leaf>) -> String {
+        match l {
+            Some(Leaf::Num(x)) => format!("{x:?}"),
+            Some(Leaf::Str(s)) => format!("{s:?}"),
             Some(other) => format!("{other:?}"),
             None => "nil".to_owned(),
         }
@@ -1378,6 +1413,7 @@ mod oracle_side {
                 Ok((b, errors)) => {
                     for e in errors {
                         eprintln!("L6 {stem}: Rust {e}");
+                        l6_diff(stem, "error", e.split(':').next().unwrap_or_default(), &e, "");
                         let stage = e.split(':').next().unwrap_or_default().to_owned();
                         *t.stage_errors.entry(stage).or_default() += 1;
                         t.rust_errors.push(format!("{stem}: {e}"));
@@ -1386,6 +1422,7 @@ mod oracle_side {
                 }
                 Err(e) => {
                     eprintln!("L6 {stem}: Rust {e}");
+                    l6_diff(stem, "error", "load", &e, "");
                     *t.stage_errors.entry("load".to_owned()).or_default() += 1;
                     t.rust_errors.push(format!("{stem}: {e}"));
                     t.headline += HEADLINE.len();
@@ -1420,7 +1457,12 @@ mod oracle_side {
             for (k, pv) in &pob {
                 if ours.get(k).is_some_and(|ov| leaf_eq(ov, pv)) {
                     exact += 1;
+                } else {
+                    l6_diff(stem, "main", k, &fmt_leaf(ours.get(k)), &fmt_leaf(Some(pv)));
                 }
+            }
+            for (k, ov) in ours.iter().filter(|(k, _)| !pob.contains_key(*k)) {
+                l6_diff(stem, "main", k, &fmt_leaf(Some(ov)), "nil");
             }
             let extra = ours.keys().filter(|k| !pob.contains_key(*k)).count();
             t.keys += pob.len() + extra;
@@ -1432,6 +1474,8 @@ mod oracle_side {
                 t.calcs_lists += 1;
                 if oc.get(k).zip(pc.get(k)).is_some_and(|(a, b)| leaf_eq(a, b)) {
                     t.calcs_lists_exact += 1;
+                } else {
+                    l6_diff(stem, "calcs", k, &fmt_leaf(oc.get(k)), &fmt_leaf(pc.get(k)));
                 }
             }
             // used-tracking key sets
@@ -1447,6 +1491,11 @@ mod oracle_side {
                         .unwrap_or_default();
                     if o == p {
                         t.used_tables_equal += 1;
+                    } else {
+                        let only = |left: &BTreeSet<String>, right: &BTreeSet<String>| {
+                            left.difference(right).cloned().collect::<Vec<_>>().join(",")
+                        };
+                        l6_diff(stem, "used", name, &only(&o, &p), &only(&p, &o));
                     }
                 }
             }
@@ -1476,6 +1525,9 @@ mod oracle_side {
                         t.misc += 1;
                         if ours.as_ref().and_then(|o| o.get(k)).is_some_and(|ov| leaf_eq(ov, pv)) {
                             t.misc_exact += 1;
+                        } else {
+                            let ov = ours.as_ref().and_then(|o| o.get(k));
+                            l6_diff(stem, &format!("misc.{which}"), k, &fmt_leaf(ov), &fmt_leaf(Some(pv)));
                         }
                     }
                 }
@@ -1531,6 +1583,7 @@ mod oracle_side {
         // on both sides (or a build that stops reaching mainEnv / the misc calculator) fails.
         if std::env::var_os("CA_BUILDS").is_none()
             && std::env::var_os("CA_LIMIT").is_none()
+            && !custom_corpus()
             && !pob_testpaths::quick_corpus()
         {
             assert_eq!(t.builds, L6_BUILDS, "builds compared");
