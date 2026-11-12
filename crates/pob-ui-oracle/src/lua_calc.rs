@@ -1219,7 +1219,7 @@ impl Rebind {
         for e in s.effectList.get().snapshot() {
             self.effect(&e);
         }
-        if let Some(x) = s.summonSkill.get() {
+        if let Some(x) = s.summonSkill() {
             self.skill(&x);
         }
         if let Some(m) = s.minion.get() {

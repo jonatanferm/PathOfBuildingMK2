@@ -1221,7 +1221,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
                         let mainSkill = m.mainSkill.get().unwrap_or_else(|| {
                             lua_error!("attempt to index field 'mainSkill' (a nil value)")
                         });
-                        let summonSkill = mainSkill.summonSkill.get().unwrap_or_else(|| {
+                        let summonSkill = mainSkill.summonSkill().unwrap_or_else(|| {
                             lua_error!("attempt to index field 'summonSkill' (a nil value)")
                         });
                         has_type(&summonSkill, SkillType::MinionsAreUndamagable)
