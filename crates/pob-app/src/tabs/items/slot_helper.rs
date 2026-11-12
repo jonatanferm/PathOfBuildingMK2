@@ -11,8 +11,8 @@
 //!   ported yet, so U32 reaches it through this table, as U19 reaches the tabs through
 //!   `build::init::BuildHooks` (CCR-0098 §3, CCR-0107 §1). Each entry names its owner; an entry
 //!   whose Lua is model code plus U32's own controls (PopulateSlots, AddItem, SetActiveItemSet,
-//!   NewItemSet) has a complete default, the others raise a Lua error naming the owner (PoB's
-//!   error prompt shows it). The owners replace their entry in [`default_items_hooks`].
+//!   NewItemSet) has a complete default; the others are the owners' ports, installed in
+//!   [`default_items_hooks`] (the socket viewer's Draw since CCR-0145 §5).
 //!
 //! The ItemsTab object itself (`self.itemsTab`) is its node id (`build.tabs.items`); the model
 //! half (`build.itemsTab`, calc:BM-A) is `cx.build().model.itemsTab`.
@@ -100,11 +100,6 @@ pub struct ItemsTabHooks {
     pub socket_viewer_draw: Rc<dyn Fn(&mut Cx, SocketViewerArgs, &ViewPort)>,
 }
 
-#[track_caller]
-fn not_ported(what: &str, owner: &str) -> ! {
-    lua_error!("{what} is not ported yet ({owner})")
-}
-
 /// The ItemsTab node (`self.itemsTab`), `None` while the ItemsTab UI is not constructed.
 pub fn items_tab(cx: &Cx) -> Option<CtrlId> {
     let id = cx.app().build.as_ref()?.tabs.items.id();
@@ -171,8 +166,27 @@ pub fn default_items_hooks() -> ItemsTabHooks {
         add_item_tooltip: Rc::new(super::tooltip::add_item_tooltip_hook),
         add_undo_state: Rc::new(super::tooltip::add_undo_state_hook),
         set_mod_flag: Rc::new(super::tooltip::set_mod_flag_hook),
-        socket_viewer_draw: Rc::new(|_, _, _| not_ported("PassiveTreeView:Draw", "U23")),
+        // CCR-0145 §5 (U53 cut-over): U23's `PassiveTreeView:Draw` on `itemsTab.socketViewer`
+        socket_viewer_draw: Rc::new(socket_viewer_draw),
     }
+}
+
+/// ItemSlotHelper.lua:19-30: `viewer.zoom = ..; viewer.zoomX = ..; viewer.zoomY = ..;
+/// viewer:Draw(itemsTab.build, viewPort, {})` on `itemsTab.socketViewer` (the ItemsTab's field,
+/// lent to its own `Draw`, ui doc §7.2).
+fn socket_viewer_draw(cx: &mut Cx, a: SocketViewerArgs, vp: &ViewPort) {
+    let tab = items_tab(cx)
+        .unwrap_or_else(|| lua_error!("attempt to index local 'itemsTab' (a nil value)"));
+    cx.lend::<super::ItemsTab, _, _>(
+        tab,
+        |w| &mut w.ctor.socketViewer,
+        |cx, viewer| {
+            viewer.zoom = a.zoom;
+            viewer.zoom_x = Some(a.zoom_x);
+            viewer.zoom_y = Some(a.zoom_y);
+            viewer.draw(cx, vp, &mut pob_ui_core::input::InputEvents::default());
+        },
+    );
 }
 
 thread_local! {

@@ -1,0 +1,20 @@
+# U53 e2e: allflame_exp_007 in the Notes tab (Ctrl+6): type a note and save with Ctrl+S (the saved build file is compared too), then the build XML.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_007.xml"
+frames 2
+key-down CTRL
+press 6
+key-up CTRL
+frames 2
+move 500 300
+click LEFTBUTTON
+frames 1
+type "U53 cut-over note"
+frames 2
+key-down CTRL
+press s
+key-up CTRL
+frames 3
+snapshot saved
+#! e2e-saved Builds/allflame_exp_007.xml

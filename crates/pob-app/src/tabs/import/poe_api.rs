@@ -783,7 +783,7 @@ pub fn download_with_rate_limit(
             // L204
             let t = os_time(cx);
             with_api(cx, |a| {
-                a.rate_limiter.update_from_header(&header, policy, t)
+                a.rate_limiter.update_from_header(&header, policy, t);
             });
             // L205
             if let Some(err_msg) = err_msg {

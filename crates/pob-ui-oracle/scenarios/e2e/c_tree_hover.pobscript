@@ -1,0 +1,28 @@
+# U53 e2e (1280x800; c_tree_hover_1080 is the 1920x1080 @1.5 twin): open allflame_exp_001 on the tree, hover two allocated nodes (Pain Attunement, Written in Blood) and an unallocated one (the stat-difference tooltips come from the Rust calc's misc calculator), allocate the unallocated Intelligence node 51923 by clicking (spec:AllocNode, AddUndoState, a recalc through the Rust calc), undo it (Ctrl+Z), then the build XML before, after the click and after the undo. The guards fail the run when the click misses (allocated = before) or the undo changes nothing (undone = allocated). (undone is not before: PassiveSpec:CreateUndoState stores `self.secondaryAscendClassId`, a field PoB never sets, so the undo drops the Lycia bloodline, and PoB re-allocates in its undo state's order; T4 checks the port does the same.)
+screen 1280 800
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+snapshot before
+move 940 170
+frames 2
+move 1110 130
+frames 2
+move 920 160
+frames 2
+move 900 210
+frames 2
+click LEFTBUTTON
+frames 3
+snapshot allocated
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+move 640 400
+frames 1
+snapshot undone
+#! expect-snapshot allocated
+#! expect-snapshot-differs before allocated
+#! expect-snapshot-differs allocated undone

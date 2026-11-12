@@ -16,11 +16,12 @@
 //!
 //! Lua passes the build object (`self.build = build`, L17) and reads `build.timelessData`,
 //! `build.outputRevision`, `build.spec`, `build.buildFlag` and five `build.itemsTab` methods
-//! (two of them UI methods of units that are not ported yet: AddItemStatDifferences is U38's,
-//! AddUndoState U34's, the socket's SetSelItemId U32's). The Rust control receives that object as
-//! an `Rc<dyn` [`TimelessBuild`]`>` whose methods are those reads and calls, one per Lua access.
-//! [`AppTimelessBuild`] is the product's: model reads and the model halves of the ItemsTab calls
-//! (calc:BM-A), placeholders for the UI-only ones (see each method). Galleries pass stand-ins,
+//! (UI methods of other units: AddItemStatDifferences is U38's, AddUndoState U38's UndoHandler,
+//! the socket's SetSelItemId U32's). The Rust control receives that object as an
+//! `Rc<dyn` [`TimelessBuild`]`>` whose methods are those reads and calls, one per Lua access.
+//! [`AppTimelessBuild`] is the product's: model reads, the model halves of the ItemsTab calls
+//! (calc:BM-A) and the UI units' ports for the others (see each method; CCR-0145 §5). Galleries
+//! pass stand-ins,
 //! which is why `new("Item"):Item(raw)` (L285) is a method too.
 //!
 //! # Notes
@@ -114,11 +115,6 @@ fn int_key(v: &Val) -> Option<i64> {
         .map(|n| n as i64)
 }
 
-#[track_caller]
-fn not_ported(what: &str, owner: &str) -> ! {
-    lua_error!("{what} is not ported yet ({owner})")
-}
-
 /// The product's build: `cx.build()` (the open build; ui doc §10.2).
 pub struct AppTimelessBuild;
 
@@ -180,16 +176,24 @@ impl TimelessBuild for AppTimelessBuild {
         };
         m.itemsTab.IsItemValidForSlot(&m, item, &slot_name, None)
     }
-    fn set_sel_item_id(&self, _cx: &mut Cx, _socket: &Table, _sel_item_id: Option<f64>) {
-        not_ported("ItemSlotControl:SetSelItemId", "U32")
-    }
-    /// The model half (ItemsTab.lua:1652-1656, calc:BM-A).
-    fn populate_slots(&self, cx: &mut Cx) {
+    /// U32's `ItemSlotClass:SetSelItemId` (ItemSlotControl.lua:72-84) on the socket's model
+    /// table (CCR-0145 §5). `item.id` is never nil here: L339's `AddItem` assigns it.
+    fn set_sel_item_id(&self, cx: &mut Cx, socket: &Table, sel_item_id: Option<f64>) {
+        let Some(id) = sel_item_id else {
+            unreachable!("ItemsTab:AddItem assigns item.id (ItemsTab.lua:1686-1724)")
+        };
         let m = cx.build().model.clone();
-        m.itemsTab.PopulateSlots(&m);
+        crate::tabs::items::slot::set_sel_item_id(&m, socket, id);
     }
-    fn add_undo_state(&self, _cx: &mut Cx) {
-        not_ported("ItemsTab:AddUndoState", "U34")
+    /// `itemsTab:PopulateSlots()` (ItemsTab.lua:1652-1656): the model half (calc:BM-A) and the
+    /// slot controls' dropdown lists (U32's default hook, CCR-0145 §5).
+    fn populate_slots(&self, cx: &mut Cx) {
+        let f = crate::tabs::items::slot_helper::items_hooks().populate_slots;
+        f(cx);
+    }
+    /// U38's `itemsTab:AddUndoState()` (UndoHandler.lua:31-40; CCR-0145 §5).
+    fn add_undo_state(&self, cx: &mut Cx) {
+        crate::tabs::items::tooltip::add_undo_state_hook(cx);
     }
 }
 

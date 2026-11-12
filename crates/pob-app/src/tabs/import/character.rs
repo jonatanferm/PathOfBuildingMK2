@@ -106,23 +106,44 @@ pub struct TabSeams {
     pub config_var_set_sel: Rc<dyn Fn(&mut Cx, &str, f64)>,
 }
 
-/// The stand-ins (CCR-0117 §1).
+/// The defaults: the tabs' own methods since the cut-over (CCR-0145 §5; CCR-0117 §1 shipped
+/// model-only stand-ins before the tabs existed). Without the tab control (a model-only use) the
+/// skills entries fall back to the model half.
 pub fn default_tab_seams() -> TabSeams {
     TabSeams {
-        items_delete_item: Rc::new(model_delete_item),
+        // U34's ItemsTab:DeleteItem (ItemsTab.lua:1857-1903)
+        items_delete_item: Rc::new(crate::tabs::items::core::DeleteItem),
         // U32's (the model half, then the slot controls' dropdown lists)
         items_populate_slots: Rc::new(|cx| {
             let f = items_slot_helper::items_hooks().populate_slots;
             f(cx);
         }),
-        items_add_undo_state: Rc::new(|cx| set_tab_mod_flag(cx, TabFlag::Items)),
+        // U38's itemsTab:AddUndoState() (UndoHandler.lua:34-41)
+        items_add_undo_state: Rc::new(crate::tabs::items::tooltip::add_undo_state_hook),
         items_slot_set_sel_item_id: Rc::new(model_slot_set_sel_item_id),
-        skills_add_undo_state: Rc::new(|cx| set_tab_mod_flag(cx, TabFlag::Skills)),
-        // the group list control (U31) does not exist yet: nothing holds its selection
-        skills_clear_group_list_selection: Rc::new(|_| {}),
+        // U30's skillsTab:AddUndoState() (UndoHandler.lua:34-41)
+        skills_add_undo_state: Rc::new(|cx| match crate::tabs::skills::core::tab(cx) {
+            Some(me) => crate::tabs::skills::SkillsTab::add_undo_state(cx, me),
+            None => set_tab_mod_flag(cx, TabFlag::Skills),
+        }),
+        // U31's SkillListControl (`controls.groupList.selIndex = nil`, `.selValue = nil`)
+        skills_clear_group_list_selection: Rc::new(|cx| {
+            let Some(gl) = crate::tabs::skills::core::tab(cx).and_then(|t| cx.child(t, "groupList"))
+            else {
+                return;
+            };
+            let w = cx.w_mut::<pob_ui_core::controls::list::ListControl>(gl);
+            w.sel_index = None;
+            w.sel_value = None;
+        }),
+        // U30's SkillsTab:SetDisplayGroup (SkillsTab.lua:1275-1307: the model half and the controls)
         skills_set_display_group: Rc::new(|cx, g| {
-            let m = cx.build().model.clone();
-            m.skillsTab.SetDisplayGroup(&m, g);
+            if let Some(me) = crate::tabs::skills::core::tab(cx) {
+                crate::tabs::skills::SkillsTab::set_display_group(cx, me, g);
+            } else {
+                let m = cx.build().model.clone();
+                m.skillsTab.SetDisplayGroup(&m, g);
+            }
         }),
         config_var_set_sel: Rc::new(model_config_var_set_sel),
     }
@@ -160,109 +181,6 @@ fn model_slot_set_sel_item_id(cx: &mut Cx, slot_name: &str, sel_item_id: f64) {
         .with(|s| s.get(&Name::from(slot_name)).cloned())
         .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
     items_slot::set_sel_item_id(&m, &slot, sel_item_id);
-}
-
-/// `self.build.itemsTab:DeleteItem(item, deferUndoState)` on the model (ItemsTab.lua:1857-1903,
-/// U34's; CCR-0117 §1).
-fn model_delete_item(cx: &mut Cx, item: &ItemRef, defer_undo_state: bool) {
-    let m = cx.build().model.clone();
-    let id = item.id.get();
-    let id_val = id.map_or(Val::Nil, Val::Num);
-    // L1858 LUA-ORDER (string keys; each slot is independent)
-    let slots: Vec<(Name, Table)> = m
-        .itemsTab
-        .slots
-        .with(|s| s.iter().map(|(k, v)| (*k, v.clone())).collect());
-    for (slot_name, slot) in slots {
-        // L1859
-        if slot.get(n!("selItemId")).raw_eq(&id_val) {
-            // L1860
-            items_slot::set_sel_item_id(&m, &slot, 0.0);
-            // L1861
-            m.buildFlag.set(true);
-        }
-        // L1863
-        if slot.get(n!("nodeId")).is_nil() {
-            // L1864 LUA-ORDER (item set ids; each set is independent)
-            let sets: Vec<Table> = m.itemsTab.itemSets.with(|s| s.values().cloned().collect());
-            for item_set in sets {
-                let entry = item_set
-                    .table(slot_name)
-                    .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
-                // L1865
-                if entry.get(n!("selItemId")).raw_eq(&id_val) {
-                    // L1866
-                    entry.set(n!("selItemId"), 0.0);
-                    // L1867
-                    m.buildFlag.set(true);
-                }
-            }
-        }
-    }
-    // L1872
-    if let Some(id) = id.and_then(model::items_tab::id_key) {
-        let pos = m
-            .itemsTab
-            .orderList
-            .with(|l| l.iter().position(|x| *x == id));
-        if let Some(pos) = pos {
-            // L1874
-            m.itemsTab.orderList.with_mut(|l| {
-                l.remove(pos);
-            });
-        }
-    }
-    // L1878 (an array: index order)
-    for spec in m.treeTab.specList.snapshot() {
-        // L1879
-        let mut rebuild_cluster_jewel_graphs = false;
-        // L1880 LUA-ORDER (LjIntMap: PoB's order)
-        for (node_id, item_id) in spec.jewels.with(LjIntMap::pairs) {
-            // L1881
-            if Some(item_id) == id {
-                // L1882
-                spec.jewels.with_mut(|j| j.set(node_id, Some(0.0)));
-                // L1883
-                rebuild_cluster_jewel_graphs = true;
-                // Deallocate all nodes that required this jewel
-                // L1885
-                if let Some(node) = spec.nodes.with(|n| n.get(node_id)) {
-                    // L1886 (`depNodeId` is the list index, as in PoB)
-                    for (dep_node_id, dep_node) in node.depends.get().snapshot().iter().enumerate()
-                    {
-                        // L1887
-                        dep_node.alloc.set(false);
-                        // L1888
-                        spec.allocNodes
-                            .with_mut(|a| a.set(dep_node_id as i64 + 1, None));
-                    }
-                    // L1890
-                    node.alloc.set(false);
-                    // L1891
-                    spec.allocNodes.with_mut(|a| a.set(node_id, None));
-                }
-            }
-        }
-        // L1895
-        if rebuild_cluster_jewel_graphs && !defer_undo_state {
-            // L1896
-            spec.BuildClusterJewelGraphs();
-        }
-    }
-    // L1899
-    if let Some(k) = id.and_then(model::items_tab::id_key) {
-        m.itemsTab.items.with_mut(|i| {
-            i.shift_remove(&k);
-        });
-    }
-    // L1900
-    if !defer_undo_state {
-        let s = tab_seams();
-        // L1901
-        (s.items_populate_slots)(cx);
-        // L1902
-        (s.items_add_undo_state)(cx);
-    }
 }
 
 /// `self.build.configTab.varControls[var]:SetSel(newSel)` on the model's control table

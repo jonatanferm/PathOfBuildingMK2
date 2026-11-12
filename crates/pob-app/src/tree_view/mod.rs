@@ -134,12 +134,8 @@ pub struct TreeViewHooks {
     pub socket_right_click: Rc<dyn Fn(&mut Cx, f64)>,
 }
 
-fn not_ported(what: &str, owner: &str) -> ! {
-    lua_error!("{what} is not ported yet ({owner})")
-}
-
-/// The owners' ports (the tooltips are U24's, the mastery/modify popups U25's), the jewel
-/// socket placeholder that raises a Lua error naming its owner, and `BuildPower`, which runs
+/// The owners' ports (the tooltips are U24's, the mastery/modify popups U25's, the jewel socket's
+/// right click U32/U34's), and `BuildPower`, which runs
 /// calc:PWR's `CalcsTab:BuildPower` once per frame, as PoB resumes it.
 pub fn default_hooks() -> TreeViewHooks {
     TreeViewHooks {
@@ -149,9 +145,35 @@ pub fn default_hooks() -> TreeViewHooks {
         open_mastery_popup: Rc::new(crate::tabs::tree::core::open_mastery_popup_hook),
         modify_node_popup: Rc::new(crate::tabs::tree::core::modify_node_popup_hook),
         build_power: Rc::new(crate::tabs::tree::power::build_power), // U26
-        socket_right_click: Rc::new(|_, _| {
-            not_ported("the jewel socket ItemSlotControl", "U32/U34")
-        }),
+        // CCR-0145 §5 (U53 cut-over): U32's slot control and U34's ItemsTab
+        socket_right_click: Rc::new(socket_right_click),
+    }
+}
+
+/// PassiveTreeView.lua:523-529 (a right click on an allocated jewel socket): `local slot =
+/// build.itemsTab.sockets[hoverNode.id]; if slot:IsEnabled() then slot.dropped = true;
+/// build.itemsTab:SelectControl(slot); build.viewMode = "ITEMS" end`.
+fn socket_right_click(cx: &mut Cx, node_id: f64) {
+    use crate::tabs::items::{slot::ItemSlotControl, slot_helper, ItemsTab};
+    // L523
+    let tab = slot_helper::items_tab(cx)
+        .unwrap_or_else(|| lua_error!("attempt to index field 'itemsTab' (a nil value)"));
+    let slot = if node_id.fract() == 0.0 {
+        cx.w::<ItemsTab>(tab).ctor.sockets.get(node_id as i64)
+    } else {
+        None
+    };
+    let Some(slot) = slot else {
+        lua_error!("attempt to index local 'slot' (a nil value)")
+    };
+    // L524
+    if cx.is_enabled(slot) {
+        // L526
+        cx.w_mut::<ItemSlotControl>(slot).dd.dropped = true;
+        // L527
+        cx.select_control(tab, Some(slot));
+        // L528
+        cx.build().model.viewMode.set(crate::model::Name::from("ITEMS"));
     }
 }
 

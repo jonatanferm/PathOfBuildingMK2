@@ -1009,7 +1009,7 @@ self.onmessage = (e) => { if (handle) handle(e.data); else queue.push(e.data); }
     pub struct WebWorkerConfig {
         /// The wasm-bindgen glue of this app (`--target web`). `None`: the page's
         /// `<link rel="modulepreload" href="….js">` (Trunk adds one for the app), else the first
-        /// `<script type="module" src>`, else `./pob-port-web.js`.
+        /// `<script type="module" src>`, else `./pob-web.js`.
         pub glue_url: Option<String>,
         /// Where `data.bin` and `trees/` are served ([`DEFAULT_DATA_BASE`]).
         pub data_base: Option<String>,
@@ -1040,7 +1040,7 @@ self.onmessage = (e) => { if (handle) handle(e.data); else queue.push(e.data); }
                 .glue_url
                 .clone()
                 .or_else(found)
-                .unwrap_or_else(|| "./pob-port-web.js".to_owned());
+                .unwrap_or_else(|| "./pob-web.js".to_owned());
             let data = self
                 .data_base
                 .clone()

@@ -36,7 +36,7 @@
 //! * `buySimilar.openPopup(item, slot, build)` (L3948, U51): U33's
 //!   `ItemsUiHooks::buy_similar_open_popup` (its default raises naming U51; CCR-0143 §7).
 //! * `itemSlotHelper.DrawViewer` (the jewel-socket label hover, L3896) draws through U32's
-//!   `ItemsTabHooks::socket_viewer_draw`, whose default still raises (U23/U33; CCR-0143 §8).
+//!   `ItemsTabHooks::socket_viewer_draw` (U23's PassiveTreeView:Draw since CCR-0145 §5).
 //! * `itemSlotHelper.DrawViewer` is U32's `slot_helper::DrawViewer`; `self.calcs.
 //!   getMiscCalculator` the build's [`crate::calc::CalcFacade::misc_calculator`];
 //!   `self.primaryBuild:AddStatComparesToTooltip` U21's `stats::add_stat_compares_to_tooltip`;

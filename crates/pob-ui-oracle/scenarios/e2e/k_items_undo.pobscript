@@ -1,0 +1,35 @@
+# U53 e2e: allflame_exp_001 in the Items tab (Ctrl+3): unequip the Helmet (its dropdown, None:
+# AddUndoState and a recalc), Ctrl+Z (ItemsTab:Undo, U38's UndoHandler: the helmet is back),
+# Ctrl+Y (Redo), then the build XML after each step.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 560 164
+frames 1
+click LEFTBUTTON
+frames 2
+move 560 184
+frames 1
+click LEFTBUTTON
+frames 3
+move 900 300
+frames 1
+snapshot unequipped
+key-down CTRL
+press z
+key-up CTRL
+frames 3
+snapshot undone
+key-down CTRL
+press y
+key-up CTRL
+frames 3
+snapshot redone
+#! expect-snapshot undone
+#! expect-snapshot-differs unequipped undone
+#! expect-snapshot-differs undone redone

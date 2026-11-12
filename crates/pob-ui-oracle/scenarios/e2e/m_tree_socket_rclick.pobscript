@@ -1,0 +1,14 @@
+# U53 e2e (1280x800): open allflame_exp_001 on the tree and right-click the allocated Basic Jewel Socket 60735 (PassiveTreeView.lua:522-529: slot.dropped = true, itemsTab:SelectControl(slot), viewMode = "ITEMS"): the Items tab opens with that socket's slot dropped down and its jewel-socket viewer (ItemSlotHelper.DrawViewer, the ItemsTab's socketViewer PassiveTreeView) drawn; then the build XML. The guards fail the run unless the last frames are the Items tab drawing the viewer.
+screen 1280 800
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 1150 490
+frames 2
+click RIGHTBUTTON
+frames 3
+snapshot items
+#! expect-src ItemSlotHelper.lua
+#! expect-src PassiveTreeView.lua
+#! expect-snapshot items

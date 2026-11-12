@@ -555,3 +555,32 @@ Found while running FUP2's acceptance tests (port/FUP2 on rust-port 4c24bc2, 202
      1,248/1,248, 0 Rust errors; `ca_l5_post` 56/57/57 clean (1 harness-limited, as before);
      `ca_d13_fixed_point` 62/62. `INT-3` `int3_breakdown_corpus` on fresh_031/_038/_040/_089 with
      the shared helper: 1,102/1,102 entries equal.
+
+## U53
+
+1. **T6 (real SimpleGraphic under Wine) not run.** Wine is still not installed (AMENDMENTS A5), so
+   the 15-scene SSIM ≥ 0.995 gate of the U53 row is pending. The e2e scenes to use are
+   `crates/pob-ui-oracle/scenarios/e2e/*.pobscript` (T3/T4 green against PoB's Lua with the Rust
+   calc). Owner: U53 follow-up once Wine exists.
+2. **Tree perf gate (< 4 ms at 1080p): closed by U53 fix round 1.** The memoised cluster
+   subgraph connectors (rebuilt every frame before: most of the draw of cluster-jewel builds),
+   ahash for the tree's asset/sprite maps, keys without `format!`/interning, a sprite memo per
+   icon string, and the hover loop's distance test first (CCR-0145 §9). `tests/u53_perf.rs`
+   (asserted in release builds): p50 1.65-2.41 ms, p95 1.86-3.55 ms on the four builds over two
+   runs on the loaded machine (were 2.6-3.7 / 2.7-4.5). Run: `CARGO_PROFILE_RELEASE_LTO=false
+   CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 scripts/port/cargo.sh test --release -p pob-ui-oracle
+   --test u53_perf -- --nocapture`.
+3. **Web: tree node icons as grey squares: closed by U53 fix round 1.** Cause: `WebFs::search`
+   (`pob-host/src/fs_web.rs`) listed only the IndexedDB tree, not the fetched `src/` VFS, so the
+   tree view's `LoadImage` probe of `TreeData/<version>/` found nothing and asked for
+   `TreeData/skills-3.jpg` etc.; the sync loads failed, SG used its default texture (grey
+   0x7F border) with `ImageSize` (0,0), and the sprites' tc (x / 0) sampled its edge: every
+   node icon and mastery was a 127-grey square (pixel-checked). The JPEG decode itself works on
+   wasm32 (checked under node). The search now lists the VFS's files too (CCR-0145 §10).
+   Headless Chromium (release wasm, button-less `mouseMoved`, wheel and clicks over CDP): icons
+   drawn, wheel zoom, hover tooltips with the worker's stat differences, a click allocates.
+4. **Unit harness nil rule (CCR-0145 §7), review note of fix round 1.** 16 unit harnesses accept
+   a Rust `"nil"` gem/group field as the frozen default (`v == "nil"`, was `lua && v == "nil"`),
+   which also hides a Rust nil where PoB writes `false`. `u53_e2e` compares these fields
+   verbatim, so the full app is covered; tightening the unit harnesses (compare nil verbatim now
+   that the model writes it) needs a re-run of all 16. Owner: U53 follow-up.

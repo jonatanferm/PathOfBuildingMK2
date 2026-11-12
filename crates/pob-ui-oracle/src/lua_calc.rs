@@ -1305,6 +1305,18 @@ pub struct LuaCalcBridge {
     misc: Option<(Weak<Build>, Output)>,
     /// What the last `build_output` adopted.
     pub last_report: Option<AdoptReport>,
+    /// CCR-0145 §1: run PoB's calc whatever `POB_UI_CALC` says ([`LuaCalcBridge::lua`]).
+    pub force_lua: bool,
+}
+
+/// CCR-0145 §1 (U53, the cut-over): the calc a `LuaCalcBridge::new` runs. Every UI unit's
+/// acceptance test builds its Rust side with `LuaCalcBridge::new` (ui doc §11.3: "Rust-side
+/// numbers come from LuaCalcBridge until the Rust calc reaches parity"). The calc is at parity, so
+/// by default the bridge delegates every operation to [`pob_app::calc::RustCalc`] (calc:PWR/CA)
+/// and the same scenarios run against the Rust calc; `POB_UI_CALC=lua` runs PoB in a second VM
+/// as before. [`LuaCalcBridge::lua`] (u15, the desktop feature `lua-calc`) always runs PoB.
+pub fn rust_calc_selected() -> bool {
+    std::env::var("POB_UI_CALC").map_or(true, |v| v != "lua")
 }
 
 impl LuaCalcBridge {
@@ -1315,8 +1327,29 @@ impl LuaCalcBridge {
         }
     }
 
+    /// A bridge that always runs PoB's calc (CCR-0145 §1).
+    pub fn lua(pob_src: Option<PathBuf>) -> Self {
+        Self {
+            pob_src,
+            force_lua: true,
+            ..Self::default()
+        }
+    }
+
+    /// Whether this bridge delegates to the Rust calc (CCR-0145 §1).
+    pub fn runs_rust_calc(&self) -> bool {
+        !self.force_lua && rust_calc_selected()
+    }
+
     /// [`CalcFacade::build_output`] with errors as values.
     pub fn try_build_output(&mut self, build: &BuildRef) -> Result<(), String> {
+        // CCR-0145 §1
+        if self.runs_rust_calc() {
+            let _ = pob_app::calc::RustCalc.build_output(build);
+            self.misc = None;
+            self.last_report = None;
+            return Ok(());
+        }
         let src = pob_src(self.pob_src.as_deref())?;
         let xml = save_xml(build)?;
         let docs = LuaSession::cached_build_output(&src, &xml, &session_name(build))?;
@@ -1350,6 +1383,10 @@ impl CalcFacade for LuaCalcBridge {
 
     /// lua: Classes/CalcsTab.lua:760-762.
     fn misc_calculator(&mut self, build: &BuildRef) -> Poll<(Rc<dyn MiscCalc>, Output)> {
+        // CCR-0145 §1
+        if self.runs_rust_calc() {
+            return pob_app::calc::RustCalc.misc_calculator(build);
+        }
         // L761 return self.miscCalculator[1], self.miscCalculator[2]
         let Some((_, base)) = self
             .misc

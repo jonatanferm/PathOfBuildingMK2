@@ -802,7 +802,12 @@ impl PassiveSpec {
             // L192
             self.DecodeURL(&url);
         }
-        // L194: self:ResetUndo() — the undo stack is the UI's (ui doc §10.3)
+        // L194: self:ResetUndo() — the undo stack is the UI's (ui doc §10.3). CCR-0123 §2 /
+        // CCR-0145 §8: its `CreateUndoState()` is taken here, with the allocation Load left
+        // (before PostLoad's `BuildClusterJewelGraphs`); the TreeTab constructor, which builds
+        // the stacks, pushes it.
+        let state = self.CreateUndoState();
+        self.extra.set(n!("$loadUndoState"), state);
     }
 }
 
