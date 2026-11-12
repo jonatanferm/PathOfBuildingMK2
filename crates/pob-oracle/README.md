@@ -317,6 +317,12 @@ results of in-process queries, `runner::QueryCache`) and `sel-<key>/` (one
 re-probes). `POB_QUERY_CACHE=refresh` reruns PoB and overwrites an entry;
 `POB_QUERY_CACHE=off` neither reads nor writes one (a probe run goes to a
 private `target/tmp/probe-off/` directory that is deleted after use).
+The unit tests read only these keyed entries (CK2, CCR-0147): the
+`<hit>.json.zst` files `oracle.sh run` stores directly under
+`<sha>/<build-blake3>/`, and `.parity/probe/<stem>/` (`oracle.sh corpus`), are
+keyed by neither the selection nor the probe code and are for manual use;
+`$POB_PROBE_DIR=<dir>` makes `testkit::probe_dumps` serve `<dir>/<stem>/state/`
+instead of the cache.
 
 ### Nondeterminism
 

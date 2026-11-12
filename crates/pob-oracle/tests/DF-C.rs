@@ -15,9 +15,10 @@
 //! helpers); a hit whose run nonetheless reaches an `unported!` stub is reported as
 //! **pending** with the stub sites, and the gate applies to the other hits.
 //!
-//! Inputs: `data/dump`, `.parity/builds`, and the dumps
-//! (`scripts/port/oracle.sh run --build X.xml --stage 'defence:1211@main,defence:end@main'`
-//! fills the probe cache). Knobs: `DFC_BUILDS=stem1,stem2`, `DFC_VERBOSE=1` (every mismatch).
+//! Inputs: `data/dump`, `.parity/builds`, and the dumps: one `pob_oracle probe` run per build
+//! selecting `defence:1211@main,defence:end@main` under `docs/port/stages.toml`, from the shared
+//! probe cache (`testkit::probe_dumps`, CK2: keyed by the patched source, the build's bytes, the
+//! selection and the probe code; probed here when absent). Knobs: `DFC_BUILDS=stem1,stem2`, `DFC_VERBOSE=1` (every mismatch).
 //! A missing input skips with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails.
 
 use std::collections::BTreeMap;
@@ -133,20 +134,17 @@ fn run_hit(xml: &Path) -> Outcome {
     let stem = stem(xml).to_owned();
     // `:in` and `:out` from one PoB process (one dump directory): two runs differ in mod order
     // (§9.5), so a pair across runs is not compared
-    let pair = testkit::dump_dirs(&stem, Some(xml))
-        .into_iter()
-        .find_map(|d| {
-            let one = [d];
-            Some((
-                testkit::find_dump(&one, STAGE_IN)?,
-                testkit::find_dump(&one, STAGE_OUT)?,
-            ))
-        });
-    let Some((pin, pout)) = pair else {
-        return Outcome::Missing(format!(
-            "{stem}: no {STAGE_IN}/{STAGE_OUT} dump (scripts/port/oracle.sh run --build {} --stage '{STAGE_IN}@main,{STAGE_OUT}@main')",
-            xml.display()
-        ));
+    let dumps = match testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&testkit::default_stages()),
+        &testkit::selection(&[&format!("{STAGE_IN}@main"), &format!("{STAGE_OUT}@main")]),
+    ) {
+        Ok(d) => d,
+        Err(e) => return Outcome::Missing(format!("{stem}: probe failed: {e}")),
+    };
+    let Some((pin, pout)) = testkit::find_pair(dumps.dirs(), STAGE_IN, STAGE_OUT) else {
+        return Outcome::Missing(format!("{stem}: no {STAGE_IN}/{STAGE_OUT} dump"));
     };
     let (din, dout) = match (StateDump::load(&pin), StateDump::load(&pout)) {
         (Ok(a), Ok(b)) => (a, b),

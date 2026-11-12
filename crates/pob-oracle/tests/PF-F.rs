@@ -28,9 +28,11 @@
 //! `pass`.
 //!
 //! Inputs: `data/dump`; `.parity/builds/*.xml` (all57) and `corpus/PF-F/*.xml` (party micro
-//! builds); dumps from
-//! `scripts/port/oracle.sh run --build X.xml --stages crates/pob-oracle/corpus/PF-F/stages.toml
-//!  --stage perform:1691@main,perform:1862@main,perform:2997@main,perform:3118@main,perform:3125@main,perform:3484@main,perform:3497@main`
+//! builds); dumps from one `pob_oracle probe` run per build with
+//! `--stages crates/pob-oracle/corpus/PF-F/stages.toml
+//!  --select perform:1691@main,perform:1862@main,perform:2997@main,perform:3118@main,perform:3125@main,perform:3484@main,perform:3497@main`,
+//! from the shared probe cache (`testkit::probe_dumps`, CK2: keyed by the patched source, the
+//! build's bytes, the selection and the probe code; probed here when absent)
 //! (`perform:1691` / `perform:1862` seed the `mergeFlasks` / `mergeTinctures` closures' upvalues,
 //! `testkit::seed_merge_closures`, CCR-0079 §1; without them the segment raises at L3121).
 //! Knobs: `PFF_BUILDS=stem1,stem2`, `PFF_VERBOSE=1` (print mismatches). A missing input skips
@@ -117,18 +119,27 @@ fn load(dirs: &[PathBuf], hit: &str) -> Option<StateDump> {
 
 fn run_build(xml: &Path) -> Outcome {
     let stem = stem(xml).to_owned();
-    let dirs = testkit::dump_dirs(&stem, Some(xml));
-    // Prefer one directory holding all seven stages (a run of the fill command above): an older
-    // five-stage fill earlier in the probe-cache order would otherwise supply `perform:2997`
-    // from a run without the `perform:1691` / `perform:1862` dumps, and nothing gets seeded.
-    let dirs = match dirs.iter().find(|d| {
-        let one = [(*d).clone()];
-        ["perform:1691", "perform:1862", "perform:2997", "perform:3118", "perform:3125", "perform:3484", "perform:3497"]
-            .iter()
-            .all(|h| testkit::find_dump(&one, h).is_some())
-    }) {
-        Some(d) => vec![d.clone()],
-        None => dirs,
+    // the seven stages of one PoB process (module docs)
+    let held = testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/PF-F/stages.toml")),
+        &testkit::selection(&[
+            "perform:1691@main",
+            "perform:1862@main",
+            "perform:2997@main",
+            "perform:3118@main",
+            "perform:3125@main",
+            "perform:3484@main",
+            "perform:3497@main",
+        ]),
+    );
+    let dirs: Vec<PathBuf> = match &held {
+        Ok(d) => d.dirs().to_vec(),
+        Err(e) => {
+            eprintln!("{stem}: probe failed: {e}");
+            Vec::new()
+        }
     };
     let hits = [
         "perform:2997",

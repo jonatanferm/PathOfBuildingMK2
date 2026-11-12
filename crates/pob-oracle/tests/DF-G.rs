@@ -25,7 +25,11 @@
 //!
 //! Corpus: slice5 (`corpus/U0/slice5/*.xml`), the unit corpus `corpus/DF-G/*.xml`, all57
 //! (`.parity/builds`). `DFG_BUILDS=a,b` restricts by stem, `DFG_VERBOSE=1` prints every mismatch.
-//! Missing dumps print the `scripts/port/oracle.sh run` line that fills them and skip; with
+//! Dumps: one `pob_oracle probe` run per build selecting
+//! `buildDefenceEstimations:3165@main,buildDefenceEstimations:end@main` under
+//! `docs/port/stages.toml`, from the shared probe cache (`testkit::probe_dumps`, CK2: keyed by the
+//! patched source, the build's bytes, the selection and the probe code; probed here when absent;
+//! the three tests share the entry). Missing dumps are printed and skip; with
 //! `POB_ORACLE_REQUIRE=1` (or `CI`) a missing input fails.
 #![allow(non_snake_case)]
 
@@ -209,15 +213,17 @@ enum Outcome {
 /// `no_breakdown`: run with `breakdown = nil` and drop breakdown mismatches.
 fn run_build(xml: &Path, no_breakdown: bool) -> Outcome {
     let stem = stem(xml).to_owned();
-    let dirs = testkit::dump_dirs(&stem, Some(xml));
-    let (Some(pin), Some(pout)) = (
-        testkit::find_dump(&dirs, STAGE_IN),
-        testkit::find_dump(&dirs, STAGE_OUT),
-    ) else {
-        return Outcome::Missing(format!(
-            "missing dump {STAGE_IN} / {STAGE_OUT} for {stem} (fill with: scripts/port/oracle.sh run --build {} --stage '{STAGE_IN}@main,{STAGE_OUT}@main')",
-            xml.display()
-        ));
+    let dumps = match testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&testkit::default_stages()),
+        &testkit::selection(&[&format!("{STAGE_IN}@main"), &format!("{STAGE_OUT}@main")]),
+    ) {
+        Ok(d) => d,
+        Err(e) => return Outcome::Missing(format!("{stem}: probe failed: {e}")),
+    };
+    let Some((pin, pout)) = testkit::find_pair(dumps.dirs(), STAGE_IN, STAGE_OUT) else {
+        return Outcome::Missing(format!("missing dump {STAGE_IN} / {STAGE_OUT} for {stem}"));
     };
     let (Ok(din), Ok(dout)) = (StateDump::load(&pin), StateDump::load(&pout)) else {
         return Outcome::Fail(vec![format!("unreadable dump {}", pin.display())]);
@@ -376,7 +382,7 @@ fn dfg_l4_slice5() {
     let builds = curated();
     let t = run_all(&builds, false, "L4 slice5+unit");
     if t.pass.len() + t.fail.len() + t.blocked.len() == 0 {
-        return skip("no dumps for slice5 (see the oracle.sh lines above)");
+        return skip("no dumps for slice5 (see the missing lines above)");
     }
     assert!(t.fail.is_empty(), "{} curated builds fail L4", t.fail.len());
     assert!(
@@ -396,7 +402,7 @@ fn dfg_l4_all57() {
     let t = run_all(&builds, false, "L4 all57");
     let ran = t.pass.len() + t.fail.len() + t.blocked.len();
     if ran == 0 {
-        return skip("no dumps for all57 (see the oracle.sh lines above)");
+        return skip("no dumps for all57 (see the missing lines above)");
     }
     let judged = t.pass.len() + t.fail.len();
     if judged > 0 {
@@ -420,7 +426,7 @@ fn dfg_l4_no_breakdown_all() {
     builds.extend(all57());
     let t = run_all(&builds, true, "no-breakdown all");
     if t.pass.len() + t.fail.len() + t.blocked.len() == 0 {
-        return skip("no dumps (see the oracle.sh lines above)");
+        return skip("no dumps (see the missing lines above)");
     }
     assert!(
         t.fail.is_empty(),

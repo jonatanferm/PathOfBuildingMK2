@@ -20,8 +20,10 @@
 //! hitting a stub has zero mismatches, and at least one hit per leg ran stub-free.
 //!
 //! Corpus: slice5 (`corpus/U0/slice5/*.xml`), the unit corpus (`corpus/OF-F/*.xml`) and every
-//! all57 build (`.parity/builds/*.xml`) whose dumps are present. Dumps:
-//! `scripts/port/oracle.sh run --build X.xml --stage 'offence:2607*,offence:3346*,offence:3957*,offence:4155*'`.
+//! all57 build (`.parity/builds/*.xml`). Dumps: one `pob_oracle probe` run per build selecting
+//! `offence:2607*,offence:3346*,offence:3957*,offence:4155*` under `docs/port/stages.toml`, from
+//! the shared probe cache (`testkit::probe_dumps`, CK2: keyed by the patched source, the build's
+//! bytes, the selection and the probe code; probed here when absent; OF-E shares the entry).
 //! Knobs: `OFF_BUILDS=stem1,stem2`, `OFF_VERBOSE=1` (print every mismatch).
 
 use std::collections::BTreeMap;
@@ -70,12 +72,27 @@ fn stem(p: &Path) -> &str {
     p.file_stem().and_then(|s| s.to_str()).unwrap_or_default()
 }
 
+/// The probe selection (module docs).
+const SELECT: &[&str] = &["offence:2607*", "offence:3346*", "offence:3957*", "offence:4155*"];
+
 /// Every dump of the four OF-F probes for a build, keyed by (probe, n). All dumps come from one
 /// directory (one oracle process: hit numbers and PoB's per-process orders only agree within a
-/// run); the directory with the most OF-F dumps wins.
+/// run).
 fn dumps(xml: &Path) -> BTreeMap<(String, u64), StateDump> {
     let mut best: BTreeMap<(String, u64), PathBuf> = BTreeMap::new();
-    for d in testkit::dump_dirs(stem(xml), Some(xml)) {
+    let held = match testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&testkit::default_stages()),
+        &testkit::selection(SELECT),
+    ) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("{}: probe failed: {e}", stem(xml));
+            return BTreeMap::new();
+        }
+    };
+    for d in held.dirs() {
         let Ok(rd) = std::fs::read_dir(&d) else {
             continue;
         };
