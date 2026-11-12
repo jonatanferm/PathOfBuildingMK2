@@ -29,6 +29,9 @@ pollster.workspace = true
 wgpu = { version = "=30.0.1", features = ["webgl"] }
 # U28's notable gallery reads data/dump/powerStatList.json (this crate is dev-only itself).
 pob-testpaths.workspace = true
+# TP2: the Lua-side cache (oracle_cache.rs), as pob-oracle's probe cache.
+zstd = "0.13"
+blake3 = "1"
 
 [[bin]]
 name = "ui-parity"

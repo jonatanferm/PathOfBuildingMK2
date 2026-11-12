@@ -25,6 +25,11 @@
 //!
 //! One LuaJIT PoB at a time (the bridge holds the oracle lock per operation); run with
 //! `--test-threads=1` to keep one build's state in memory at a time.
+//!
+//! TP2: the bridge's and the reference's Lua sessions go through the Lua-side cache
+//! (`LuaSession::cached_*`, `pob_ui_oracle::oracle_cache`), and the fixtures of the two gate
+//! tests run as independent cases on `oracle_cache::par_map` (at most `POB_TEST_PAR` at once in
+//! the process, a fresh thread per fixture); lines and failures are collected in fixture order.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -260,9 +265,9 @@ fn ours_env(env: &EnvRef, build: &BuildRef) -> J {
 #[test]
 fn bridge_build_output_matches_pob() {
     let Some(src) = inputs() else { return };
-    let mut gate_fail = Vec::new();
-    let mut totals = (0usize, 0usize, 0usize, 0usize, 0usize);
-    for path in fixtures() {
+    let results = pob_ui_oracle::oracle_cache::par_map(fixtures(), |path| {
+        let mut gate_fail = Vec::new();
+        let mut totals = (0usize, 0usize, 0usize, 0usize, 0usize);
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         let xml = std::fs::read_to_string(&path).unwrap();
         let t0 = std::time::Instant::now();
@@ -311,11 +316,9 @@ fn bridge_build_output_matches_pob() {
 
         // reference: PoB on the fixture's own XML
         let t1 = std::time::Instant::now();
-        let docs = {
-            let mut s = LuaSession::load(&src, &reference_xml(&xml), "Unnamed build")
-                .expect("reference load");
-            s.dump_build_output().expect("reference dump")
-        };
+        // through the Lua-side cache (TP2): the same boot, load and dump as a fresh session
+        let docs = LuaSession::cached_build_output(&src, &reference_xml(&xml), "Unnamed build")
+            .expect("reference load and dump");
         let t_ref = t1.elapsed();
         let mut line = format!(
             "{stem}: bridge {:.1}s ref {:.1}s; groups kept/new {}/{}, gems {}/{}, rebound {}, items rebound {} ({live_flags} flask/tincture keys, {live_slots} itemList), finalModList {}, fallbacks {}",
@@ -461,8 +464,20 @@ fn bridge_build_output_matches_pob() {
         if !g.hard.is_empty() {
             gate_fail.push(format!("{stem} miscCalcBase:\n{}", show(&g.hard)));
         }
+        (line, gate_fail, totals)
+    });
+    let mut gate_fail = Vec::new();
+    let mut totals = (0usize, 0usize, 0usize, 0usize, 0usize);
+    for (line, g, t) in results {
         println!("{line}");
+        gate_fail.extend(g);
+        totals.0 += t.0;
+        totals.1 += t.1;
+        totals.2 += t.2;
+        totals.3 += t.3;
+        totals.4 += t.4;
     }
+    println!("{}", pob_ui_oracle::oracle_cache::summary());
     println!(
         "TOTAL gated leaves {}: {} mismatches, {} order-only, {} ref-path-only, {} nil-default",
         totals.0, totals.1, totals.2, totals.3, totals.4
@@ -660,11 +675,13 @@ type Case = (String, Option<Rc<Override>>, Option<bool>, String);
 #[test]
 fn bridge_misc_calc_matches_pob() {
     let Some(src) = inputs() else { return };
-    let mut fails = Vec::new();
-    let mut cases_run = 0;
-    let mut totals = (0usize, 0usize, 0usize, 0usize, 0usize);
-    // three fixtures (each case = two PoB boots)
-    for path in fixtures().into_iter().step_by(2) {
+    // three fixtures (each case = two PoB boots, or two cache reads)
+    let three: Vec<PathBuf> = fixtures().into_iter().step_by(2).collect();
+    let results = pob_ui_oracle::oracle_cache::par_map(three, |path| {
+        let mut fails = Vec::new();
+        let mut lines = Vec::new();
+        let mut cases_run = 0;
+        let mut totals = (0usize, 0usize, 0usize, 0usize, 0usize);
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         let xml = std::fs::read_to_string(&path).unwrap();
         // a second, inactive tree spec without one allocated notable (TreeTab.lua:70's case)
@@ -788,11 +805,15 @@ fn bridge_misc_calc_matches_pob() {
         for (name, ov, full, lua_body) in cases {
             let ov_after = ov.clone();
             let ours = call(&calc, ov, full);
-            let pob = {
-                let mut s = LuaSession::load(&src, &reference_xml(&xml), "Unnamed build")
-                    .expect("reference load");
-                s.call_misc(&lua_body, full).expect("reference calcFunc")
-            };
+            // through the Lua-side cache (TP2), as the bridge's own call
+            let pob = LuaSession::cached_call_misc(
+                &src,
+                &reference_xml(&xml),
+                "Unnamed build",
+                &lua_body,
+                full,
+            )
+            .expect("reference load and calcFunc");
             let pob_root = resolve_ids(&pob.root);
             let mut locals = vec![
                 ("output".into(), Val::Table(ours)),
@@ -829,13 +850,13 @@ fn bridge_misc_calc_matches_pob() {
                     "{stem} {name}: PoB's output equals the no-override output"
                 );
             }
-            println!(
+            lines.push(format!(
                 "{stem} {name}: {leaves} leaves ({changed} differ from no override), {} mismatches (+{} order-only, {} ref-path-only, {} nil-default)",
                 g.hard.len(),
                 g.order_only,
                 g.ref_only,
                 g.nil_default
-            );
+            ));
             assert!(
                 leaves > 100,
                 "{stem} {name}: the reference output is too small"
@@ -850,7 +871,24 @@ fn bridge_misc_calc_matches_pob() {
                 fails.push(format!("{stem} {name}:\n{}", show(&g.hard)));
             }
         }
+        (lines, fails, cases_run, totals)
+    });
+    let mut fails = Vec::new();
+    let mut cases_run = 0;
+    let mut totals = (0usize, 0usize, 0usize, 0usize, 0usize);
+    for (lines, f, c, t) in results {
+        for l in lines {
+            println!("{l}");
+        }
+        fails.extend(f);
+        cases_run += c;
+        totals.0 += t.0;
+        totals.1 += t.1;
+        totals.2 += t.2;
+        totals.3 += t.3;
+        totals.4 += t.4;
     }
+    println!("{}", pob_ui_oracle::oracle_cache::summary());
     println!(
         "TOTAL misc cases {cases_run}, leaves {}: {} mismatches, {} order-only, {} ref-path-only, {} nil-default",
         totals.0, totals.1, totals.2, totals.3, totals.4
@@ -864,6 +902,8 @@ fn bridge_misc_calc_matches_pob() {
 #[test]
 fn bridge_model_writes() {
     let Some(src) = inputs() else { return };
+    // a heavy case on this thread: one of the process-wide pool permits (TP2)
+    let _permit = pob_ui_oracle::oracle_cache::Permit::acquire();
     let path = &fixtures()[0];
     let build = load(&std::fs::read_to_string(path).unwrap());
     let n0 = build.skillsTab.socketGroupList.get().with(Vec::len);
@@ -920,6 +960,8 @@ fn bridge_model_writes() {
 #[test]
 fn rust_calc_runs_on_stubs() {
     let Some(_) = inputs() else { return };
+    // a heavy case on this thread: one of the process-wide pool permits (TP2)
+    let _permit = pob_ui_oracle::oracle_cache::Permit::acquire();
     let path = &fixtures()[0];
     let build = load(&std::fs::read_to_string(path).unwrap());
     let mut calc = RustCalc;
@@ -942,7 +984,8 @@ fn rust_calc_runs_on_stubs() {
 }
 
 /// Diagnostics (`--ignored`): PoB against itself, two VMs on the same fixture XML, with the
-/// gate's categories, to show which order-only differences are PoB's own (§9.5).
+/// gate's categories, to show which order-only differences are PoB's own (§9.5). Uncached (two
+/// fresh VMs are the point).
 #[test]
 #[ignore = "diagnostics"]
 fn pob_against_itself() {

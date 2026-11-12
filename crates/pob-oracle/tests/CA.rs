@@ -20,18 +20,24 @@
 //!   test carries a scaffold copy), against PoB's `calcsTab.mainOutput`, `calcsOutput`, the main
 //!   env's used-tracking and the misc calculator. Reported per build (headline keys) and in total.
 //!   Gate (INT-1): every compared value exact and no Rust error, on any corpus subset; on the
-//!   full corpus the compared totals are pinned as well (docs/port/parity/INT-1-triage.md).
+//!   full corpus (all57, or the whole fresh corpus) the compared totals are pinned as well
+//!   (docs/port/parity/INT-1-triage.md, INT-1-fresh-triage.md).
 //! * `ca_d13_fixed_point` (L5 D13, Rust only): build → buildOutput → buildOutput gives identical
 //!   outputs and model state (`Build:SaveDB`), on slice5 and the corpus, in MAIN mode and then
 //!   for two CALCS runs (with `calcsTab.mainEnv` set, as CalcsTab:BuildOutput does). A build PoB
 //!   itself does not reproduce on a warm GlobalCache (`D13_POB_WARM_CACHE`) gets its warm run
 //!   checked against PoB's warm values and its fixed points checked after a `wipeGlobalCache()`.
 //!   Gate (INT-1): every build runs and is a fixed point.
+//! * `ca_level_cost_cleared` (INT-1F-A, Rust only, values measured in PoB): an item-granted
+//!   triggered curse is free (SkillsTab.lua:1190, CCR-0019 §8), so is a later level-1 gem of the
+//!   same skill in the same process, and `reset_level_cost_cleared` (CCR-0133), which L6 and D13
+//!   above call per build, gives the gem its cost back.
 //!
 //! PoB runs (probe dumps + `ca.lua`) are cached in `target/tmp/ca-probe/<stem>/`. Knobs:
 //! `CA_BUILDS=stem1,stem2`, `CA_LIMIT=n`, `CA_VERBOSE=1`; `CA_CORPUS_DIR=dir` takes the corpus
-//! from `dir/*.xml` instead of `.parity/builds` (and D13 then skips slice5; the full-corpus pins
-//! do not apply), e.g. `.parity/fresh` (INT-1-FRESH, docs/port/parity/fresh-corpus.md);
+//! from `dir/*.xml` instead of `.parity/builds` (and D13 then skips slice5; the all57 pins
+//! do not apply), e.g. `.parity/fresh` (INT-1-FRESH, docs/port/parity/fresh-corpus.md; the whole
+//! fresh corpus has pins of its own, `L6_FRESH`);
 //! `CA_L6_DIFFS=file` appends every L6 value that is not exact to `file` as TSV
 //! (`stem block key rust pob`). A missing input skips with a message; with
 //! `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
@@ -437,6 +443,118 @@ fn rust_load(xml: &str, rounds: usize) -> Result<(BuildRef, Vec<String>), String
     Ok((build, errors))
 }
 
+// ---- SkillsTab.lua:1190 cleared level costs (INT-1F-A, Rust only) ------------------------------
+
+/// A level 90 Witch whose only skill is the triggered Vulnerability (level 1) of a rare ring's
+/// "Curse Enemies with Vulnerability on Hit" (ModParser.lua:3383 / 2063 `triggerExtraSkill`).
+const LEVEL_COST_ITEM_CURSE_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Build className="Witch" ascendClassName="None" level="90" mainSocketGroup="1" targetVersion="3_0"/>
+	<Tree activeSpec="1">
+		<Spec ascendClassId="0" classId="3" nodes="" treeVersion="3_28"/>
+	</Tree>
+	<Items activeItemSet="1">
+		<Item id="1">
+			Rarity: RARE
+Plague Eye
+Helical Ring
+Implicits: 0
+Curse Enemies with Vulnerability on Hit
+</Item>
+		<ItemSet id="1">
+			<Slot itemId="1" name="Ring 1"/>
+		</ItemSet>
+	</Items>
+	<Skills activeSkillSet="1">
+		<SkillSet id="1"/>
+	</Skills>
+	<Config activeConfigSet="1">
+		<ConfigSet id="1"/>
+	</Config>
+</PathOfBuilding>
+"#;
+
+/// The same Witch casting a normal level 1 Vulnerability gem.
+const LEVEL_COST_GEM_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Build className="Witch" ascendClassName="None" level="90" mainSocketGroup="1" targetVersion="3_0"/>
+	<Tree activeSpec="1">
+		<Spec ascendClassId="0" classId="3" nodes="" treeVersion="3_28"/>
+	</Tree>
+	<Items activeItemSet="1">
+		<ItemSet id="1"/>
+	</Items>
+	<Skills activeSkillSet="1">
+		<SkillSet id="1">
+			<Skill enabled="true" label="" mainActiveSkill="1" mainActiveSkillCalcs="1">
+				<Gem enableGlobal1="true" enableGlobal2="true" enabled="true" gemId="Metadata/Items/Gems/SkillGemNewVulnerability" level="1" nameSpec="Vulnerability" quality="0" skillId="Vulnerability" variantId="Vulnerability"/>
+			</Skill>
+		</SkillSet>
+	</Skills>
+	<Config activeConfigSet="1">
+		<ConfigSet id="1"/>
+	</Config>
+</PathOfBuilding>
+"#;
+
+/// CCR-0019 §8 / CCR-0133: ProcessSocketGroup empties the cost of an item-granted triggered
+/// skill's level in PoB's global data (SkillsTab.lua:1188-1191), so CalcOffence.lua:1720 finds no
+/// cost for it, in that build and in every later build of the process; a freshly booted PoB (the
+/// oracle boots one per build, and the harness calls `reset_level_cost_cleared` per build) has
+/// the gem's cost again.
+#[test]
+fn ca_level_cost_cleared() {
+    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !init_data() {
+        return skip("data/dump/data.bin not found");
+    }
+    quiet_lua_errors();
+    use pob_calc::model::skills_tab::{levelCostCleared, reset_level_cost_cleared};
+    // (main skill's granted effect id and level, its ManaCost); 2 rounds, as a loaded build has:
+    // the second runs UpdateSocketGroups
+    let main_cost = |xml: &str| {
+        pob_calc::global_cache::clear_all();
+        let (build, errors) = rust_load(xml, 2).unwrap_or_else(|e| panic!("{e}"));
+        assert!(errors.is_empty(), "{errors:?}");
+        let env = build.calcsTab.mainEnv.get().expect("main env");
+        let skill = env.player.mainSkill.get().expect("main skill");
+        let effect = skill.activeEffect.get();
+        let id = (effect.grantedEffect.get().id.to_string(), effect.level.get());
+        let cost = env.player.output.get().num(n!("ManaCost"));
+        lut::clear_timeless_jewel_luts(None);
+        pob_calc::global_cache::clear_all();
+        (id, cost)
+    };
+    let vuln1 = ("Vulnerability".to_owned(), 1.0);
+    let vuln = n!("Vulnerability");
+
+    // The expected values are PoB's (pob_headless, POB_ENGINE=jit, the three loads below in one
+    // process: ManaCost 16, 0, 0; the cost table has 1, 0, 0 entries).
+    // a fresh process: the gem has its level 1 cost (Data/Skills/act_str.lua:12958 `{ Mana = 16 }`)
+    reset_level_cost_cleared();
+    let (id, gem_cost) = main_cost(LEVEL_COST_GEM_XML);
+    assert_eq!(id, vuln1);
+    assert_eq!(gem_cost, 16.0, "a level 1 Vulnerability gem costs 16 mana");
+    assert!(!levelCostCleared(vuln, 1.0));
+
+    // the item-granted triggered curse: its level's cost is `{}`, so the skill is free
+    reset_level_cost_cleared();
+    let (id, item_cost) = main_cost(LEVEL_COST_ITEM_CURSE_XML);
+    assert_eq!(id, vuln1);
+    assert!(levelCostCleared(vuln, 1.0), "UpdateSocketGroups records the cleared level");
+    assert_eq!(item_cost, 0.0, "the triggered item curse has no cost");
+
+    // same process, no reset: PoB's data stays changed, so the gem is free too
+    let (_, same_process) = main_cost(LEVEL_COST_GEM_XML);
+    assert_eq!(same_process, 0.0, "the cleared level persists for the process");
+
+    // after the per-build reset the gem has its cost again
+    reset_level_cost_cleared();
+    assert!(!levelCostCleared(vuln, 1.0));
+    let (_, again) = main_cost(LEVEL_COST_GEM_XML);
+    assert_eq!(again, gem_cost);
+}
+
 // ---- D13 fixed point (Rust only) ---------------------------------------------------------------
 
 fn slice5_xmls() -> Vec<(String, String)> {
@@ -476,6 +594,8 @@ fn ca_d13_fixed_point() {
     let mut warm_checked = 0;
     for (name, xml) in &builds {
         let warm = D13_POB_WARM_CACHE.iter().find(|(b, _)| b == name).map(|(_, v)| *v);
+        // a fresh process per build, as for L6 (CCR-0133)
+        pob_calc::model::skills_tab::reset_level_cost_cleared();
         let run = catch(|| {
             let build = pob_calc::model::build_xml::loadBuildModelFromXML(xml, pob_gamedata::data())
                 .unwrap_or_else(|e| lua_error!("load: {e}"));
@@ -573,18 +693,35 @@ fn ca_d13_fixed_point() {
 /// warm run. Measured with `pob_headless` (POB_ENGINE=jit, rust-port d8a4407): wipe,
 /// `calcs.buildOutput(build, "MAIN")` twice: allflame_exp_050 differs in 26 output keys
 /// (BleedStacks 0.5875 -> 1.25, CombinedDPS 7,411,955.92 -> 15,755,502.09, ...); with
-/// `wipeGlobalCache()` between the runs, 0 of 261,774 keys differ. For these builds the test
-/// checks the warm run against these values and the fixed point after a wipe.
-const D13_POB_WARM_CACHE: &[(&str, &[(&str, f64)])] = &[(
-    "allflame_exp_050",
-    &[
-        ("BleedStacks", 1.25),
-        ("BleedDPS", 80_571.900_725_94),
-        ("LifeLeechInstances", 5.0),
-        ("TotalDPS", 10_934_096.884_62),
-        ("CombinedDPS", 15_755_502.093_183),
-    ],
-)];
+/// `wipeGlobalCache()` between the runs, 0 of 261,774 keys differ. fresh_017 (INT-1-FRESH corpus,
+/// `.parity/fresh`; measured the same way by INT-1F-B, PoB v2.67.2,
+/// docs/port/parity/INT-1-fresh-triage.md §4 B) differs in 24 of 78,992 keys (BleedStacks
+/// 0.675 -> 1.25, LifeLeechInstances 2.7 -> 5, TotalDPS 2,277,409.28 -> 4,217,424.59, ...), and
+/// in 0 with a wipe between the runs. For these builds the test checks the warm run against
+/// these values and the fixed point after a wipe.
+const D13_POB_WARM_CACHE: &[(&str, &[(&str, f64)])] = &[
+    (
+        "allflame_exp_050",
+        &[
+            ("BleedStacks", 1.25),
+            ("BleedDPS", 80_571.900_725_94),
+            ("LifeLeechInstances", 5.0),
+            ("TotalDPS", 10_934_096.884_62),
+            ("CombinedDPS", 15_755_502.093_183),
+        ],
+    ),
+    (
+        "fresh_017",
+        &[
+            ("BleedStacks", 1.25),
+            ("BleedDPS", 53_560.428_711_765_73),
+            ("LifeLeechInstances", 5.0),
+            ("ManaLeechInstances", 5.0),
+            ("TotalDPS", 4_217_424.593_125_107),
+            ("CombinedDPS", 4_270_985.021_836_872),
+        ],
+    ),
+];
 
 #[cfg(feature = "luajit")]
 mod oracle_side {
@@ -1407,6 +1544,9 @@ mod oracle_side {
             let rounds = (run.hits["counts"]["ca:399"].as_u64().unwrap_or(2) / 2) as usize;
             let text = std::fs::read_to_string(xml).unwrap_or_default();
             pob_calc::global_cache::clear_all();
+            // the oracle boots a fresh PoB per build, which forgets SkillsTab.lua:1190's
+            // `levels[level].cost = {}` writes (CCR-0133)
+            pob_calc::model::skills_tab::reset_level_cost_cleared();
             let r = rust_load(&text, rounds);
             lut::clear_timeless_jewel_luts(None);
             let build = match r {
@@ -1579,20 +1719,48 @@ mod oracle_side {
         assert_eq!(t.calcs_lists_exact, t.calcs_lists, "CALCS lists not exact");
         assert_eq!(t.used_tables_equal, t.used_tables, "used-tracking key sets differ");
         assert_eq!(t.misc_exact, t.misc, "misc calculator values not exact");
-        // On the full corpus the compared totals are pinned too, so a value that goes missing
-        // on both sides (or a build that stops reaching mainEnv / the misc calculator) fails.
-        if std::env::var_os("CA_BUILDS").is_none()
-            && std::env::var_os("CA_LIMIT").is_none()
-            && !custom_corpus()
-            && !pob_testpaths::quick_corpus()
-        {
-            assert_eq!(t.builds, L6_BUILDS, "builds compared");
-            assert_eq!(t.headline, L6_HEADLINE_KEYS, "headline keys compared");
-            assert_eq!(t.keys, L6_KEYS, "main-output keys compared");
-            assert_eq!(t.calcs_lists, L6_CALCS_LISTS, "CALCS lists compared");
-            assert_eq!(t.used_tables, L6_USED_TABLES, "used-tracking tables compared");
-            assert_eq!(t.misc, L6_MISC, "misc calculator values compared");
+        // On a full corpus (all57, or the whole fresh corpus) the compared totals are pinned too,
+        // so a value that goes missing on both sides (or a build that stops reaching mainEnv /
+        // the misc calculator) fails.
+        let pins = if !custom_corpus() {
+            Some(L6_ALL57)
+        } else if fresh_corpus(&parity) {
+            Some(L6_FRESH)
+        } else {
+            None
+        };
+        if let Some(p) = pins.filter(|_| {
+            std::env::var_os("CA_BUILDS").is_none()
+                && std::env::var_os("CA_LIMIT").is_none()
+                && !pob_testpaths::quick_corpus()
+        }) {
+            assert_eq!(t.builds, p.builds, "builds compared");
+            assert_eq!(t.headline, p.headline, "headline keys compared");
+            assert_eq!(t.keys, p.keys, "main-output keys compared");
+            assert_eq!(t.calcs_lists, p.calcs_lists, "CALCS lists compared");
+            assert_eq!(t.used_tables, p.used_tables, "used-tracking tables compared");
+            assert_eq!(t.misc, p.misc, "misc calculator values compared");
         }
+    }
+
+    /// `CA_CORPUS_DIR` is the INT-1-FRESH corpus, `.parity/fresh` (docs/port/parity/fresh-corpus.md).
+    fn fresh_corpus(parity: &Path) -> bool {
+        let dir = std::env::var_os("CA_CORPUS_DIR").map(PathBuf::from).unwrap_or_default();
+        match (dir.canonicalize(), parity.join("fresh").canonicalize()) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        }
+    }
+
+    /// A corpus's compared L6 totals (`ca_l6_corpus` pins them on the whole corpus).
+    #[derive(Clone, Copy)]
+    struct L6Pins {
+        builds: usize,
+        headline: usize,
+        keys: usize,
+        calcs_lists: usize,
+        used_tables: usize,
+        misc: usize,
     }
 
     /// The full corpus's compared totals, measured with every L6 value exact (INT-1-B, rust-port
@@ -1602,10 +1770,27 @@ mod oracle_side {
     /// keys; CS2 728/741 and 44,908/45,954 with 4 Rust errors (upstream_Dual_Savior's dead mirage
     /// actor, fixed by INT-1-A / CCR-0113, and its discarded `calcs.mirages` result, INT-1-C);
     /// INT-1-B renders `Req*Item.sourceGem` / `.sourceItem` (`obj_marker`).
-    const L6_BUILDS: usize = 57;
-    const L6_HEADLINE_KEYS: usize = 741;
-    const L6_KEYS: usize = 45_954;
-    const L6_CALCS_LISTS: usize = 171;
-    const L6_USED_TABLES: usize = 513;
-    const L6_MISC: usize = 1_248;
+    const L6_ALL57: L6Pins = L6Pins {
+        builds: 57,
+        headline: 741,
+        keys: 45_954,
+        calcs_lists: 171,
+        used_tables: 513,
+        misc: 1_248,
+    };
+
+    /// The fresh corpus's (`CA_CORPUS_DIR=.parity/fresh`, 100 poe.ninja builds) compared totals,
+    /// measured at INT-1-FRESH (rust-port 645e2e1; docs/port/parity/INT-1-fresh-triage.md §1):
+    /// 100 builds, headline 1,300/1,300, CALCS lists 300/300, used-tracking key sets 900/900, misc
+    /// calculator 2,200/2,200, 0 Rust errors. `keys` is PoB's 85,603 main-output keys, all exact.
+    /// Before INT-1F-A, Rust added 3 Rust-only `ManaCostWarningList` keys (fresh_015, _018;
+    /// triage §4 A); INT-1F-A (CCR-0133) removed them, so the run compares exactly these 85,603.
+    const L6_FRESH: L6Pins = L6Pins {
+        builds: 100,
+        headline: 1_300,
+        keys: 85_603,
+        calcs_lists: 300,
+        used_tables: 900,
+        misc: 2_200,
+    };
 }

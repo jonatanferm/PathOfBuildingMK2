@@ -191,22 +191,15 @@ pub struct TreeTabHooks { // CCR-0123 §6
     pub find_timeless_jewel: Rc<dyn Fn(&mut Cx, CtrlId)>,
 }
 
-fn not_ported(what: &str, owner: &str) -> ! {
-    lua_error!("{what} is not ported yet ({owner})")
-}
-
-/// The placeholders until U26/U27 land: the power report list is a plain control that starts
-/// hidden (L288) and draws nothing; the user-triggered methods raise a Lua error naming the
-/// owner.
+/// The owners' ports: U26's power report (`power.rs` / `power_report_list.rs`) and U27's
+/// `FindTimelessJewel` (`timeless.rs`).
 pub fn default_tree_tab_hooks() -> TreeTabHooks {
     TreeTabHooks {
-        set_power_calc: Rc::new(|_, _, _| not_ported("TreeTab:SetPowerCalc", "U26")),
-        power_report_list: Rc::new(|cx, me, anchor, r, _jump| {
-            cx.add(me, "powerReportList", PlainControl::new(anchor, r)).id()
-        }),
-        power_report_list_set_label: Rc::new(|_, _, _| {}),
-        power_report_set: Rc::new(|_, _, _| not_ported("TreeTab:BuildPowerReportList", "U26")),
-        find_timeless_jewel: Rc::new(|_, _| not_ported("TreeTab:FindTimelessJewel", "U27")),
+        set_power_calc: Rc::new(TreeTab::SetPowerCalc), // U26
+        power_report_list: Rc::new(super::power_report_list::ctor_hook), // U26
+        power_report_list_set_label: Rc::new(super::power_report_list::set_label_hook), // U26
+        power_report_set: Rc::new(super::power::power_report_set_hook), // U26
+        find_timeless_jewel: Rc::new(TreeTab::FindTimelessJewel), // U27 (CCR-0123 §6)
     }
 }
 

@@ -1,0 +1,10 @@
+# U52: the similar-builds POST answered with HTTP 404 (draw body on): the sub-script's response
+# code is not 200, so the status line reads "Error while fetching similar builds: 404"
+# (PoBArchivesProvider.lua:84) and no build is parsed.
+#! u52-setup similar
+#! u52-draw-body
+#! expect-text Error while fetching similar builds: 404
+#! expect-no-text Match Score
+fixture userdir=../../fixtures/user1
+fixture net=net_errors.json
+frames 4

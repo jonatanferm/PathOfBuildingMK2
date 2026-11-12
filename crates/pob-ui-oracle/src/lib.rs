@@ -8,6 +8,7 @@ pub mod diff_report;
 pub mod gallery;
 pub mod lua_calc;
 pub mod markers;
+pub mod oracle_cache;
 pub mod patches;
 pub mod runner;
 pub mod sg_bridge;

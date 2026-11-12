@@ -1,0 +1,32 @@
+# U26: the power report of upstream_OccVortex (3.13 tree, no masteries) at 1280x800: P (Offence/Defence heat map),
+# Show Power Report, the wheel steps the stat dropdown to Combined DPS (fmt ".1f"); the node depth dropdown steps
+# to 5 (no restart: the old depth was nil) and back to All (a restart through SetPowerCalc: "Building Tree...",
+# then the full report); hover a row; sort by Per Point.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/upstream_OccVortex.xml"
+frames 3
+move 800 400
+press p
+frames 3
+move 764 786
+frames 1
+click LEFTBUTTON
+frames 2
+move 606 592
+frames 1
+wheel down 2
+frames 4
+move 495 592
+frames 1
+wheel down 1
+frames 3
+wheel up 1
+frames 1
+move 600 656
+frames 4
+move 941 637
+frames 1
+click LEFTBUTTON
+frames 2

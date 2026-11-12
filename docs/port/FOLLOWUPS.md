@@ -154,6 +154,15 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    the Rust port reproduces it. `CA.rs` records it as `D13_POB_WARM_CACHE`: for that build the
    warm run is checked against PoB's warm values and the fixed point is checked after a wipe.
    A new build that differs on a warm cache must first be measured in PoB the same way.
+   **Second build: fresh_017** (INT-1-FRESH corpus, `.parity/fresh`; found by INT-1-FRESH,
+   docs/port/parity/INT-1-fresh-triage.md §4 B; recorded by INT-1F-B, 2026-11-12). An SSF
+   Allflame Champion, Lacerate of Butchering, also a bleed build. Measured the same way in PoB
+   (`pob_headless`, POB_ENGINE=jit, PoB v2.67.2): 24 of 78,992 output keys differ between the
+   two runs (BleedStacks 0.675 → 1.25, LifeLeechInstances and ManaLeechInstances 2.7 → 5,
+   BleedDPS 34,158.45 → 53,560.428711765730, TotalDPS 2,277,409.28 → 4,217,424.593125107,
+   CombinedDPS 2,311,567.73 → 4,270,985.021836872), and 0 differ with a wipe between them.
+   Rust's warm run has PoB's warm values, and L6 (the cold run) is exact for this build. It is
+   the second entry of `D13_POB_WARM_CACHE`.
 6. **The Saviour's Reflection mirage skill outlives its env's actor** (owners: MI and AS;
    found at the CS2 merge, CCR-0105 §6). upstream_Dual_Savior raises `attempt to index field
    'actor' (a nil value)` (calc_active_skill.rs:713) in MAIN, CALCS, `getMiscCalculator` and
@@ -317,3 +326,18 @@ CCR-0101).
    (`set_powerStat`, `set_nodePowerMaxDepth`, `set_powerBuilderCallback`,
    `set_powerBuilderProgressCallback`, `powerMax`); `set_launch_devMode` and `set_GetTime` come
    from U16's launch state / the frame clock.
+
+## INT-1F-A
+
+1. **INT-1F-B's fresh-corpus pin comment goes stale once both merge** (owner: whichever of
+   INT-1F-A / INT-1F-B merges second; INT-1F-B was not on rust-port when INT-1F-A finished). The
+   pin value needs no bump: INT-1F-B's `L6_FRESH.keys = 85_603` is what `ca_l6_corpus` compares
+   after INT-1F-A (the 3 Rust-only `ManaCostWarningList` keys are gone). Its doc comment ("Until
+   INT-1F-A lands, Rust adds 3 Rust-only … keys … fails the exactness assert") should then say
+   that INT-1F-A removed them (CCR-0133). **Done** at the INT-1F-A merge (INT-1F-B merged first).
+2. **CalcPerform.lua:1985-1991 still ignores `levelCostCleared`** (owner: PF,
+   `calc_perform/pools_charges.rs` `has_cost` / `cost_of`; AMENDMENTS A8 item 11). A build with
+   `ManaCostGainAsReservation` / `LifeCostGainAsReservation` and an item-granted triggered skill
+   would add the level's cost to `pool.<res>.baseFlat`, where PoB adds 0 (the emptied table is
+   still truthy, so PoB takes the branch with `cost.Mana or 0`). Not seen in either corpus.
+   INT-1F-A fixed only the OF-C reader (CalcOffence.lua:1720).

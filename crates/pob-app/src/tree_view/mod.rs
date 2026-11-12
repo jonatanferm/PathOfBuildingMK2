@@ -148,11 +148,7 @@ pub fn default_hooks() -> TreeViewHooks {
         add_compare_node_tooltip: Rc::new(|cx, view, tt, node| view.add_compare_node_tooltip(cx, tt, node)),
         open_mastery_popup: Rc::new(crate::tabs::tree::core::open_mastery_popup_hook),
         modify_node_popup: Rc::new(crate::tabs::tree::core::modify_node_popup_hook),
-        build_power: Rc::new(|cx| {
-            let m = cx.build().model.clone();
-            // CCR-0115: model.rs (U15) does not re-export calc:PWR's module
-            pob_calc::modules::power::BuildPower(&m);
-        }),
+        build_power: Rc::new(crate::tabs::tree::power::build_power), // U26
         socket_right_click: Rc::new(|_, _| {
             not_ported("the jewel socket ItemSlotControl", "U32/U34")
         }),

@@ -1,0 +1,22 @@
+# U27 search 4: Elegant Hubris on All Sockets (the multi-socket search: every jewel socket, the results
+# labelled by socket and sorted by total, then socket label) with three notables (one with a minimum weight);
+# Search, then the build XML.
+#! u27-expect-text Duelist: 54127 | 136000:
+screen 1280 800
+fixture userdir=user
+fixture net=net.json
+frames 2
+load-build "Builds/eh.xml"
+frames 3
+move 699 786
+frames 1
+click LEFTBUTTON
+frames 3
+move 550 672
+frames 1
+click LEFTBUTTON
+frames 2
+move 560 400
+frames 1
+snapshot eh
+frames 1

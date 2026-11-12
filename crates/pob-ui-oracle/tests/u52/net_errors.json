@@ -1,0 +1,5 @@
+[
+ {"url": "https://pobarchives.com/api/builds?q=trending", "body": "", "error": "Response code: 503", "headers": "HTTP/1.1 503 Service Unavailable\r\n\r\n"},
+ {"url": "https://pobarchives.com/api/builds?q=latest", "body": "<html>not json</html>", "headers": "HTTP/1.1 200 OK\r\n\r\n"},
+ {"url": "https://pobarchives.com/api/recommendations", "body": "{\"error\":\"not found\"}", "headers": "HTTP/1.1 404 Not Found\r\n\r\n"}
+]

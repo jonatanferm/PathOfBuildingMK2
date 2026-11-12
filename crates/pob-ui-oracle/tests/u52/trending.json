@@ -1,0 +1,12 @@
+{"builds":[
+ {"build_info":{"title":"Righteous Fire Juggernaut: the tankiest league starter you will ever play","author":"FireStarter","mainSkill":"Righteous Fire","ascendancy":"Juggernaut","class":"Marauder","short_uuid":"aB3dE5","build_link":"https://pobb.in/u52Code"},
+  "stats":{"TotalEHP":245678.4,"LifeUnreserved":7012,"EnergyShield":0},"fullDPS":1234567.89,"tree":{"version":"3_25"}},
+ {"build_info":{"title":"Arc Witch","author":"Sparky","mainSkill":"Arc","ascendancy":"necromancer","class":"Witch","short_uuid":"Xy9","build_link":"https://pobb.in/u52Code"},
+  "stats":{"TotalEHP":40123,"LifeUnreserved":1200,"EnergyShield":6400},"fullDPS":"98765.4","tree":{"version":"3_24"}},
+ {"build_info":{"title":"Unnamed","mainSkill":"","ascendancy":"None","class":"None","short_uuid":"nn1","build_link":"https://pobb.in/u52Code"},
+  "stats":{},"tree":false},
+ {"build_info":{"title":"Toxic Rain Pathfinder with a very long title that has to wrap over more than two lines in the list","author":"Bow Enjoyer","mainSkill":"Toxic Rain of Withering with Mirage Archer and Caustic Arrow and Ballista Totems","ascendancy":"pathfinder","class":"Ranger","short_uuid":"tr4","build_link":"https://pobb.in/u52Code"},
+  "stats":{"TotalEHP":"88000","LifeUnreserved":5000,"EnergyShield":120},"fullDPS":3000000.5,"tree":{"version":"3_25"}},
+ {"build_info":{"title":"Cyclone Slayer","author":"Spinner","mainSkill":"Cyclone","ascendancy":"slayer","class":"Duelist","short_uuid":"cy5","build_link":"https://pobb.in/u52Code"},
+  "stats":{"TotalEHP":61000,"LifeUnreserved":4300,"EnergyShield":10},"fullDPS":2100000,"tree":{"version":"3_25"}}
+]}
