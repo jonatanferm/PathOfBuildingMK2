@@ -51,7 +51,6 @@ use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{
     find_parity_dir, find_pob_src, find_up, OracleOutput, ORACLE_LUA, QUIET_PRELUDE,
 };
-use pob_oracle::runner::OracleLock;
 
 const BMA_LUA: &str = include_str!("../corpus/BM-A/bma.lua");
 
@@ -640,8 +639,39 @@ struct PobRun {
     outputs: OracleOutput,
 }
 
+/// PoB's side of one load, from the shared oracle query cache (TP1: `testkit::oracle_query`,
+/// keyed by the PoB tree, the XML, the build name, the scripts and [`POB_RUN_CALLS`]) or a fresh
+/// LuaJIT PoB.
 fn pob_run(src: &Path, xml: &str, name: &str) -> Result<PobRun, String> {
-    let _lock = OracleLock::acquire().map_err(|e| format!("oracle lock: {e}"))?;
+    let text = pob_oracle::testkit::oracle_query(
+        src,
+        xml.as_bytes(),
+        &["BM-A pob_run 1", name, QUIET_PRELUDE, ORACLE_LUA, BMA_LUA, &POB_RUN_CALLS.join("\n")],
+        || pob_run_texts(src, xml, name).map(|t| serde_json::Value::from(t.to_vec()).to_string()),
+    )?;
+    let t: Vec<String> = serde_json::from_str(&text).map_err(|e| format!("cached pob_run: {e}"))?;
+    let [pre, preSave, post, outputs] = <[String; 4]>::try_from(t)
+        .map_err(|t| format!("cached pob_run: {} parts", t.len()))?;
+    Ok(PobRun {
+        pre: parse_lines(&pre),
+        preSave,
+        post: parse_lines(&post),
+        outputs: OracleOutput::from_json(&outputs).map_err(|e| e.to_string())?,
+    })
+}
+
+/// The Lua [`pob_run_texts`] runs after the load (pre dump, pre save, post dump, outputs), in
+/// order; part of the query-cache key, so editing one invalidates the cached runs.
+const POB_RUN_CALLS: [&str; 4] = [
+    "return __bma.pre or 'error\\tno capture'",
+    "return __bma.preSave or 'error\\tno capture'",
+    "return __bma.dump()",
+    "return __oracle_outputs()",
+];
+
+/// [`pob_run`]'s texts from a fresh PoB (the caller holds the oracle lock): the pre-BuildOutput
+/// model dump, its `SaveDB`, the post-load model dump and the outputs JSON.
+fn pob_run_texts(src: &Path, xml: &str, name: &str) -> Result<[String; 4], String> {
     let mut pob = JitPob::boot_oracle(src, Some(QUIET_PRELUDE))?;
     pob.run(ORACLE_LUA)?;
     pob.run(BMA_LUA)?;
@@ -651,23 +681,19 @@ fn pob_run(src: &Path, xml: &str, name: &str) -> Result<PobRun, String> {
         let r = pob.run(code)?;
         Ok(r.first().map(|r| r.text().to_owned()).unwrap_or_default())
     };
-    let pre = text(&mut pob, "return __bma.pre or 'error\\tno capture'")?;
+    let pre = text(&mut pob, POB_RUN_CALLS[0])?;
     if let Some(e) = pre.strip_prefix("error\t") {
         return Err(format!("pre dump: {e}"));
     }
-    let preSave = text(&mut pob, "return __bma.preSave or 'error\\tno capture'")?;
+    let preSave = text(&mut pob, POB_RUN_CALLS[1])?;
     if let Some(e) = preSave.strip_prefix("error\t") {
         return Err(format!("pre save: {e}"));
     }
-    let post = parse_lines(&text(&mut pob, "return __bma.dump()")?);
-    let outputs = OracleOutput::from_json(&text(&mut pob, "return __oracle_outputs()")?)
-        .map_err(|e| e.to_string())?;
-    Ok(PobRun {
-        pre: parse_lines(&pre),
-        preSave,
-        post,
-        outputs,
-    })
+    let post = text(&mut pob, POB_RUN_CALLS[2])?;
+    let outputs = text(&mut pob, POB_RUN_CALLS[3])?;
+    // a dump that does not parse is an error of this run (not cached)
+    OracleOutput::from_json(&outputs).map_err(|e| e.to_string())?;
+    Ok([pre, preSave, post, outputs])
 }
 
 fn leaf_eq(a: &pob_oracle::oracle::Leaf, b: &pob_oracle::oracle::Leaf) -> bool {
@@ -697,6 +723,35 @@ struct Tally {
     pending_psb_builds: usize,
     pending_psb: usize,
     failures: Vec<String>,
+}
+
+impl Tally {
+    /// Add one build's tally (TP1: builds run on the bounded pool, merged in corpus order).
+    fn merge(&mut self, o: Tally) {
+        self.builds += o.builds;
+        self.loaded += o.loaded;
+        self.model_lines += o.model_lines;
+        self.model_mismatch += o.model_mismatch;
+        self.socket_lines += o.socket_lines;
+        self.socket_mismatch += o.socket_mismatch;
+        self.sections += o.sections;
+        self.section_mismatch += o.section_mismatch;
+        self.roundtrip_mismatch += o.roundtrip_mismatch;
+        self.output_keys += o.output_keys;
+        self.output_mismatch += o.output_mismatch;
+        self.output_builds_equal += o.output_builds_equal;
+        self.pending_psb_builds += o.pending_psb_builds;
+        self.pending_psb += o.pending_psb;
+        self.failures.extend(o.failures);
+    }
+}
+
+/// Hits of `site` recorded so far in this process (`unported!` counters are process-wide).
+fn stub_hits(site: &str) -> u64 {
+    pob_calc::stub::stub_report()
+        .iter()
+        .find(|(s, _)| *s == site)
+        .map_or(0, |(_, n)| *n)
 }
 
 /// The `unported!` site of PS-B's `BuildAllDependsAndPaths`.
@@ -815,15 +870,37 @@ fn compare_saves(
     }
 }
 
-fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDir: Option<&Path>) {
+/// One build: its tally and its report lines (printed by the caller in corpus order).
+fn run_build(src: &Path, data: &'static Data, path: &Path, saveDir: Option<&Path>) -> (Tally, String) {
+    let mut t = Tally::default();
+    let mut log = String::new();
+    // each build from a clean (thread-local) GlobalCache, as PoB's fresh process per build: under
+    // the pool, which builds came before on this worker is scheduling, not corpus order
+    pob_calc::global_cache::clear_all();
+    run_build_into(src, data, path, &mut t, &mut log, saveDir);
+    (t, log)
+}
+
+fn run_build_into(
+    src: &Path,
+    data: &'static Data,
+    path: &Path,
+    t: &mut Tally,
+    log: &mut String,
+    saveDir: Option<&Path>,
+) {
+    use std::fmt::Write as _;
     let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
     let xml = std::fs::read_to_string(path).unwrap();
     t.builds += 1;
     let pending_before = t.pending_psb;
     let mut fails: Vec<String> = Vec::new();
 
-    // Rust: load, dump, save; UpdateSockets; round trip
-    pob_calc::stub::stub_reset();
+    // Rust: load, dump, save; UpdateSockets; round trip. TP1: the `unported!` counters are
+    // process-wide and other builds load concurrently, so the PSB stub is detected by the growth
+    // of its counter over this load (no reset), and a hit under `POB_TEST_PAR > 1` fails the run
+    // instead of being attributed (it could belong to a concurrent build).
+    let psb_before = stub_hits(PSB_SITE);
     let rust = catch(|| {
         let build = loadBuildModelFromXML(&xml, data).map_err(|e| format!("load: {e}"))?;
         let d1 = rust_dump(&build);
@@ -844,9 +921,13 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
         }
     };
     t.loaded += 1;
-    let psb = pob_calc::stub::stub_report()
-        .iter()
-        .any(|(site, _)| *site == PSB_SITE);
+    let psb = stub_hits(PSB_SITE) > psb_before;
+    if psb && pob_oracle::testkit::test_par() > 1 {
+        t.failures.push(format!(
+            "{stem}: the PS-B stub {PSB_SITE} was hit while builds load in parallel: rerun with POB_TEST_PAR=1 to attribute its differences"
+        ));
+        return;
+    }
     // PoB on the original
     let a = match pob_run(src, &xml, &stem) {
         Ok(a) => a,
@@ -936,11 +1017,11 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
         t.pending_psb_builds += 1;
     }
     if fails.is_empty() {
-        eprintln!("ok   {stem}");
+        let _ = writeln!(log, "ok   {stem}");
     } else {
-        eprintln!("FAIL {stem}: {} differences", fails.len());
+        let _ = writeln!(log, "FAIL {stem}: {} differences", fails.len());
         for f in fails.iter().take(25) {
-            eprintln!("       {f}");
+            let _ = writeln!(log, "       {f}");
         }
         t.failures
             .push(format!("{stem}: {} differences", fails.len()));
@@ -984,11 +1065,25 @@ fn bm_a_corpus() {
     }
     let saveDir = std::env::var_os("BMA_SAVE_DIR").map(PathBuf::from);
     let mut t = Tally::default();
-    for b in &builds {
-        run_build(&src, data, b, &mut t, saveDir.as_deref());
-        // Drop the decoded LUTs between builds to keep RSS low.
-        lut::clear_timeless_jewel_luts(None);
-    }
+    // TP1: builds on the bounded pool (`$POB_TEST_PAR`); tallies and report lines are merged here
+    // in corpus order, so the report is the serial one
+    pob_oracle::testkit::par_for_each(
+        &builds,
+        |_, b| {
+            let r = run_build(&src, data, b, saveDir.as_deref());
+            // Drop the decoded LUTs between builds to keep RSS low: serial runs only (the LUT
+            // table is process-global; a clear while another worker is inside `readLUT` makes
+            // its entry vanish), else once after the pool.
+            pob_oracle::testkit::release_shared(|| lut::clear_timeless_jewel_luts(None));
+            r
+        },
+        |_, _, (bt, log)| {
+            eprint!("{log}");
+            t.merge(bt);
+        },
+    );
+    lut::clear_timeless_jewel_luts(None);
+    eprintln!("{}", pob_oracle::runner::query_cache_summary());
     eprintln!(
         "BM-A: {} builds, {} loaded in Rust; model {} lines, {} mismatches; sockets {} lines, \
          {} mismatches; save sections {} compared, {} differ; round trip {} mismatches; \

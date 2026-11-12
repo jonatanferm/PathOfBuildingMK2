@@ -285,60 +285,54 @@ mod pob_side {
     use pob_oracle::headless::Engine;
     use pob_oracle::jit::JitPob;
     use pob_oracle::oracle::ORACLE_LUA;
-    use pob_oracle::runner::OracleLock;
 
     const PWR_LUA: &str = include_str!("../corpus/PWR/pwr.lua");
 
-    fn mode_file(dir: &Path, mode: &str, depth: Option<f64>) -> PathBuf {
-        match depth {
-            Some(d) => dir.join(format!("{mode}@{d}.json")),
-            None => dir.join(format!("{mode}.json")),
-        }
+    /// The Lua that selects one mode before `pwr.lua` runs.
+    fn mode_lua(stat: Option<&str>, depth: Option<f64>) -> String {
+        format!(
+            "__pwr_stat = {}\n__pwr_depth = {}\n",
+            stat.map_or("nil".to_owned(), |s| format!("{s:?}")),
+            depth.map_or("nil".to_owned(), |d| d.to_string())
+        )
     }
 
     /// PoB's power runs of one build: (mode, stat, depth) → the `pwr.lua` JSON. One PoB process
-    /// per build (modes run in order on the same load); cached per mode.
+    /// per build (modes run in order on the same load). TP1: the whole run is one entry of the
+    /// shared oracle query cache (`testkit::oracle_query`, keyed by the PoB tree, the XML, the
+    /// build name, the scripts and the modes in order), so every worktree shares it.
     pub fn pob_runs(
         xml: &Path,
         modes: &[(&str, Option<&str>, Option<f64>)],
     ) -> Result<Vec<J>, String> {
         let st = stem(xml);
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("pwr-probe").join(&st);
-        let read = |m: &str, d: Option<f64>| -> Option<J> {
-            let t = std::fs::read_to_string(mode_file(&dir, m, d)).ok()?;
-            serde_json::from_str(&t).ok()
-        };
-        if modes.iter().all(|(m, _, d)| read(m, *d).is_some()) {
-            return Ok(modes.iter().map(|(m, _, d)| read(m, *d).expect("cached")).collect());
-        }
         let src = find_pob_src().ok_or("no PoB checkout")?;
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let xml_text = std::fs::read_to_string(xml).map_err(|e| e.to_string())?;
-        let _lock = OracleLock::acquire().map_err(|e| format!("oracle lock: {e}"))?;
-        let mut pob = JitPob::boot_oracle(&src, None)?;
-        pob.run(ORACLE_LUA)?;
-        pob.load_build_xml(&xml_text, &st)?;
-        let mut out = Vec::new();
-        for (m, stat, depth) in modes {
-            if let Some(j) = read(m, *depth) {
-                out.push(j);
-                continue;
-            }
-            let set = format!(
-                "__pwr_stat = {}\n__pwr_depth = {}\n",
-                stat.map_or("nil".to_owned(), |s| format!("{s:?}")),
-                depth.map_or("nil".to_owned(), |d| d.to_string())
-            );
-            pob.run(&set)?;
-            let t = std::time::Instant::now();
-            let r = pob.run(PWR_LUA)?;
-            let text = r.first().map(|r| r.text().to_owned()).unwrap_or_default();
-            eprintln!("PoB {st} {m}: {:?}", t.elapsed());
-            pob_oracle::runner::write_atomic(&mode_file(&dir, m, *depth), &text)
-                .map_err(|e| e.to_string())?;
-            out.push(serde_json::from_str(&text).map_err(|e| format!("{m}: {e}"))?);
+        let sets: Vec<String> = modes.iter().map(|(_, s, d)| mode_lua(*s, *d)).collect();
+        let mut key: Vec<&str> = vec!["PWR pob_runs 1", &st, ORACLE_LUA, PWR_LUA];
+        for ((m, _, _), set) in modes.iter().zip(&sets) {
+            key.push(m);
+            key.push(set);
         }
-        Ok(out)
+        let text = pob_oracle::testkit::oracle_query(&src, xml_text.as_bytes(), &key, || {
+            let mut pob = JitPob::boot_oracle(&src, None)?;
+            pob.run(ORACLE_LUA)?;
+            pob.load_build_xml(&xml_text, &st)?;
+            let mut out = Vec::new();
+            for ((m, _, _), set) in modes.iter().zip(&sets) {
+                pob.run(set)?;
+                let t = std::time::Instant::now();
+                let r = pob.run(PWR_LUA)?;
+                let text = r.first().map(|r| r.text().to_owned()).unwrap_or_default();
+                eprintln!("PoB {st} {m}: {:?}", t.elapsed());
+                out.push(serde_json::from_str::<J>(&text).map_err(|e| format!("{m}: {e}"))?);
+            }
+            Ok(J::Array(out).to_string())
+        })?;
+        match serde_json::from_str::<J>(&text).map_err(|e| format!("cached PWR run: {e}"))? {
+            J::Array(a) if a.len() == modes.len() => Ok(a),
+            other => Err(format!("cached PWR run: not {} modes: {other:.80}", modes.len())),
+        }
     }
 }
 
@@ -348,7 +342,9 @@ fn rust_build(xml: &Path) -> Result<BuildRef, String> {
     let text = std::fs::read_to_string(xml).map_err(|e| e.to_string())?;
     pob_calc::global_cache::clear_all();
     let b = catch(|| pob_calc::model::build_xml::loadBuildFromXML(&text, pob_gamedata::data()))?;
-    lut::clear_timeless_jewel_luts(None);
+    // the LUT table is process-global: dropped here only when no pool runs (`pwr_l5_replay`
+    // drops it after its pool)
+    pob_oracle::testkit::release_shared(|| lut::clear_timeless_jewel_luts(None));
     Ok(b)
 }
 
@@ -642,6 +638,87 @@ fn full_dps_fixture(xml: &Path) -> PathBuf {
 }
 
 #[cfg(feature = "luajit")]
+/// One build's PWR L5 results (TP1: builds run on the bounded pool, merged in corpus order).
+#[derive(Default)]
+struct L5Out {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    runs: usize,
+    keys: usize,
+    exact: usize,
+    calls: usize,
+}
+
+fn l5_build(bi: usize, xml: &PathBuf, full: &PathBuf) -> L5Out {
+    let mut o = L5Out::default();
+    let st = stem(xml);
+    let modes: Vec<(&str, Option<&str>, Option<f64>)> = MODES
+        .iter()
+        .filter(|(m, _, _, first)| {
+            if xml == full {
+                matches!(*m, "offdef" | "Life" | "FullDPS")
+            } else {
+                !first || bi == 0
+            }
+        })
+        .map(|(m, s, d, _)| (*m, *s, *d))
+        .collect();
+    let pobs = pob_side::pob_runs(xml, &modes).unwrap_or_else(|e| panic!("PoB {st}: {e}"));
+    let build = rust_build(xml).unwrap_or_else(|e| panic!("Rust load {st}: {e}"));
+    for ((mode, stat, depth), pob) in modes.iter().zip(&pobs) {
+        assert_eq!(pob["ok"], J::Bool(true), "PoB {st} {mode}: {}", pob["err"]);
+        let model = model_diffs(&build, pob);
+        prepare(&build, pob, *stat, *depth);
+        let rep = Rc::new(std::cell::RefCell::new(Replay { calls: calls_of(pob), ..Replay::default() }));
+        install_replay(&rep);
+        let t = std::time::Instant::now();
+        let r = catch(|| power::PowerBuilder_run(&build, &PowerOptions::default()));
+        calc_replay::set(None);
+        let elapsed = t.elapsed();
+        let ours = rust_powers(&build);
+        let theirs = pob_powers(pob);
+        let c = compare(&ours, &theirs);
+        let rep = rep.borrow();
+        o.runs += 1;
+        o.keys += c.keys;
+        o.exact += c.exact;
+        o.calls += rep.calls.len();
+        o.lines.push(format!(
+            "PWR L5 {st} {mode}{}: power values {}/{} exact ({} within 1e-9, {} missing, {} Rust-only); \
+             calls Rust {} PoB {} ({} answered from another node of the same modKey, {} misses); \
+             PoB {:.1} s, Rust {:.2?}; model diffs {}",
+            depth.map_or(String::new(), |d| format!(" depth {d}")), c.exact, c.keys, c.close, c.missing, c.extra, rep.made.len(), rep.calls.len(), rep.fallbacks,
+            rep.misses.len(), pob["seconds"].as_f64().unwrap_or(0.0), elapsed, model.len()
+        ));
+        if verbose() || c.exact != c.keys {
+            for s in &c.samples {
+                o.lines.push(format!("    {s}"));
+            }
+            for m in model.iter().take(8) {
+                o.lines.push(format!("    model: {m}"));
+            }
+            for m in rep.misses.iter().take(4) {
+                o.lines.push(format!("    miss: {m}"));
+            }
+        }
+        if let Err(e) = r {
+            o.failures.push(format!("{st} {mode}: Rust {e}"));
+        }
+        if c.exact != c.keys {
+            o.failures.push(format!("{st} {mode}: {} of {} power values differ", c.keys - c.exact, c.keys));
+        }
+        if !rep.misses.is_empty() {
+            o.failures.push(format!("{st} {mode}: {} calc calls PoB never made", rep.misses.len()));
+        }
+        if rep.made.len() != rep.calls.len() {
+            o.failures.push(format!("{st} {mode}: {} Rust calc calls vs {} PoB", rep.made.len(), rep.calls.len()));
+        }
+    }
+    drop(build);
+    pob_calc::global_cache::clear_all();
+    o
+}
+
 #[test]
 fn pwr_l5_replay() {
     let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -666,73 +743,22 @@ fn pwr_l5_replay() {
     builds.push(full.clone());
     let mut failures = Vec::new();
     let (mut total_keys, mut total_exact, mut runs, mut total_calls) = (0, 0, 0, 0);
-    for (bi, xml) in builds.iter().enumerate() {
-        let st = stem(xml);
-        let modes: Vec<(&str, Option<&str>, Option<f64>)> = MODES
-            .iter()
-            .filter(|(m, _, _, first)| {
-                if *xml == full {
-                    matches!(*m, "offdef" | "Life" | "FullDPS")
-                } else {
-                    !first || bi == 0
-                }
-            })
-            .map(|(m, s, d, _)| (*m, *s, *d))
-            .collect();
-        let pobs = pob_side::pob_runs(xml, &modes).unwrap_or_else(|e| panic!("PoB {st}: {e}"));
-        let build = rust_build(xml).unwrap_or_else(|e| panic!("Rust load {st}: {e}"));
-        for ((mode, stat, depth), pob) in modes.iter().zip(&pobs) {
-            assert_eq!(pob["ok"], J::Bool(true), "PoB {st} {mode}: {}", pob["err"]);
-            let model = model_diffs(&build, pob);
-            prepare(&build, pob, *stat, *depth);
-            let rep = Rc::new(std::cell::RefCell::new(Replay { calls: calls_of(pob), ..Replay::default() }));
-            install_replay(&rep);
-            let t = std::time::Instant::now();
-            let r = catch(|| power::PowerBuilder_run(&build, &PowerOptions::default()));
-            calc_replay::set(None);
-            let elapsed = t.elapsed();
-            let ours = rust_powers(&build);
-            let theirs = pob_powers(pob);
-            let c = compare(&ours, &theirs);
-            let rep = rep.borrow();
-            runs += 1;
-            total_keys += c.keys;
-            total_exact += c.exact;
-            total_calls += rep.calls.len();
-            eprintln!(
-                "PWR L5 {st} {mode}{}: power values {}/{} exact ({} within 1e-9, {} missing, {} Rust-only); \
-                 calls Rust {} PoB {} ({} answered from another node of the same modKey, {} misses); \
-                 PoB {:.1} s, Rust {:.2?}; model diffs {}",
-                depth.map_or(String::new(), |d| format!(" depth {d}")), c.exact, c.keys, c.close, c.missing, c.extra, rep.made.len(), rep.calls.len(), rep.fallbacks,
-                rep.misses.len(), pob["seconds"].as_f64().unwrap_or(0.0), elapsed, model.len()
-            );
-            if verbose() || c.exact != c.keys {
-                for s in &c.samples {
-                    eprintln!("    {s}");
-                }
-                for m in model.iter().take(8) {
-                    eprintln!("    model: {m}");
-                }
-                for m in rep.misses.iter().take(4) {
-                    eprintln!("    miss: {m}");
-                }
+    pob_oracle::testkit::par_for_each(
+        &builds,
+        |bi, xml| l5_build(bi, xml, &full),
+        |_, _, o| {
+            for l in &o.lines {
+                eprintln!("{l}");
             }
-            if let Err(e) = r {
-                failures.push(format!("{st} {mode}: Rust {e}"));
-            }
-            if c.exact != c.keys {
-                failures.push(format!("{st} {mode}: {} of {} power values differ", c.keys - c.exact, c.keys));
-            }
-            if !rep.misses.is_empty() {
-                failures.push(format!("{st} {mode}: {} calc calls PoB never made", rep.misses.len()));
-            }
-            if rep.made.len() != rep.calls.len() {
-                failures.push(format!("{st} {mode}: {} Rust calc calls vs {} PoB", rep.made.len(), rep.calls.len()));
-            }
-        }
-        drop(build);
-        pob_calc::global_cache::clear_all();
-    }
+            failures.extend(o.failures);
+            runs += o.runs;
+            total_keys += o.keys;
+            total_exact += o.exact;
+            total_calls += o.calls;
+        },
+    );
+    lut::clear_timeless_jewel_luts(None);
+    eprintln!("{}", pob_oracle::runner::query_cache_summary());
     eprintln!(
         "PWR L5: {runs} runs over {} builds, {total_exact}/{total_keys} power values exact, {total_calls} PoB calc calls replayed",
         builds.len()

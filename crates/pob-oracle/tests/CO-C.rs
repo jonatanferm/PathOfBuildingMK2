@@ -39,7 +39,6 @@ use pob_calc::prelude::*;
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up, QUIET_PRELUDE};
-use pob_oracle::runner::OracleLock;
 use serde_json::Value as J;
 
 const PROBE: &str = include_str!("../corpus/CO-C/bml_probe.lua");
@@ -592,6 +591,30 @@ fn first_str(pob: &mut JitPob, code: &str) -> String {
     }
 }
 
+/// TP1: the texts PoB returns for `calls` (run in order after `boot`, then, with `build`, after
+/// loading that build), from the shared oracle query cache (`testkit::oracle_query`) or a fresh
+/// LuaJIT PoB under the oracle lock. The key holds the probe, the empty build, the calls and the
+/// build's name and XML.
+fn pob_texts(src: &Path, before: &[&str], build: Option<(&str, &str)>, after: &[&str]) -> Vec<String> {
+    let (name, xml) = build.unwrap_or(("", ""));
+    let mut key = vec!["CO-C pob_texts 1", QUIET_PRELUDE, EMPTY_XML, PROBE, name, "--before"];
+    key.extend_from_slice(before);
+    key.push("--after");
+    key.extend_from_slice(after);
+    let text = pob_oracle::testkit::oracle_query(src, xml.as_bytes(), &key, || {
+        let mut pob = boot(src);
+        let mut out: Vec<String> = before.iter().map(|c| first_str(&mut pob, c)).collect();
+        if let Some((name, xml)) = build {
+            pob.load_build_xml(xml, name)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+        }
+        out.extend(after.iter().map(|c| first_str(&mut pob, c)));
+        Ok(J::from(out).to_string())
+    })
+    .unwrap_or_else(|e| panic!("CO-C oracle query: {e}"));
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("cached CO-C query: {e}"))
+}
+
 fn parse(s: &str) -> J {
     serde_json::from_str(s).unwrap_or_else(|e| panic!("probe json: {e}"))
 }
@@ -627,19 +650,23 @@ fn corpus_build_mod_list_matches_oracle() {
     let mut t = Tally::default();
     let mut custom = 0usize;
     let mut model: Option<(BuildRef, BTreeSet<String>, State)> = None;
-    for b in &builds {
+    // TP1: PoB's side of every build on the bounded pool (`$POB_TEST_PAR`; each one PoB, cached),
+    // the Rust side here in corpus order (it reads the process-wide `unported!` counters)
+    let pob_side = |b: &PathBuf| {
         let stem = b.file_stem().unwrap().to_string_lossy().into_owned();
         let xml = std::fs::read_to_string(b).unwrap();
-        // one PoB at a time, dropped before the Rust phase
-        let (base, case) = {
-            let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
-            let mut pob = boot(&src);
-            let base = first_str(&mut pob, "return __coc.baseline()");
-            pob.load_build_xml(&xml, &stem)
-                .unwrap_or_else(|e| panic!("{stem}: {e}"));
-            let case = first_str(&mut pob, &format!("return __coc.case({stem:?})"));
-            (base, case)
-        };
+        let case_call = format!("return __coc.case({stem:?})");
+        let mut t = pob_texts(
+            &src,
+            &["return __coc.baseline()"],
+            Some((&stem, &xml)),
+            &[&case_call],
+        );
+        let case = t.pop().expect("case");
+        let base = t.pop().expect("baseline");
+        (base, case)
+    };
+    let mut each = |base: String, case: String| {
         let base = State::full(&parse(&base));
         let case = parse(&case);
         if case["pre"]["customModsList"].as_array().is_some_and(|l| {
@@ -654,12 +681,17 @@ fn corpus_build_mod_list_matches_oracle() {
         }
         let (build, vars, _) = model.as_ref().unwrap();
         check_case(build, vars, &base, &case, &mut t);
-    }
+    };
+    pob_oracle::testkit::par_for_each(&builds, |_, b| pob_side(b), |_, _, (base, case)| {
+        each(base, case);
+    });
+    drop(each);
     eprintln!(
         "CO-C corpus: {} builds ({} with custom modifier text)",
         builds.len(),
         custom
     );
+    eprintln!("{}", pob_oracle::runner::query_cache_summary());
     t.report("corpus BuildModList");
     assert_eq!(t.mismatched, 0, "corpus BuildModList differs from PoB");
 }
@@ -677,11 +709,14 @@ fn synthetic_build_mod_list_matches_oracle() {
     };
     quiet_lua_errors();
     let (base, doc) = {
-        let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
-        let mut pob = boot(&src);
-        let base = first_str(&mut pob, "return __coc.baseline()");
-        let doc = first_str(&mut pob, "return __coc.synthetic()");
-        (base, doc)
+        let mut t = pob_texts(
+            &src,
+            &["return __coc.baseline()", "return __coc.synthetic()"],
+            None,
+            &[],
+        );
+        let doc = t.pop().expect("synthetic");
+        (t.pop().expect("baseline"), doc)
     };
     let base = State::full(&parse(&base));
     let doc = parse(&doc);
@@ -726,11 +761,9 @@ fn modmap_applies_match_oracle() {
         return skip("PoB checkout (.PathOfBuilding/src) not found");
     };
     quiet_lua_errors();
-    let doc = {
-        let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
-        let mut pob = boot(&src);
-        first_str(&mut pob, "return __coc.modmap()")
-    };
+    let doc = pob_texts(&src, &["return __coc.modmap()"], None, &[])
+        .pop()
+        .expect("modmap");
     let doc = parse(&doc);
     let mut t = Tally::default();
     let mut keys = BTreeSet::new();

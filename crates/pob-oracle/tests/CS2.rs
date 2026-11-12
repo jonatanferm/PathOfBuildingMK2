@@ -5,8 +5,8 @@
 //!
 //! **Oracle side.** PoB is patched with `corpus/CS2/stages.toml` (the `initEnv:800` /
 //! `initEnv:1451` probes of docs/port/stages.toml) and one `pob_oracle probe` run per build dumps
-//! every hit of both probes in one process (so `:in` and `:out` pair up), into
-//! `$CARGO_TARGET_TMPDIR/CS2/<hash of the stages>/dumps/<stem>/` (reused while complete). A hit's
+//! every hit of both probes in one process (so `:in` and `:out` pair up), into the shared probe
+//! cache (`testkit::probe_selection`, TP1; reused by every worktree while its key holds). A hit's
 //! call is the innermost `initEnv:in#j` of its probe stack: the 800 and 1451 hits of one call pair
 //! up; a call with an 800 hit and no 1451 hit is PoB's restart at 1433 (its recursive call is the
 //! next `initEnv:in`).
@@ -66,7 +66,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use pob_calc::prelude::*;
 use pob_gamedata::timeless_lut as lut;
@@ -82,17 +82,6 @@ fn serial() -> std::sync::MutexGuard<'static, ()> {
 
 fn corpus_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/CS2")
-}
-
-fn tmp_dir() -> PathBuf {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    std::fs::read_to_string(corpus_dir().join("stages.toml"))
-        .unwrap_or_default()
-        .hash(&mut h);
-    Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("CS2")
-        .join(format!("{:016x}", h.finish()))
 }
 
 fn stem(p: &Path) -> String {
@@ -177,74 +166,23 @@ fn builds(parity: &Path, synthetic: bool) -> Vec<PathBuf> {
 
 // ---- oracle side --------------------------------------------------------------------------------
 
-fn patched_src(pob_src: &Path) -> Result<PathBuf, String> {
-    static P: OnceLock<Result<PathBuf, String>> = OnceLock::new();
-    P.get_or_init(|| {
-        let root = tmp_dir().join("patched");
-        std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-        let out = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-            .arg("patch")
-            .arg("--stages")
-            .arg(corpus_dir().join("stages.toml"))
-            .arg("--pob")
-            .arg(pob_src)
-            .arg("--root")
-            .arg(&root)
-            .stderr(std::process::Stdio::null())
-            .output()
-            .map_err(|e| format!("pob_oracle patch: {e}"))?;
-        if !out.status.success() {
-            return Err(format!("pob_oracle patch failed ({})", out.status));
-        }
-        Ok(PathBuf::from(
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .last()
-                .unwrap_or_default()
-                .trim(),
-        ))
-    })
-    .clone()
-}
-
-fn ensure_dumps(pob_src: &Path, xml: &Path, stem: &str) -> Result<PathBuf, String> {
-    // a corpus/CS2 build is keyed by its content too (it is edited in the repo; all57 is fixed)
-    let dir = if xml.starts_with(corpus_dir()) {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        std::fs::read_to_string(xml).unwrap_or_default().hash(&mut h);
-        tmp_dir().join("dumps").join(format!("{stem}-{:016x}", h.finish()))
-    } else {
-        tmp_dir().join("dumps").join(stem)
+/// The build's `initEnv:800` / `initEnv:1451` dumps (every hit of both probes, from one PoB
+/// process so `:in` and `:out` pair up): the shared probe cache's entry of the selection under
+/// `corpus/CS2/stages.toml` (`testkit::probe_selection`, probed in a fresh `pob_oracle probe`
+/// process when absent; TP1: keyed by the patched source, the build's bytes and the selection,
+/// so every worktree and both corpora share it). Hold the result while reading the dumps.
+fn ensure_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    let opts = pob_oracle::runner::ProbeOptions {
+        select: vec!["initEnv:800".to_owned(), "initEnv:1451".to_owned()],
+        max_dumps: 400,
+        provenance: false,
     };
-    let done = dir.join("complete");
-    if done.is_file() {
-        return Ok(dir);
-    }
-    let src = patched_src(pob_src)?;
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-        .arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(&dir)
-        .arg("--patched")
-        .arg(&src)
-        .arg("--select")
-        .arg("initEnv:800,initEnv:1451")
-        .arg("--max-dumps")
-        .arg("400")
-        .arg("--no-provenance")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("pob_oracle probe: {e}"))?;
-    if !status.success() || !dir.join("state").is_dir() {
-        return Err(format!("pob_oracle probe {} failed ({status})", xml.display()));
-    }
-    std::fs::write(&done, b"").map_err(|e| e.to_string())?;
-    Ok(dir)
+    testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&corpus_dir().join("stages.toml")),
+        &opts,
+    )
 }
 
 /// Dump files of a probe by hit number.
@@ -269,7 +207,7 @@ fn hit_files(state: &Path, probe: &str) -> BTreeMap<u64, PathBuf> {
 
 /// The innermost `initEnv:in#j` of a dump's probe stack (the initEnv call the hit belongs to).
 fn call_of(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
+    let text = pob_oracle::schema::read_text(path).ok()?;
     let j: J = serde_json::from_str(&text).ok()?;
     j.get("stack")?
         .as_array()?
@@ -1166,6 +1104,178 @@ fn restart_check(build: &BuildRef, din: &StateDump, ejf: &[ModRef]) -> Result<us
 /// `toggleFlask` (CalcSetup.lua 1368-1374) and `repSlotName` / `repItem` (815-820), driven on each
 /// build's first MAIN hit after the load: the toggled flask's `env.flasks` entry flips, a
 /// replaced slot holds `repItem`, and a two-handed `repItem` in "Weapon 1" removes "Weapon 2".
+/// The per-build counts and failures of `cs2_l4_overrides` (merged in corpus order; TP1).
+#[derive(Default)]
+struct OvOut {
+    flask_checks: usize,
+    rep_checks: usize,
+    staff_checks: usize,
+    restart_checks: usize,
+    restart_entries: usize,
+    remove_checks: usize,
+    failures: Vec<String>,
+}
+
+impl OvOut {
+    #[allow(clippy::too_many_arguments)]
+    fn done(
+        failures: Vec<String>,
+        flask_checks: usize,
+        rep_checks: usize,
+        staff_checks: usize,
+        restart_checks: usize,
+        restart_entries: usize,
+        remove_checks: usize,
+    ) -> Self {
+        Self {
+            flask_checks,
+            rep_checks,
+            staff_checks,
+            restart_checks,
+            restart_entries,
+            remove_checks,
+            failures,
+        }
+    }
+}
+
+/// One build of `cs2_l4_overrides`.
+fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
+    let (mut flask_checks, mut rep_checks, mut staff_checks, mut restart_checks) = (0, 0, 0, 0);
+    let mut restart_entries = 0;
+    let mut remove_checks = 0;
+    let mut failures = Vec::new();
+    let stem = stem(xml);
+    let Ok(dir) = ensure_dumps(xml) else { return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
+    let Ok(build) = load_model(xml) else { return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
+    // the first MAIN hit whose PoB env has items (post-load) and that does not restart
+    let state = dir.path().to_path_buf();
+    let outs = hit_files(&state, "initEnv:1451");
+    let out_by_call: HashMap<String, PathBuf> =
+        outs.values().filter_map(|p| call_of(p).map(|c| (c, p.clone()))).collect();
+    let mut din = None;
+    for p in hit_files(&state, "initEnv:800").values() {
+        let Some(out) = call_of(p).and_then(|c| out_by_call.get(&c)).and_then(|q| StateDump::load(q).ok()) else {
+            continue;
+        };
+        let items = out.root.get("env").and_then(|e| e.get("player")).and_then(|p| p.get("itemList"))
+            .and_then(J::as_object).map_or(0, |o| o.keys().filter(|k| !k.starts_with('$')).count());
+        let Ok(d) = StateDump::load(p) else { continue };
+        let main = d.root.get("locals").and_then(|l| l.get("mode")).and_then(J::as_str) == Some("MAIN");
+        if main && items > 0 {
+            din = Some(d);
+            break;
+        }
+    }
+    let Some(din) = din else { return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
+    let base = match run_with_override(&build, &din, Override::default()) {
+        Ok(e) => e,
+        Err(e) => {
+            failures.push(format!("{stem}: base run: {e}"));
+            return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks);
+        }
+    };
+    // toggleFlask: every flask in a flask slot
+    let slotted: Vec<(Name, ItemRef)> = build
+        .itemsTab
+        .orderedSlots
+        .snapshot()
+        .iter()
+        .filter_map(|s| {
+            let name = s.get(n!("slotName")).str()?;
+            let id = s.get(n!("selItemId")).opt_num()?;
+            let item = build.itemsTab.items.with(|m| m.get(&(id as u32)).cloned())?;
+            Some((Name::from(&*name), item))
+        })
+        .collect();
+    for (slot, item) in slotted.iter().filter(|(s, i)| s.as_str().starts_with("Flask ") && i.r#type.get() == n!("Flask")) {
+        let was = base.flasks.get().with(|m| m.get(item)).unwrap_or(false);
+        let ov = Override::default();
+        ov.toggleFlask.set(Some(item.clone()));
+        match run_with_override(&build, &din, ov) {
+            Ok(e) => {
+                flask_checks += 1;
+                let now = e.flasks.get().with(|m| m.get(item)).unwrap_or(false);
+                if now == was {
+                    failures.push(format!("{stem}: toggleFlask {slot}: env.flasks stayed {was}"));
+                }
+            }
+            Err(e) => failures.push(format!("{stem}: toggleFlask {slot}: {e}")),
+        }
+    }
+    // repSlotName / repItem: put the Ring 1 item into Ring 2 (or the Amulet into itself)
+    let ring1 = slotted.iter().find(|(s, _)| *s == n!("Ring 1")).map(|(_, i)| i.clone());
+    if let Some(r1) = ring1 {
+        let ov = Override::default();
+        ov.repSlotName.set(Some(n!("Ring 2")));
+        ov.repItem.set(Some(r1.clone()));
+        match run_with_override(&build, &din, ov) {
+            Ok(e) => {
+                rep_checks += 1;
+                let got = e.player.itemList().with(|m| m.get(&n!("Ring 2")).cloned());
+                if !got.is_some_and(|g| Rc::ptr_eq(&g, &r1)) {
+                    failures.push(format!("{stem}: repItem Ring 2 is not the Ring 1 item"));
+                }
+            }
+            Err(e) => failures.push(format!("{stem}: repItem Ring 2: {e}")),
+        }
+    }
+    // override.removeNodes[node.id] (1393/1408, CCR-0105 §1): a caller that fills only the
+    // id-keyed half (`override.extra["$removeNodeIds"]`, typed `removeNodes` left None, as
+    // PassiveTreeView.lua:1706 `{ [node.id] = true }`) keeps every granted node out
+    let granted = base.grantedPassives.get().with(|m| m.keys());
+    if !granted.is_empty() {
+        let ov = Override::default();
+        let ids = Table::new();
+        for &id in &granted {
+            ids.set(id as f64, true);
+        }
+        ov.extra.set("$removeNodeIds", ids);
+        match run_with_override(&build, &din, ov) {
+            Ok(e) => {
+                remove_checks += 1;
+                let left: Vec<i64> = granted.iter().copied().filter(|&id| e.grantedPassives.get().with(|m| m.contains_key(id))).collect();
+                if !left.is_empty() {
+                    failures.push(format!("{stem}: $removeNodeIds {granted:?}: still granted {left:?}"));
+                }
+            }
+            Err(e) => failures.push(format!("{stem}: $removeNodeIds: {e}")),
+        }
+    }
+    // a two-handed repItem in Weapon 1 skips Weapon 2 (817-820)
+    let staff = catch(|| pob_calc::classes::item::new_Item(Some("Rarity: NORMAL\nLong Staff\nLong Staff"), None, false));
+    if let Some(staff) = staff.ok().filter(|s| s.base.get().is_some_and(|b| b.r#type == n!("Staff"))) {
+        let ov = Override::default();
+        ov.repSlotName.set(Some(n!("Weapon 1")));
+        ov.repItem.set(Some(staff.clone()));
+        match run_with_override(&build, &din, ov) {
+            Ok(e) => {
+                staff_checks += 1;
+                let w1 = e.player.itemList().with(|m| m.get(&n!("Weapon 1")).cloned());
+                let w2 = e.player.itemList().with(|m| m.contains_key(&n!("Weapon 2")));
+                if !w1.is_some_and(|g| Rc::ptr_eq(&g, &staff)) || w2 {
+                    failures.push(format!("{stem}: staff repItem: Weapon 1 not the staff or Weapon 2 kept"));
+                }
+            }
+            Err(e) => failures.push(format!("{stem}: staff repItem: {e}")),
+        }
+    }
+    // the restart: pass 1 returns Flow::Restart with the mod in override.extraJewelFuncs (whose
+    // actor stays alive); pass 2 (the same override) adds one radius entry per allocated
+    // non-unique socketed jewel
+    match restart_check(&build, &din, ejf) {
+        Ok(n) => {
+            restart_checks += 1;
+            restart_entries += n;
+        }
+        Err(e) => failures.push(format!("{stem}: restart: {e}")),
+    }
+    pob_calc::global_cache::clear_all();
+    // the LUT table is process-global: dropped here only when no pool runs (else after it)
+    testkit::release_shared(|| lut::clear_timeless_jewel_luts(None));
+    OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks)
+}
+
 #[test]
 fn cs2_l4_overrides() {
     let _serial = serial();
@@ -1196,135 +1306,21 @@ fn cs2_l4_overrides() {
         "the ExtraJewelFunc line does not parse to an ExtraJewelFunc mod"
     );
     let mut failures = Vec::new();
-    for xml in &builds(&parity, false) {
-        let stem = stem(xml);
-        let Ok(dir) = ensure_dumps(&pob_src, xml, &stem) else { continue };
-        let Ok(build) = load_model(xml) else { continue };
-        // the first MAIN hit whose PoB env has items (post-load) and that does not restart
-        let state = dir.join("state");
-        let outs = hit_files(&state, "initEnv:1451");
-        let out_by_call: HashMap<String, PathBuf> =
-            outs.values().filter_map(|p| call_of(p).map(|c| (c, p.clone()))).collect();
-        let mut din = None;
-        for p in hit_files(&state, "initEnv:800").values() {
-            let Some(out) = call_of(p).and_then(|c| out_by_call.get(&c)).and_then(|q| StateDump::load(q).ok()) else {
-                continue;
-            };
-            let items = out.root.get("env").and_then(|e| e.get("player")).and_then(|p| p.get("itemList"))
-                .and_then(J::as_object).map_or(0, |o| o.keys().filter(|k| !k.starts_with('$')).count());
-            let Ok(d) = StateDump::load(p) else { continue };
-            let main = d.root.get("locals").and_then(|l| l.get("mode")).and_then(J::as_str) == Some("MAIN");
-            if main && items > 0 {
-                din = Some(d);
-                break;
-            }
-        }
-        let Some(din) = din else { continue };
-        let base = match run_with_override(&build, &din, Override::default()) {
-            Ok(e) => e,
-            Err(e) => {
-                failures.push(format!("{stem}: base run: {e}"));
-                continue;
-            }
-        };
-        // toggleFlask: every flask in a flask slot
-        let slotted: Vec<(Name, ItemRef)> = build
-            .itemsTab
-            .orderedSlots
-            .snapshot()
-            .iter()
-            .filter_map(|s| {
-                let name = s.get(n!("slotName")).str()?;
-                let id = s.get(n!("selItemId")).opt_num()?;
-                let item = build.itemsTab.items.with(|m| m.get(&(id as u32)).cloned())?;
-                Some((Name::from(&*name), item))
-            })
-            .collect();
-        for (slot, item) in slotted.iter().filter(|(s, i)| s.as_str().starts_with("Flask ") && i.r#type.get() == n!("Flask")) {
-            let was = base.flasks.get().with(|m| m.get(item)).unwrap_or(false);
-            let ov = Override::default();
-            ov.toggleFlask.set(Some(item.clone()));
-            match run_with_override(&build, &din, ov) {
-                Ok(e) => {
-                    flask_checks += 1;
-                    let now = e.flasks.get().with(|m| m.get(item)).unwrap_or(false);
-                    if now == was {
-                        failures.push(format!("{stem}: toggleFlask {slot}: env.flasks stayed {was}"));
-                    }
-                }
-                Err(e) => failures.push(format!("{stem}: toggleFlask {slot}: {e}")),
-            }
-        }
-        // repSlotName / repItem: put the Ring 1 item into Ring 2 (or the Amulet into itself)
-        let ring1 = slotted.iter().find(|(s, _)| *s == n!("Ring 1")).map(|(_, i)| i.clone());
-        if let Some(r1) = ring1 {
-            let ov = Override::default();
-            ov.repSlotName.set(Some(n!("Ring 2")));
-            ov.repItem.set(Some(r1.clone()));
-            match run_with_override(&build, &din, ov) {
-                Ok(e) => {
-                    rep_checks += 1;
-                    let got = e.player.itemList().with(|m| m.get(&n!("Ring 2")).cloned());
-                    if !got.is_some_and(|g| Rc::ptr_eq(&g, &r1)) {
-                        failures.push(format!("{stem}: repItem Ring 2 is not the Ring 1 item"));
-                    }
-                }
-                Err(e) => failures.push(format!("{stem}: repItem Ring 2: {e}")),
-            }
-        }
-        // override.removeNodes[node.id] (1393/1408, CCR-0105 §1): a caller that fills only the
-        // id-keyed half (`override.extra["$removeNodeIds"]`, typed `removeNodes` left None, as
-        // PassiveTreeView.lua:1706 `{ [node.id] = true }`) keeps every granted node out
-        let granted = base.grantedPassives.get().with(|m| m.keys());
-        if !granted.is_empty() {
-            let ov = Override::default();
-            let ids = Table::new();
-            for &id in &granted {
-                ids.set(id as f64, true);
-            }
-            ov.extra.set("$removeNodeIds", ids);
-            match run_with_override(&build, &din, ov) {
-                Ok(e) => {
-                    remove_checks += 1;
-                    let left: Vec<i64> = granted.iter().copied().filter(|&id| e.grantedPassives.get().with(|m| m.contains_key(id))).collect();
-                    if !left.is_empty() {
-                        failures.push(format!("{stem}: $removeNodeIds {granted:?}: still granted {left:?}"));
-                    }
-                }
-                Err(e) => failures.push(format!("{stem}: $removeNodeIds: {e}")),
-            }
-        }
-        // a two-handed repItem in Weapon 1 skips Weapon 2 (817-820)
-        let staff = catch(|| pob_calc::classes::item::new_Item(Some("Rarity: NORMAL\nLong Staff\nLong Staff"), None, false));
-        if let Some(staff) = staff.ok().filter(|s| s.base.get().is_some_and(|b| b.r#type == n!("Staff"))) {
-            let ov = Override::default();
-            ov.repSlotName.set(Some(n!("Weapon 1")));
-            ov.repItem.set(Some(staff.clone()));
-            match run_with_override(&build, &din, ov) {
-                Ok(e) => {
-                    staff_checks += 1;
-                    let w1 = e.player.itemList().with(|m| m.get(&n!("Weapon 1")).cloned());
-                    let w2 = e.player.itemList().with(|m| m.contains_key(&n!("Weapon 2")));
-                    if !w1.is_some_and(|g| Rc::ptr_eq(&g, &staff)) || w2 {
-                        failures.push(format!("{stem}: staff repItem: Weapon 1 not the staff or Weapon 2 kept"));
-                    }
-                }
-                Err(e) => failures.push(format!("{stem}: staff repItem: {e}")),
-            }
-        }
-        // the restart: pass 1 returns Flow::Restart with the mod in override.extraJewelFuncs (whose
-        // actor stays alive); pass 2 (the same override) adds one radius entry per allocated
-        // non-unique socketed jewel
-        match restart_check(&build, &din, &ejf) {
-            Ok(n) => {
-                restart_checks += 1;
-                restart_entries += n;
-            }
-            Err(e) => failures.push(format!("{stem}: restart: {e}")),
-        }
-        pob_calc::global_cache::clear_all();
-        lut::clear_timeless_jewel_luts(None);
-    }
+    // TP1: builds on the bounded pool (`$POB_TEST_PAR`), merged here in corpus order
+    testkit::par_for_each(
+        &builds(&parity, false),
+        |_, xml| overrides_build(xml, &ejf),
+        |_, _, o| {
+            flask_checks += o.flask_checks;
+            rep_checks += o.rep_checks;
+            staff_checks += o.staff_checks;
+            restart_checks += o.restart_checks;
+            restart_entries += o.restart_entries;
+            remove_checks += o.remove_checks;
+            failures.extend(o.failures);
+        },
+    );
+    lut::clear_timeless_jewel_luts(None);
     for f in &failures {
         eprintln!("  {f}");
     }
@@ -1371,6 +1367,171 @@ struct Tally {
     fail_paths: BTreeMap<String, usize>,
 }
 
+/// One build of `cs2_l4_items_segment`: its tally, report lines and missing-dump notes (merged in
+/// corpus order by the caller; TP1).
+fn items_build(xml: &Path, verbose: bool, max_hits: usize) -> (Tally, Vec<String>, Vec<String>) {
+    let mut t = Tally::default();
+    let mut lines = Vec::new();
+    let mut missing = Vec::new();
+    let stem = stem(xml);
+    let dir = match ensure_dumps(xml) {
+        Ok(d) => d,
+        Err(e) => {
+            missing.push(format!("{stem}: {e}"));
+            return (t, lines, missing);
+        }
+    };
+    let build = match load_model(xml) {
+        Ok(b) => b,
+        Err(e) => {
+            t.errors += 1;
+            lines.push(format!("ERROR   {stem}: model {e}"));
+            return (t, lines, missing);
+        }
+    };
+    // a second, never injected copy: the upvalues of its ExtraJewelFunc closures
+    // and the closure sources of its jewel funcs (`jewel_func_equal`)
+    let (jf, jsrc) = load_model(xml).map(|b| (jewel_func_args(&b), jewel_func_srcs(&b))).unwrap_or_default();
+    let state = dir.path().to_path_buf();
+    let ins = hit_files(&state, "initEnv:800");
+    let outs = hit_files(&state, "initEnv:1451");
+    let mut out_by_call: HashMap<String, PathBuf> = HashMap::new();
+    for p in outs.values() {
+        if let Some(c) = call_of(p) {
+            out_by_call.insert(c, p.clone());
+        }
+    }
+    let calls: Vec<(u64, Option<String>)> = ins.iter().map(|(n, p)| (*n, call_of(p))).collect();
+    let synthetic = xml.starts_with(corpus_dir());
+    if synthetic {
+        t.synthetic.entry(stem.clone()).or_default();
+    }
+    let mut carry: Option<Carry> = None;
+    for (i, (n, call)) in calls.iter().enumerate().take(max_hits) {
+        let Ok(din) = StateDump::load(&ins[n]) else {
+            t.errors += 1;
+            lines.push(format!("ERROR   {stem} initEnv:800#{n}: unreadable"));
+            continue;
+        };
+        let dout = call
+            .as_ref()
+            .and_then(|c| out_by_call.get(c))
+            .and_then(|p| StateDump::load(p).ok());
+        // a restart: the recursive call's own 800 hit carries the override PoB built
+        let inner_ejf = if dout.is_none() {
+            match calls.get(i + 1).and_then(|(m, _)| StateDump::load(&ins[m]).ok()).and_then(|d| dumped_ejf(&d)) {
+                Some(k) => Some(k),
+                None => {
+                    t.restart_wrong += 1;
+                    lines.push(format!("RESTART {stem} initEnv:800#{n}: the next hit carries no override.extraJewelFuncs"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        // the recursive call of the previous hit's restart (its override holds PoB's store)
+        let this_carry = carry.take().filter(|_| dumped_ejf(&din).is_some_and(|k| k > 0));
+        let second = this_carry.is_some();
+        let mode = din
+            .root
+            .get("locals")
+            .and_then(|l| l.get("mode"))
+            .and_then(J::as_str)
+            .unwrap_or("?")
+            .to_owned();
+        let tag = format!("{stem} initEnv:800#{n} ({mode})");
+        let (mut next, mut entries) = (None, 0);
+        let outcome = run_hit(&build, &jf, &jsrc, &din, dout.as_ref(), inner_ejf, &stem, this_carry.as_ref(), &mut next, &mut entries);
+        drop(this_carry);
+        carry = next;
+        if second && matches!(outcome, Outcome::Pass(_) | Outcome::Fail(..)) {
+            t.second_pass += 1;
+            t.second_pass_entries += entries;
+            if matches!(outcome, Outcome::Pass(_)) {
+                t.second_pass_ok += 1;
+                if synthetic {
+                    t.synthetic.entry(stem.clone()).or_default().1 += 1;
+                }
+            }
+            lines.push(format!("second  {tag}: {entries} ExtraJewelFunc radius entries"));
+        }
+        if synthetic && matches!(outcome, Outcome::Restart) {
+            t.synthetic.entry(stem.clone()).or_default().0 += 1;
+        }
+        match outcome {
+            Outcome::Pass(why) => {
+                t.pass += 1;
+                for (k, v) in &why {
+                    *t.explained.entry(k).or_default() += v;
+                }
+                if verbose {
+                    lines.push(format!("ok      {tag} {why:?}"));
+                }
+            }
+            Outcome::Fail(mm, why) => {
+                t.fail += 1;
+                for (k, v) in &why {
+                    *t.explained.entry(k).or_default() += v;
+                }
+                lines.push(format!("FAIL    {tag}: {} mismatches", mm.len()));
+                for l in &mm {
+                    *t.fail_paths
+                        .entry(path_shape(l.split(' ').next().unwrap_or("")))
+                        .or_default() += 1;
+                }
+                for l in mm.iter().take(if verbose { usize::MAX } else { 6 }) {
+                    lines.push(format!("          {l}"));
+                }
+            }
+            Outcome::Restart => {
+                t.restart += 1;
+                lines.push(format!("restart {tag}: Flow::Restart"));
+            }
+            Outcome::RestartWrong(e) => {
+                t.restart_wrong += 1;
+                lines.push(format!("RESTART {tag}: {e}"));
+            }
+            Outcome::PreLoad => t.preload += 1,
+            Outcome::Error(e) => {
+                t.errors += 1;
+                lines.push(format!("ERROR   {tag}: {e}"));
+            }
+        }
+    }
+    drop(build);
+    pob_calc::global_cache::clear_all();
+    // the LUT table is process-global: dropped here only when no pool runs (else after it)
+    testkit::release_shared(|| lut::clear_timeless_jewel_luts(None));
+    (t, lines, missing)
+}
+
+impl Tally {
+    /// Add one build's tally (the sums the serial loop accumulated).
+    fn merge(&mut self, o: Tally) {
+        self.pass += o.pass;
+        self.fail += o.fail;
+        self.restart += o.restart;
+        self.restart_wrong += o.restart_wrong;
+        self.preload += o.preload;
+        self.errors += o.errors;
+        self.second_pass += o.second_pass;
+        self.second_pass_ok += o.second_pass_ok;
+        self.second_pass_entries += o.second_pass_entries;
+        for (k, (a, b)) in o.synthetic {
+            let e = self.synthetic.entry(k).or_default();
+            e.0 += a;
+            e.1 += b;
+        }
+        for (k, v) in o.explained {
+            *self.explained.entry(k).or_default() += v;
+        }
+        for (k, v) in o.fail_paths {
+            *self.fail_paths.entry(k).or_default() += v;
+        }
+    }
+}
+
 #[test]
 fn cs2_l4_items_segment() {
     let _serial = serial();
@@ -1396,137 +1557,17 @@ fn cs2_l4_items_segment() {
     let mut lines = Vec::new();
     let mut missing = Vec::new();
     let t0 = std::time::Instant::now();
-    for xml in &corpus {
-        let stem = stem(xml);
-        let dir = match ensure_dumps(&pob_src, xml, &stem) {
-            Ok(d) => d,
-            Err(e) => {
-                missing.push(format!("{stem}: {e}"));
-                continue;
-            }
-        };
-        let build = match load_model(xml) {
-            Ok(b) => b,
-            Err(e) => {
-                t.errors += 1;
-                lines.push(format!("ERROR   {stem}: model {e}"));
-                continue;
-            }
-        };
-        // a second, never injected copy: the upvalues of its ExtraJewelFunc closures
-        // and the closure sources of its jewel funcs (`jewel_func_equal`)
-        let (jf, jsrc) = load_model(xml).map(|b| (jewel_func_args(&b), jewel_func_srcs(&b))).unwrap_or_default();
-        let state = dir.join("state");
-        let ins = hit_files(&state, "initEnv:800");
-        let outs = hit_files(&state, "initEnv:1451");
-        let mut out_by_call: HashMap<String, PathBuf> = HashMap::new();
-        for p in outs.values() {
-            if let Some(c) = call_of(p) {
-                out_by_call.insert(c, p.clone());
-            }
-        }
-        let calls: Vec<(u64, Option<String>)> = ins.iter().map(|(n, p)| (*n, call_of(p))).collect();
-        let synthetic = xml.starts_with(corpus_dir());
-        if synthetic {
-            t.synthetic.entry(stem.clone()).or_default();
-        }
-        let mut carry: Option<Carry> = None;
-        for (i, (n, call)) in calls.iter().enumerate().take(max_hits) {
-            let Ok(din) = StateDump::load(&ins[n]) else {
-                t.errors += 1;
-                lines.push(format!("ERROR   {stem} initEnv:800#{n}: unreadable"));
-                continue;
-            };
-            let dout = call
-                .as_ref()
-                .and_then(|c| out_by_call.get(c))
-                .and_then(|p| StateDump::load(p).ok());
-            // a restart: the recursive call's own 800 hit carries the override PoB built
-            let inner_ejf = if dout.is_none() {
-                match calls.get(i + 1).and_then(|(m, _)| StateDump::load(&ins[m]).ok()).and_then(|d| dumped_ejf(&d)) {
-                    Some(k) => Some(k),
-                    None => {
-                        t.restart_wrong += 1;
-                        lines.push(format!("RESTART {stem} initEnv:800#{n}: the next hit carries no override.extraJewelFuncs"));
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-            // the recursive call of the previous hit's restart (its override holds PoB's store)
-            let this_carry = carry.take().filter(|_| dumped_ejf(&din).is_some_and(|k| k > 0));
-            let second = this_carry.is_some();
-            let mode = din
-                .root
-                .get("locals")
-                .and_then(|l| l.get("mode"))
-                .and_then(J::as_str)
-                .unwrap_or("?")
-                .to_owned();
-            let tag = format!("{stem} initEnv:800#{n} ({mode})");
-            let (mut next, mut entries) = (None, 0);
-            let outcome = run_hit(&build, &jf, &jsrc, &din, dout.as_ref(), inner_ejf, &stem, this_carry.as_ref(), &mut next, &mut entries);
-            drop(this_carry);
-            carry = next;
-            if second && matches!(outcome, Outcome::Pass(_) | Outcome::Fail(..)) {
-                t.second_pass += 1;
-                t.second_pass_entries += entries;
-                if matches!(outcome, Outcome::Pass(_)) {
-                    t.second_pass_ok += 1;
-                    if synthetic {
-                        t.synthetic.entry(stem.clone()).or_default().1 += 1;
-                    }
-                }
-                lines.push(format!("second  {tag}: {entries} ExtraJewelFunc radius entries"));
-            }
-            if synthetic && matches!(outcome, Outcome::Restart) {
-                t.synthetic.entry(stem.clone()).or_default().0 += 1;
-            }
-            match outcome {
-                Outcome::Pass(why) => {
-                    t.pass += 1;
-                    for (k, v) in &why {
-                        *t.explained.entry(k).or_default() += v;
-                    }
-                    if verbose {
-                        lines.push(format!("ok      {tag} {why:?}"));
-                    }
-                }
-                Outcome::Fail(mm, why) => {
-                    t.fail += 1;
-                    for (k, v) in &why {
-                        *t.explained.entry(k).or_default() += v;
-                    }
-                    lines.push(format!("FAIL    {tag}: {} mismatches", mm.len()));
-                    for l in &mm {
-                        *t.fail_paths
-                            .entry(path_shape(l.split(' ').next().unwrap_or("")))
-                            .or_default() += 1;
-                    }
-                    for l in mm.iter().take(if verbose { usize::MAX } else { 6 }) {
-                        lines.push(format!("          {l}"));
-                    }
-                }
-                Outcome::Restart => {
-                    t.restart += 1;
-                    lines.push(format!("restart {tag}: Flow::Restart"));
-                }
-                Outcome::RestartWrong(e) => {
-                    t.restart_wrong += 1;
-                    lines.push(format!("RESTART {tag}: {e}"));
-                }
-                Outcome::PreLoad => t.preload += 1,
-                Outcome::Error(e) => {
-                    t.errors += 1;
-                    lines.push(format!("ERROR   {tag}: {e}"));
-                }
-            }
-        }
-        drop(build);
-        pob_calc::global_cache::clear_all();
-        lut::clear_timeless_jewel_luts(None);
-    }
+    // TP1: builds on the bounded pool (`$POB_TEST_PAR`), merged here in corpus order
+    testkit::par_for_each(
+        &corpus,
+        |_, xml| items_build(xml, verbose, max_hits),
+        |_, _, (bt, bl, bm)| {
+            t.merge(bt);
+            lines.extend(bl);
+            missing.extend(bm);
+        },
+    );
+    lut::clear_timeless_jewel_luts(None);
     for l in &lines {
         eprintln!("{l}");
     }

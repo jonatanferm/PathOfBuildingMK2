@@ -30,6 +30,8 @@ fn oracle(src: PathBuf) -> Oracle {
     let mut o = Oracle::with_bin(env!("CARGO_BIN_EXE_pob_oracle"));
     o.pob_src = Some(src);
     o.cache = None;
+    // the binary end to end: bypass the shared query cache too (TP1)
+    o.query_cache = false;
     o
 }
 

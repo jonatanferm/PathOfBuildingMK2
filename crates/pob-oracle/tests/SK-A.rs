@@ -152,48 +152,23 @@ mod oracle {
         v
     }
 
-    /// The build's hook dumps (`skill:<S>:*` for every act_int hook skill), probed into
-    /// `target/tmp/ska-probe/<stem>/state` when absent or older than the build file.
-    fn probe(xml: &Path, patched: &Path, skills: &BTreeSet<String>) -> Result<PathBuf, String> {
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join("ska-probe")
-            .join(stem(xml));
-        let hits = dir.join("hits.json");
-        let fresh = match (std::fs::metadata(&hits), std::fs::metadata(xml)) {
-            (Ok(h), Ok(x)) => match (h.modified(), x.modified()) {
-                (Ok(h), Ok(x)) => h >= x,
-                _ => false,
-            },
-            _ => false,
+    /// The build's hook dumps (`skill:<S>:*` for every act_int hook skill): the shared probe
+    /// cache's entry of that selection on the unpatched-stages copy, probed in a fresh
+    /// `pob_oracle probe` process when absent (TP1: `testkit::probe_selection`, keyed by the
+    /// patched source, the build's bytes and the selection, shared by every worktree). Hold the
+    /// result while reading the dumps.
+    fn probe(xml: &Path, skills: &BTreeSet<String>) -> Result<pob_oracle::runner::ProbeDumps, String> {
+        let opts = pob_oracle::runner::ProbeOptions {
+            select: skills.iter().map(|s| format!("skill:{s}:*")).collect(),
+            max_dumps: 100_000,
+            provenance: false,
         };
-        if fresh {
-            return Ok(dir.join("state"));
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let select: Vec<String> = skills.iter().map(|s| format!("skill:{s}:*")).collect();
-        let log = std::fs::File::create(dir.with_extension("log")).map_err(|e| e.to_string())?;
-        let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-            .arg("probe")
-            .arg(xml)
-            .arg("--out-dir")
-            .arg(&dir)
-            .arg("--patched")
-            .arg(patched)
-            .arg("--select")
-            .arg(select.join(","))
-            .args(["--max-dumps", "100000", "--no-provenance"])
-            .stdout(std::process::Stdio::null())
-            .stderr(log)
-            .status()
-            .map_err(|e| e.to_string())?;
-        if !status.success() || !hits.is_file() {
-            return Err(format!(
-                "probe failed ({status}); see {}",
-                dir.with_extension("log").display()
-            ));
-        }
-        Ok(dir.join("state"))
+        pob_oracle::testkit::probe_selection(
+            Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+            xml,
+            None,
+            &opts,
+        )
     }
 
     enum Outcome {
@@ -306,8 +281,7 @@ mod oracle {
             .collect();
         let builds = corpus(&skills);
         assert!(!builds.is_empty(), "no SK-A corpus builds");
-        let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-        let patched = pob_oracle::patcher::patch(&src, None, &root).expect("patch PoB");
+        let _ = &src;
         let verbose = std::env::var_os("SKA_VERBOSE").is_some();
         let mut per: BTreeMap<String, PerHook> = BTreeMap::new();
         let mut failed: Vec<String> = Vec::new();
@@ -316,7 +290,7 @@ mod oracle {
         let mut lua_errors = 0u64;
         for xml in &builds {
             let stem = stem(xml).to_owned();
-            let state = match probe(xml, &patched.src, &skills) {
+            let state = match probe(xml, &skills) {
                 Ok(s) => s,
                 Err(e) => {
                     failed.push(format!("{stem}: {e}"));
@@ -343,7 +317,7 @@ mod oracle {
                     id.split('.').nth(2).unwrap(),
                     id.rsplit('.').next().unwrap()
                 );
-                let dirs = vec![state.clone()];
+                let dirs = vec![state.path().to_path_buf()];
                 let pout = testkit::find_dump(&dirs, &format!("{skill_probe}:out#{n}"));
                 let din = match StateDump::load(&pin) {
                     Ok(d) => d,

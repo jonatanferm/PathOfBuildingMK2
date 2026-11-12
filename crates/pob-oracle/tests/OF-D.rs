@@ -120,46 +120,38 @@ fn clip(s: &str) -> String {
 
 // ---- probing --------------------------------------------------------------------------------------
 
-/// The directory holding `offence:2174/2606` dumps of `xml`: probed into
-/// `target/tmp/<sub>/<stem>/state/` when absent.
+/// The `offence:2174/2606` dumps of `xml`: the shared probe cache's entry of the selection under
+/// `docs/port/stages.toml`, probed in a fresh `pob_oracle probe` process when absent (TP1:
+/// `testkit::probe_selection`, keyed by the patched source, the build's bytes and the selection,
+/// shared by every worktree). Hold the result while reading the dumps.
 #[cfg(feature = "luajit")]
-fn probe_dumps(xml: &Path, all_hits: bool) -> Option<PathBuf> {
-    let stem = stem(xml);
-    let sub = if all_hits { "ofd-probe" } else { "ofd-probe-main" };
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(sub).join(stem);
-    let state = dir.join("state");
-    if dir.join("hits.json").is_file() {
-        return Some(state);
-    }
-    let src = pob_oracle::oracle::find_pob_src()?;
+fn probe_dumps(xml: &Path, all_hits: bool) -> Option<pob_oracle::runner::ProbeDumps> {
     let stages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/port/stages.toml");
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-    let patched = pob_oracle::patcher::patch(&src, Some(&stages), &root).ok()?;
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).ok()?;
     let select = if all_hits {
-        format!("{STAGE_IN},{STAGE_OUT}")
+        vec![STAGE_IN.to_owned(), STAGE_OUT.to_owned()]
     } else {
-        format!("{STAGE_IN}@main,{STAGE_OUT}@main")
+        vec![format!("{STAGE_IN}@main"), format!("{STAGE_OUT}@main")]
     };
-    let max = std::env::var("OFD_MAX_DUMPS").unwrap_or_else(|_| "80".to_owned());
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-        .arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(&dir)
-        .arg("--patched")
-        .arg(&patched.src)
-        .args(["--select", &select, "--max-dumps", &max, "--no-provenance"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::fs::File::create(dir.with_extension("log")).ok()?)
-        .status()
-        .ok()?;
-    status.success().then_some(state)
+    let max = std::env::var("OFD_MAX_DUMPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(80);
+    let opts = pob_oracle::runner::ProbeOptions {
+        select,
+        max_dumps: max,
+        provenance: false,
+    };
+    testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&stages),
+        &opts,
+    )
+    .ok()
 }
 
 #[cfg(not(feature = "luajit"))]
-fn probe_dumps(_xml: &Path, _all_hits: bool) -> Option<PathBuf> {
+fn probe_dumps(_xml: &Path, _all_hits: bool) -> Option<pob_oracle::runner::ProbeDumps> {
     None
 }
 
@@ -169,7 +161,11 @@ fn pairs(state: &Path) -> Vec<(u64, PathBuf, PathBuf)> {
     let mut outs: BTreeMap<u64, PathBuf> = BTreeMap::new();
     for e in std::fs::read_dir(state).into_iter().flatten().flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        let Some(base) = name.strip_suffix(".json") else {
+        // `.json` (a private probe run) or `.json.zst` (the shared probe cache)
+        let Some(base) = name
+            .strip_suffix(".json")
+            .or_else(|| name.strip_suffix(".json.zst"))
+        else {
             continue;
         };
         let Some((id, n)) = base.split_once('#') else {
@@ -449,8 +445,9 @@ fn run_corpus(title: &str, builds: &[PathBuf], all_hits: bool) -> Option<Tally> 
     for xml in builds {
         let stem = stem(xml);
         let mut dirs: Vec<PathBuf> = Vec::new();
-        if let Some(d) = probe_dumps(xml, all_hits) {
-            dirs.push(d);
+        let probed = probe_dumps(xml, all_hits);
+        if let Some(d) = &probed {
+            dirs.push(d.path().to_path_buf());
         }
         // dumps from `scripts/port/oracle.sh run` (probe cache) also count
         dirs.extend(testkit::dump_dirs(stem, Some(xml)));

@@ -615,6 +615,10 @@ pub struct Oracle {
     /// Read `<cache>/<stem>/{outputs,stages}.json` instead of running, when
     /// present and newer than the build file (`$POB_ORACLE_CACHE`).
     pub cache: Option<PathBuf>,
+    /// TP1: route [`Self::run`] through the shared query cache (`runner::cached_query_result`,
+    /// `$POB_QUERY_CACHE`). Default true; false always runs a fresh `pob_oracle` process (the
+    /// harness test of the binary itself).
+    pub query_cache: bool,
 }
 
 impl Oracle {
@@ -636,6 +640,7 @@ impl Oracle {
             bin: bin.into(),
             pob_src: None,
             cache: std::env::var_os("POB_ORACLE_CACHE").map(PathBuf::from),
+            query_cache: true,
         }
     }
 
@@ -669,10 +674,40 @@ impl Oracle {
     }
 
     /// The raw JSON of a dump, from the cache or a fresh `pob_oracle` process.
+    ///
+    /// TP1: besides the explicit `$POB_ORACLE_CACHE` directory, a dump goes through the shared
+    /// content-addressed query cache (`runner::cached_query`, `$POB_QUERY_CACHE`), keyed by the
+    /// PoB source tree ([`crate::runner::source_key`]), the build's bytes, its stem (PoB's build
+    /// name), the dump and the binary's code. A failed run is not cached.
     pub fn run(&self, dump: Dump, build: &Path) -> Result<String> {
         if let Some(s) = self.cached(dump, build) {
             return Ok(s);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.query_cache {
+            if let (Some(src), Ok(bytes)) = (
+                self.pob_src.clone().or_else(find_pob_src),
+                std::fs::read(build),
+            ) {
+                const BIN: &str = include_str!("bin/pob_oracle.rs");
+                let stem = build
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                return crate::runner::cached_query_result(
+                    &src,
+                    &bytes,
+                    &["pob_oracle dump 1", dump.command(), &stem, BIN],
+                    || self.run_process(dump, build).map_err(|e| e.0),
+                )
+                .map_err(OracleError);
+            }
+        }
+        self.run_process(dump, build)
+    }
+
+    /// [`Self::run`] without any cache: a fresh `pob_oracle` process.
+    fn run_process(&self, dump: Dump, build: &Path) -> Result<String> {
         static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let tmp = std::env::temp_dir().join(format!(
             "pob_oracle_{}_{}_{}.json",

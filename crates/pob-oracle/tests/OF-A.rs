@@ -85,6 +85,20 @@ struct L4Tally {
     hook_notes: Vec<String>,
 }
 
+/// `t += o` (the sums and lists the serial loop accumulated, in order; TP1).
+fn l4_add(t: &mut L4Tally, o: L4Tally) {
+    t.hits += o.hits;
+    t.clean += o.clean;
+    t.returns += o.returns;
+    t.hooks_replayed += o.hooks_replayed;
+    t.nonvacuous += o.nonvacuous;
+    t.hook_needed += o.hook_needed;
+    t.foreign += o.foreign;
+    t.missing.extend(o.missing);
+    t.failed.extend(o.failed);
+    t.hook_notes.extend(o.hook_notes);
+}
+
 /// The innermost enclosing function-probe hit of a dump (`offence:in#4`).
 fn enclosing(d: &StateDump) -> String {
     d.stack.last().cloned().unwrap_or_default()
@@ -384,14 +398,24 @@ fn ofa_l4_setup() {
     let Some(parity) = pob_testpaths::require(pob_testpaths::parity_dir(), ".parity") else {
         return;
     };
-    let mut unit = L4Tally::default();
-    for xml in xmls(&slice5_dir()) {
-        l4_build_isolated(&xml, &mut unit);
-    }
-    let mut all57 = L4Tally::default();
-    for xml in xmls(&parity.join("builds")) {
-        l4_build_isolated(&xml, &mut all57);
-    }
+    // TP1: the child processes (one per build) run on the bounded pool (`$POB_TEST_PAR`); each
+    // build's tally is parsed into its own `L4Tally` and added here in corpus order, so the
+    // report and the gates are the serial ones
+    let run = |dir: &Path| {
+        let mut sum = L4Tally::default();
+        testkit::par_for_each(
+            &xmls(dir),
+            |_, xml| {
+                let mut t = L4Tally::default();
+                l4_build_isolated(xml, &mut t);
+                t
+            },
+            |_, _, t| l4_add(&mut sum, t),
+        );
+        sum
+    };
+    let unit = run(&slice5_dir());
+    let all57 = run(&parity.join("builds"));
     l4_report("slice5 (unit corpus)", &unit);
     l4_report("all57", &all57);
     assert!(

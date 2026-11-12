@@ -33,6 +33,9 @@ pub mod mod_parser;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod nondet;
 pub mod oracle;
+/// TP1: bounded parallel corpus loops for the oracle tests (re-exported by `testkit`).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod par;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod patcher;
 /// ORC-X: replay of recorded callee deltas (stub by U0).
