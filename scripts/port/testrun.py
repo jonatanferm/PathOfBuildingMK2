@@ -31,7 +31,9 @@ How `run` works:
      cargo pass) comes last, as with cargo, followed by cargo's `error: N targets failed:` list.
   4. Without --no-fail-fast, cargo stops at the first failing binary in its order. Here: once a job
      fails, every job after it in cargo's order is cancelled (killed when running), jobs before it
-     still run, and nothing is printed after the first failing block. With --no-fail-fast every job
+     still run, and nothing is printed after the first failing block (the doctests may already have
+     run inside the cargo pass, but that pass is killed and its output dropped; and if a later job
+     fails before an earlier one, both count as failed). With --no-fail-fast every job
      runs. Exit status: 101 when a binary failed (cargo's), else that of the cargo pass.
 
 Only the standard library is used. Lua-faithfulness rules do not apply (infrastructure unit).

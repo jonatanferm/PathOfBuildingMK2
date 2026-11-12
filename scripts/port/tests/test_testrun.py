@@ -304,16 +304,20 @@ class FakeCargoTest(unittest.TestCase):
     # --- history ---------------------------------------------------------------------------------
 
     def test_history_starts_the_longest_first(self):
-        self.spec([("A", "test", 0.0, 0), ("B", "test", 0.0, 0), ("C", "test", 0.7, 0)])
+        # Clearly different times (C > A > B), so the order taken from the history is fixed: with A
+        # and B equally fast, whichever the first run happened to time as longer would go first.
+        self.spec([("A", "test", 0.3, 0), ("B", "test", 0.0, 0), ("C", "test", 0.7, 0)])
         self.run_tr("test", "-p", "fakepkg", jobs=1)
         with open(self.history) as fh:
             h = json.load(fh)
         self.assertEqual(sorted(h), ["full -p fakepkg --test A", "full -p fakepkg --test B", "full -p fakepkg --test C"])
         self.assertGreater(h["full -p fakepkg --test C"], 0.5)
+        self.assertGreater(h["full -p fakepkg --test C"], h["full -p fakepkg --test A"])
+        self.assertGreater(h["full -p fakepkg --test A"], h["full -p fakepkg --test B"])
         self.read_events()
         r = self.run_tr("test", "-p", "fakepkg", jobs=2)
-        # Two jobs: C (longest) and A start together, B only when A is done. In cargo's order (no
-        # history) A and B would start together and C last.
+        # Two jobs: C (longest) and A start together, B only when A is done (A, 0.3 s, ends before
+        # C, 0.7 s). In cargo's order (no history) A and B would start together and C last.
         starts = [e[1] for e in sorted(self.read_events(), key=lambda e: e[2]) if e[0] == "start"]
         self.assertEqual(sorted(starts[:2]), ["A", "C"])
         self.assertEqual(starts[2], "B")

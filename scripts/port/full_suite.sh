@@ -5,8 +5,9 @@
 # Scheduled every few hours by a systemd user timer:
 #   systemd-run --user --unit=pob-port-fullsuite --on-active=5min --on-unit-inactive=3h <abs path>
 #
-# Crates run concurrently in up to $POB_FULLSUITE_LANES lanes (default 3; 1 = one crate at a time as
-# before). The heavy crates ($POB_FULLSUITE_HEAVY, default pob-oracle and pob-ui-oracle) start
+# Crates run concurrently in up to $POB_FULLSUITE_LANES lanes (default 2; 1 = one crate at a time as
+# before). Each lane's cargo.sh holds one machine-wide run slot for its whole run phase, so the default
+# leaves one of the 3 default run slots to other agents' `cargo.sh test` during the long heavy crates. The heavy crates ($POB_FULLSUITE_HEAVY, default pob-oracle and pob-ui-oracle) start
 # first, each in its own lane, and the other crates share the remaining lane(s) in list order. Within
 # a crate, cargo.sh runs the test binaries in parallel (testrun.py, POB_PORT_TEST_JOBS). Memory stays
 # bounded machine-wide however many lanes run: compiles take one of the cargo.sh compile slots, and
@@ -21,7 +22,7 @@ main="$(cd "$(dirname "$0")/../.." && pwd)"
 wt="${POB_FULLSUITE_WT:-$(dirname "$main")/pob-fullsuite}"
 crates="${POB_FULLSUITE_CRATES:-pob-lua pob-gamedata pob-modparser pob-calc pob-dump pob-oracle pob-sg pob-sg-wgpu pob-host pob-ui-core pob-ui-oracle pob-app}"
 heavy="${POB_FULLSUITE_HEAVY:-pob-oracle pob-ui-oracle}"
-lanes="${POB_FULLSUITE_LANES:-3}"
+lanes="${POB_FULLSUITE_LANES:-2}"
 if [ ! -d "$wt" ]; then git -C "$main" worktree add --detach "$wt" rust-port >/dev/null; fi
 git -C "$wt" checkout -q --detach -f rust-port
 head=$(git -C "$wt" rev-parse --short HEAD)

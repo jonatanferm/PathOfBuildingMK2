@@ -22,10 +22,12 @@ slot, then the run under a machine-wide run slot (`run.lock[.i]` in `$POB_PORT_L
 - Up to `POB_PORT_TEST_JOBS` (default 3) recorded binaries run at once. The first runs under the run
   slot `cargo.sh` already holds; each further concurrent binary takes one more machine-wide run slot,
   without blocking, and only while no other `cargo.sh` waits for a run slot (waiting runs leave a
-  `run.wait.<pid>` marker). Each binary runs in its own `systemd-run --user --scope` with
+  `run.wait.<pid>` marker; a marker whose pid is gone is removed, so one left by a SIGKILLed
+  `cargo.sh` blocks extra slots only if its pid has been reused). Each binary runs in its own `systemd-run --user --scope` with
   `MemoryMax=$POB_PORT_MEM` (5G) and `MemorySwapMax=$POB_PORT_SWAP` (1G). So, machine-wide, at most
   `POB_PORT_RUN_SLOTS` test binaries run, each under its own cap, as before. The cargo pass (which
-  also runs the doctests) runs in a scope of its own under the first slot.
+  also runs the doctests) runs in a scope of its own under the first slot, alongside the first
+  binary, so a `cargo.sh` has one more scope than run slots (the cargo pass is light once compiled).
 - Output is deterministic: each binary's stdout+stderr goes to a spool file (in the target dir) and
   the blocks are printed in cargo's order, with the earliest unfinished one streamed live. A block is
   cargo's `Running` line, the binary's output, cargo's `error: test failed, to rerun pass ...` line
@@ -39,8 +41,9 @@ slot, then the run under a machine-wide run slot (`run.lock[.i]` in `$POB_PORT_L
   20 MB (the forked runner before exec).
 - `--no-fail-fast`: every binary runs; exit status 101 when any failed. Without it, cargo stops at the
   first failing binary in its order: here every binary after that one is cancelled (killed when it
-  is running), the ones before it still run, nothing after its block is printed, and the doctests
-  are not run.
+  is running), the ones before it still run, and nothing after its block is printed. The doctests
+  are not reported: the recording cargo pass runs them while the binaries run, so some or all of
+  them may already have run, but that pass is killed when a binary fails and its output is dropped.
 - Scheduling: the longest binaries start first, from the wall times of earlier unfiltered runs in
   `~/.cache/pob-port/test-times.json` (keyed by `quick|full` corpus and target; written under a
   flock with temp file + rename; unknown binaries count as long). This changes only when binaries
@@ -50,7 +53,10 @@ slot, then the run under a machine-wide run slot (`run.lock[.i]` in `$POB_PORT_L
   a `cargo.sh` without `testrun.py` beside it (or without `python3`) also run plain cargo.
 - SIGTERM/SIGINT/SIGHUP (for example from `timeout`) are passed to every running binary (SIGKILL 5 s
   later); exit status 128+signal.
-- Known differences from plain `cargo test`: rerun hints always name the package
+- Known differences from plain `cargo test`: without `--no-fail-fast`, when a binary later in
+  cargo's order fails first (it started earlier, from the history) and then an earlier one fails,
+  both count as failed in the summary line and the `targets failed` list (cargo would report only
+  the first; the exit status is 101 either way); rerun hints always name the package
   (`-p pob-oracle --test CS3`; cargo omits `-p` in a single-package workspace); with `-q` (no
   `Running` lines) a hint names the binary file instead of the target; under `-v` the `Running` line
   shows the recording runner command; and the doctest section's own `Running`/`Finished` timing
@@ -60,11 +66,22 @@ slot, then the run under a machine-wide run slot (`run.lock[.i]` in `$POB_PORT_L
 
 `full_suite.sh` (timer unit `pob-port-fullsuite`, worktree `../pob-fullsuite`, full corpus,
 `POB_ORACLE_REQUIRE=1`, per-crate `timeout ${POB_FULLSUITE_TIMEOUT:-14400}`) now tests the crates in up
-to `POB_FULLSUITE_LANES` (default 3) concurrent lanes. The heavy crates (`POB_FULLSUITE_HEAVY`, default
+to `POB_FULLSUITE_LANES` (default 2) concurrent lanes. The heavy crates (`POB_FULLSUITE_HEAVY`, default
 `pob-oracle pob-ui-oracle`) start first, one lane each; the other crates of `POB_FULLSUITE_CRATES` follow
 in list order in whichever lane is free. Inside each crate the test binaries run in parallel as
 above. The memory bound is the machine-wide one: compiles hold a compile slot, every running test
 binary holds a run slot and its own 5G scope, however many lanes are active.
+
+Costs to other agents: each lane's `cargo.sh` takes its base run slot with the ordinary blocking wait
+(the "only while nobody waits" rule covers the extra slots of `testrun.py` only) and holds it for the
+whole run phase of its crate. With `POB_FULLSUITE_LANES=3` and the default 3 run slots the suite can
+hold every run slot for the whole pob-oracle/pob-ui-oracle phase (1.5-2 h on the full corpus), and
+other agents' `cargo.sh test` queue behind it; the default of 2 lanes leaves one slot free. The
+per-crate timeout also counts time spent waiting for compile and run slots (behind sibling lanes or
+other agents); full-corpus pob-oracle took 6585 s serially, so raise `POB_FULLSUITE_TIMEOUT` if
+lanes run into it. The lane scheduling is tested on a fake `cargo.sh` (`test_full_suite`) only; it
+has not yet run against real cargo. Lanes sharing one target directory do not stall each other's
+compiles in the run phase: cargo releases the build-directory lock before it runs test binaries.
 
 `summary.txt` keeps its format: the header line, one `<crate>: rc=<rc> <secs>s; <p> passed, <f> failed,
 <i> ignored[; FAILED: <tests>]` line per crate (appended as crates finish, rewritten in

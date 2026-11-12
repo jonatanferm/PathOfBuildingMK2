@@ -441,9 +441,15 @@ class CargoShTest(unittest.TestCase):
             # The run phase of test/t goes through testrun.py (its recording runner config, placed
             # before any `--`); bench and the compile phase run plain cargo.
             self.assertEqual([c["runner"] for c in cs], ["0", "0" if args[0] == "bench" else "1"], args)
-        r = self.run_sh("test", "-p", "x", "--", "--exact")
-        raw = [line for line in r.stdout.splitlines() if line.startswith("args=")]
-        self.assertRegex(raw[1], r"^args=test -p x --config target\.'cfg\(all\(\)\)'\.runner=\[.*\] -- --exact$")
+        # cargo.sh puts `--target-dir <path>` right after `test` when the checkout is on /tmp: check
+        # through this checkout and through a fake one that is always on /tmp.
+        main, _ = self.fake_checkout()
+        for script, root in ((CARGO_SH, None), (self.script_in(main), main)):
+            r = self.run_sh("test", "-p", "x", "--", "--exact", script=script)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            raw = [line for line in r.stdout.splitlines() if line.startswith("args=")]
+            pre = re.escape("args=" + self.expect_args(["test", "-p", "x"], root=root))
+            self.assertRegex(raw[1], "^" + pre + r" --config target\.'cfg\(all\(\)\)'\.runner=\[.*\] -- --exact$")
         # The run summary line of testrun.py.
         self.assertRegex(r.stdout, r"(?m)^cargo\.sh: test binaries: 0 run, 0 failed, 0 cancelled;")
 

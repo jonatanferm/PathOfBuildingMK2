@@ -105,7 +105,7 @@ class FullSuiteTest(unittest.TestCase):
         return best
 
     def test_summary_format_and_lanes(self):
-        summary, latest = self.run_suite()
+        summary, latest = self.run_suite(POB_FULLSUITE_LANES="3")
         lines = summary.splitlines()
         self.assertRegex(lines[0], r"^full suite at rust-port [0-9a-f]+, started \d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
         # One line per existing crate, in POB_FULLSUITE_CRATES order (missing crates skipped).
@@ -133,6 +133,15 @@ class FullSuiteTest(unittest.TestCase):
         self.assertEqual(self.overlap(rows), 3)
         starts = [r[1] for r in sorted(rows, key=lambda r: float(r[2])) if r[0] == "start"]
         self.assertEqual(sorted(starts[:3]), ["heavy-a", "heavy-b", "small1"])
+
+    def test_default_is_two_lanes(self):
+        # Two lanes by default (one run slot of the default 3 stays free for other agents): the two
+        # heavy crates start together, the small ones only after one of them is done.
+        self.run_suite(FAKE_SLEEP_heavy_a="0.6", FAKE_SLEEP_heavy_b="0.3")
+        rows = self.events_list()
+        self.assertEqual(self.overlap(rows), 2)
+        starts = [r[1] for r in sorted(rows, key=lambda r: float(r[2])) if r[0] == "start"]
+        self.assertEqual(sorted(starts[:2]), ["heavy-a", "heavy-b"])
 
     def test_one_lane_is_serial(self):
         summary, _ = self.run_suite(POB_FULLSUITE_LANES="1", FAKE_SLEEP_heavy_a="0.1", FAKE_SLEEP_heavy_b="0.1")
