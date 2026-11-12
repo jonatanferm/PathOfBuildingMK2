@@ -19,10 +19,14 @@ pob-calc-perform.workspace = true
 [dev-dependencies]
 # tests/hyg1_len.rs (pob_lua::Name, tostring_num).
 pob-lua.workspace = true
+# benches/INT-2.rs: data.bin and the timeless jewel LUTs.
+pob-gamedata.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 # HYG1 `#t` property test against LuaJIT (tests/hyg1_len.rs). Dev-only: the calc has no Lua runtime.
 mlua.workspace = true
+# benches/INT-2.rs: process CPU time.
+rustix = { version = "1", features = ["time"] }
 
 [features]
 default = []
@@ -35,6 +39,11 @@ probe = [
     "pob-calc-offence/probe",
     "pob-calc-perform/probe",
 ]
+
+# Gate INT-2 (calc doc §9.7): full recalc and power report timings (scripts/port/perf_bench.sh).
+[[bench]]
+name = "INT-2"
+harness = false
 
 [lints]
 workspace = true
