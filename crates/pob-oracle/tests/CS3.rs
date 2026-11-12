@@ -1091,7 +1091,12 @@ fn classify(
             }
         }
         let last = m.path.rsplit('.').next().unwrap_or("");
-        if last.contains("labelNil") || last.contains("includeInFullDPSNil") {
+        // `$enableGlobal<n>Nil`: CCR-0145 §4's gem marker (calc gem literals with nil enableGlobal1/2)
+        if last.contains("labelNil")
+            || last.contains("includeInFullDPSNil")
+            || last.contains("enableGlobal1Nil")
+            || last.contains("enableGlobal2Nil")
+        {
             *why.entry("model-marker").or_default() += 1;
             continue;
         }
