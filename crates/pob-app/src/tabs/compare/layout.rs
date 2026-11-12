@@ -162,9 +162,9 @@ pub fn default_draw_hooks() -> CompareDrawHooks {
         draw_tree: Rc::new(|_, _, _, _, _| {}),
         draw_summary: Rc::new(|_, _, _, _| {}),
         draw_items: Rc::new(|_, _, _, _, _| {}),
-        draw_skills: Rc::new(|_, _, _, _| {}),
-        draw_calcs: Rc::new(|_, _, _, _| {}),
-        draw_config: Rc::new(|_, _, _, _, _| {}),
+        draw_skills: Rc::new(CompareTab::DrawSkills),
+        draw_calcs: Rc::new(CompareTab::DrawCalcs),
+        draw_config: Rc::new(CompareTab::DrawConfig),
     }
 }
 

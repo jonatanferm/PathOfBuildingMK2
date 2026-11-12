@@ -1269,6 +1269,28 @@ impl Rebind {
                 }
             }
         }
+        // `supportEffect.isSupporting[gemInstance] = true` (CalcSetup.lua) keys the live gems,
+        // which CompareTab:DrawSkills' checkSupporting tests by identity (CCR-0144 §3)
+        if let Some(set) = e.isSupporting.get() {
+            let keys = set.with(pob_lua::PtrSet::keys);
+            let mut out = pob_lua::PtrSet::new();
+            let mut changed = false;
+            for g in keys {
+                match self.gems.get(&rc_ptr(&g)) {
+                    Some(l) => {
+                        changed |= !Rc::ptr_eq(l, &g);
+                        out.insert(l);
+                    }
+                    None => {
+                        out.insert(&g);
+                    }
+                }
+            }
+            if changed {
+                set.with_mut(|s| *s = out);
+                self.rebound += 1;
+            }
+        }
     }
 }
 
