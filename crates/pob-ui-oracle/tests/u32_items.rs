@@ -1075,8 +1075,7 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
             ("Gem", "count") => Some("1"),
             _ => None,
         };
-        let both_sides = matches!((&*node.elem, &**k), ("Gem", "count"));
-        if let Some(d) = rust_default.filter(|_| (lua || both_sides) && &**v == "nil") {
+        if let Some(d) = rust_default.filter(|_| &**v == "nil") {
             notes.gem_nil_bools += 1;
             attrs.push((k.to_string(), d.to_owned()));
         } else if &*node.elem == "Gem"

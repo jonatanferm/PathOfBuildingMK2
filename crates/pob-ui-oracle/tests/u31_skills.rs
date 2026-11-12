@@ -969,7 +969,6 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
             ("Gem", "count") => Some("1"),
             _ => None,
         };
-        let both_sides = matches!((&*node.elem, &**k), ("Gem", "count"));
         let new_group_nil = matches!(
             (&*node.elem, &**k),
             ("Skill", "mainActiveSkill" | "mainActiveSkillCalcs")
@@ -977,7 +976,7 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
         if new_group_nil {
             notes.gem_nil_bools += 1;
             attrs.push((k.to_string(), "nil".to_owned()));
-        } else if let Some(d) = rust_default.filter(|_| (lua || both_sides) && &**v == "nil") {
+        } else if let Some(d) = rust_default.filter(|_| &**v == "nil") {
             notes.gem_nil_bools += 1;
             attrs.push((k.to_string(), d.to_owned()));
         } else if &*node.elem == "Gem"
