@@ -1,0 +1,32 @@
+# U27 fallback weights with variable rolls: Glorious Vanity on 61834; Generate (the multi-stat nodes get one
+# describeStats line and mod list per stat, buildStatModLists, cached in the legion tables as
+# modListGenerated), show the fallback list, Generate again (the cached lists), then the build XML.
+#! u27-rust-misc-calc
+#! u27-expect-text ^4Fallback Nodes
+#! u27-expect-text vaal_notable_physical_damage_1, 0.873, 0.083, 0
+screen 1280 800
+fixture userdir=user
+fixture net=net.json
+frames 2
+load-build "Builds/gv.xml"
+frames 3
+move 699 786
+frames 1
+click LEFTBUTTON
+frames 3
+move 880 346
+frames 1
+click LEFTBUTTON
+frames 2
+move 300 434
+frames 1
+click LEFTBUTTON
+frames 2
+move 880 346
+frames 1
+click LEFTBUTTON
+frames 2
+move 560 400
+frames 1
+snapshot generate_gv
+frames 1

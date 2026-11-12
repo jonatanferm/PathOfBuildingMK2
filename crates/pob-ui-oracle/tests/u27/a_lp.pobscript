@@ -1,0 +1,34 @@
+# U27 search 1: Lethal Pride on the Ghost Dance socket (61834) with four desired notables (the build's
+# TimelessData): open the popup (idle layout; the PC league list arrives from the net fixture), hover the
+# primary node weight slider (its tooltip.Draw override puts the tooltip above the knob), Search (results sorted
+# by total), Open Trade URL (OpenURL + Copy of the URL), Open Next Trade URL, then the build XML.
+#! u27-expect-text   17570:     1.0     14.0       0          3.0
+#! u27-expect-text Open Next Trade URL
+#! u27-expect-effect OpenUrl
+#! u27-expect-text ^7For nodes with multiple stats this slider controls the weight of the first stat listed.
+screen 1280 800
+fixture userdir=user
+fixture net=net.json
+frames 2
+load-build "Builds/lp.xml"
+frames 3
+move 699 786
+frames 1
+click LEFTBUTTON
+frames 3
+move 662 254
+frames 2
+move 550 672
+frames 1
+click LEFTBUTTON
+frames 2
+move 1061 434
+frames 1
+click LEFTBUTTON
+frames 2
+click LEFTBUTTON
+frames 2
+move 560 400
+frames 1
+snapshot lp
+frames 1

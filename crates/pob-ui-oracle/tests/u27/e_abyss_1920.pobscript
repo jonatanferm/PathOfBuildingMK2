@@ -1,0 +1,27 @@
+# U27 search 5: Festering Vengeance (an abyss LUT: the affected passives come from readAbyssJewelLUT, the
+# rolls scale the weights) on 61834 with three notables; Search, Open Trade URL (the abyss keystone trade id),
+# then the build XML.
+#! u27-expect-text 2405:   95.0     58.0
+#! u27-expect-effect OpenUrl
+screen 1920 1080 dpi 1.5
+fixture userdir=user
+fixture net=net.json
+frames 2
+load-build "Builds/abyss.xml"
+frames 3
+move 699 706
+frames 1
+click LEFTBUTTON
+frames 3
+move 550 632
+frames 1
+click LEFTBUTTON
+frames 2
+move 1061 394
+frames 1
+click LEFTBUTTON
+frames 2
+move 560 360
+frames 1
+snapshot abyss
+frames 1

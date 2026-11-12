@@ -1,0 +1,53 @@
+# U27 controls: open the popup on a build without timeless data (Glorious Vanity, All Sockets), drop the jewel
+# type list and pick Lethal Pride (buildMods, the conqueror list), drop the node list and pick Total Strength
+# (a new desired row), click the primary weight slider's track (the row's weights follow), hover the minimum
+# weight slider (its tooltip override), show the fallback list, Reset, Cancel, then the build XML.
+#! u27-expect-text total_strength, 5, 0, 0
+#! u27-expect-text ^7Seeds that do not meet the minimum weight threshold
+#! u27-expect-text Lethal Pride
+screen 1920 1080 dpi 1.5
+fixture userdir=user
+fixture net=net.json
+frames 2
+load-build "Builds/timeless_base.xml"
+frames 3
+move 699 706
+frames 1
+click LEFTBUTTON
+frames 3
+move 742 99
+frames 1
+click LEFTBUTTON
+frames 2
+move 742 127
+frames 1
+click LEFTBUTTON
+frames 2
+move 742 283
+frames 1
+click LEFTBUTTON
+frames 2
+move 742 311
+frames 1
+click LEFTBUTTON
+frames 2
+move 742 214
+frames 1
+click LEFTBUTTON
+frames 2
+move 742 260
+frames 2
+move 300 394
+frames 1
+click LEFTBUTTON
+frames 2
+move 640 632
+frames 1
+click LEFTBUTTON
+frames 2
+move 730 632
+frames 1
+click LEFTBUTTON
+frames 2
+snapshot controls
+frames 1
