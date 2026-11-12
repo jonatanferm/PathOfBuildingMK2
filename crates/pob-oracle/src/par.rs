@@ -13,7 +13,11 @@
 //! a worker starts without whatever the test thread set up: put such setup in the `init` of
 //! [`par_for_each_init`] (it runs once per worker). Process-global counters
 //! (`pob_calc::stub::stub_report`, the timeless-jewel LUT cache) are shared by all workers;
-//! work that reads them belongs in `consume`.
+//! work that reads them belongs in `consume`. Dropping such a cache between items (e.g.
+//! `clear_timeless_jewel_luts` to keep RSS low) races with workers using it (`readLUT` locks the
+//! LUT table twice, a clear in between makes its entry vanish): do it through
+//! [`release_shared`], which skips it while a multi-worker pool runs, and drop the cache once
+//! after the pool returns.
 //!
 //! With `POB_TEST_PAR=1` (or a single item) everything runs serially on the calling thread
 //! (the exact pre-TP1 behaviour). A panic in `f` is caught and re-raised on the calling thread
@@ -23,6 +27,7 @@
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Condvar, Mutex, PoisonError};
 
 /// The worker count variable.
@@ -45,6 +50,43 @@ pub fn test_par() -> usize {
 #[must_use]
 pub fn window(workers: usize) -> usize {
     2 * workers.max(1)
+}
+
+/// Multi-worker pools running in this process now (the serial path is not counted).
+static POOLS_RUNNING: AtomicUsize = AtomicUsize::new(0);
+
+/// Counts one running multi-worker pool while alive (also on unwind).
+struct PoolRunning;
+
+impl PoolRunning {
+    fn enter() -> Self {
+        POOLS_RUNNING.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for PoolRunning {
+    fn drop(&mut self) {
+        POOLS_RUNNING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Whether a multi-worker pool of this module is running anywhere in the process.
+#[must_use]
+pub fn pool_running() -> bool {
+    POOLS_RUNNING.load(Ordering::SeqCst) > 0
+}
+
+/// Run `release` (dropping a process-global cache, e.g. the timeless-jewel LUTs, between items)
+/// unless a multi-worker pool is running; returns whether it ran. On the serial path
+/// (`POB_TEST_PAR=1`, or a single item) this is the pre-TP1 per-item release; under a pool the
+/// cache stays (bounded: one entry per key) and the caller releases it after the pool.
+pub fn release_shared(release: impl FnOnce()) -> bool {
+    if pool_running() {
+        return false;
+    }
+    release();
+    true
 }
 
 /// Worker stack size: `$RUST_MIN_STACK` when larger, else 64 MiB (deep -O0 calc recursion;
@@ -174,6 +216,7 @@ fn par_for_each_windowed<T, S, R, I, F, C>(
         return;
     }
     let ahead = ahead.max(1);
+    let _running = PoolRunning::enter();
     let sched = Mutex::new(Sched {
         next: 0,
         consumed: 0,
@@ -271,11 +314,19 @@ fn par_for_each_windowed<T, S, R, I, F, C>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// The tests of this module run pools; `release_shared_only_outside_pools` checks the
+    /// process-wide pool count, so they take turns.
+    static POOL_TESTS: Mutex<()> = Mutex::new(());
+
+    fn turn() -> std::sync::MutexGuard<'static, ()> {
+        POOL_TESTS.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 
     /// Results come back in input order with any worker count, and the reorder window holds.
     #[test]
     fn ordered_and_bounded() {
+        let _turn = turn();
         let items: Vec<usize> = (0..40).collect();
         for workers in [1, 2, 3, 8] {
             let consumed = AtomicUsize::new(0);
@@ -312,6 +363,7 @@ mod tests {
     /// A panic in `f` surfaces at its item, in input order: the items before it were consumed.
     #[test]
     fn worker_panic_is_reraised_in_order() {
+        let _turn = turn();
         let items: Vec<usize> = (0..20).collect();
         let mut seen = Vec::new();
         let r = catch_unwind(AssertUnwindSafe(|| {
@@ -338,6 +390,7 @@ mod tests {
     /// A panic in `consume` stops the workers (no hang) and is re-raised.
     #[test]
     fn consumer_panic_stops_workers() {
+        let _turn = turn();
         let items: Vec<usize> = (0..100).collect();
         let ran = AtomicUsize::new(0);
         let r = catch_unwind(AssertUnwindSafe(|| {
@@ -359,6 +412,7 @@ mod tests {
     /// consumed, results in order.
     #[test]
     fn bounded_in_flight() {
+        let _turn = turn();
         let items: Vec<usize> = (0..25).collect();
         let claimed = AtomicUsize::new(0);
         let consumed = AtomicUsize::new(0);
@@ -386,8 +440,34 @@ mod tests {
     }
 
     /// `init` runs once per worker, on that worker.
+    /// `release_shared` runs on the serial path and is skipped inside (and only inside) a pool.
+    #[test]
+    fn release_shared_only_outside_pools() {
+        let _turn = turn();
+        let items: Vec<usize> = (0..6).collect();
+        for workers in [1, 3] {
+            let ran = AtomicUsize::new(0);
+            par_for_each_init_with(
+                workers,
+                &items,
+                || (),
+                |(), _, _| {
+                    if release_shared(|| ()) {
+                        ran.fetch_add(1, Ordering::SeqCst);
+                    }
+                },
+                |_, _, ()| {},
+            );
+            let want = if workers == 1 { items.len() } else { 0 };
+            assert_eq!(ran.load(Ordering::SeqCst), want, "workers {workers}");
+        }
+        assert!(!pool_running());
+        assert!(release_shared(|| ()));
+    }
+
     #[test]
     fn init_per_worker() {
+        let _turn = turn();
         let inits = AtomicUsize::new(0);
         let items: Vec<usize> = (0..30).collect();
         let mut total = 0;

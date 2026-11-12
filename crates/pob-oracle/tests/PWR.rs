@@ -342,7 +342,9 @@ fn rust_build(xml: &Path) -> Result<BuildRef, String> {
     let text = std::fs::read_to_string(xml).map_err(|e| e.to_string())?;
     pob_calc::global_cache::clear_all();
     let b = catch(|| pob_calc::model::build_xml::loadBuildFromXML(&text, pob_gamedata::data()))?;
-    lut::clear_timeless_jewel_luts(None);
+    // the LUT table is process-global: dropped here only when no pool runs (`pwr_l5_replay`
+    // drops it after its pool)
+    pob_oracle::testkit::release_shared(|| lut::clear_timeless_jewel_luts(None));
     Ok(b)
 }
 
@@ -755,6 +757,7 @@ fn pwr_l5_replay() {
             total_calls += o.calls;
         },
     );
+    lut::clear_timeless_jewel_luts(None);
     eprintln!("{}", pob_oracle::runner::query_cache_summary());
     eprintln!(
         "PWR L5: {runs} runs over {} builds, {total_exact}/{total_keys} power values exact, {total_calls} PoB calc calls replayed",

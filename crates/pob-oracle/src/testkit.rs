@@ -27,7 +27,7 @@ use crate::schema::{resolve_ids, StateDump};
 // TP1: the bounded corpus pool (`$POB_TEST_PAR`, default 3); see `crate::par`.
 pub use crate::par::{
     par_for_each, par_for_each_bounded, par_for_each_init, par_for_each_init_with, par_map,
-    test_par, TEST_PAR_ENV,
+    pool_running, release_shared, test_par, TEST_PAR_ENV,
 };
 
 /// Initialise `pob_gamedata::data()` from `data/dump` (data.bin, else the JSON dump).
@@ -355,14 +355,13 @@ pub fn oracle_dir(
     let res = (|| {
         fill(&tmp)?;
         std::fs::write(tmp.join(DONE), b"").map_err(|e| format!("{}: {e}", tmp.display()))?;
-        if mode == CacheMode::Refresh || !entry.join(DONE).is_file() {
+        // publish by rename first (atomic; it fails onto an existing entry), so a concurrent
+        // writer's complete entry is never deleted under its reader; only `refresh`, or an
+        // incomplete entry left over (older layout, interrupted delete), is removed and replaced
+        if mode == CacheMode::Refresh {
             let _ = std::fs::remove_dir_all(&entry);
         }
-        match std::fs::rename(&tmp, &entry) {
-            Ok(()) => Ok(()),
-            Err(_) if entry.join(DONE).is_file() => Ok(()),
-            Err(e) => Err(format!("{}: {e}", entry.display())),
-        }
+        crate::runner::publish_dir(&tmp, &entry, &entry.join(DONE)).map_err(|e| e.0)
     })();
     let _ = std::fs::remove_dir_all(&tmp);
     res.map(|()| cached)

@@ -1119,7 +1119,6 @@ struct OvOut {
 impl OvOut {
     #[allow(clippy::too_many_arguments)]
     fn done(
-        self,
         failures: Vec<String>,
         flask_checks: usize,
         rep_checks: usize,
@@ -1142,14 +1141,13 @@ impl OvOut {
 
 /// One build of `cs2_l4_overrides`.
 fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
-    let o = OvOut::default();
     let (mut flask_checks, mut rep_checks, mut staff_checks, mut restart_checks) = (0, 0, 0, 0);
     let mut restart_entries = 0;
     let mut remove_checks = 0;
     let mut failures = Vec::new();
     let stem = stem(xml);
-    let Ok(dir) = ensure_dumps(xml) else { return o.done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
-    let Ok(build) = load_model(xml) else { return o.done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
+    let Ok(dir) = ensure_dumps(xml) else { return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
+    let Ok(build) = load_model(xml) else { return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
     // the first MAIN hit whose PoB env has items (post-load) and that does not restart
     let state = dir.path().to_path_buf();
     let outs = hit_files(&state, "initEnv:1451");
@@ -1169,12 +1167,12 @@ fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
             break;
         }
     }
-    let Some(din) = din else { return o.done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
+    let Some(din) = din else { return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
     let base = match run_with_override(&build, &din, Override::default()) {
         Ok(e) => e,
         Err(e) => {
             failures.push(format!("{stem}: base run: {e}"));
-            return o.done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks);
+            return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks);
         }
     };
     // toggleFlask: every flask in a flask slot
@@ -1265,7 +1263,7 @@ fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
     // the restart: pass 1 returns Flow::Restart with the mod in override.extraJewelFuncs (whose
     // actor stays alive); pass 2 (the same override) adds one radius entry per allocated
     // non-unique socketed jewel
-    match restart_check(&build, &din, &ejf) {
+    match restart_check(&build, &din, ejf) {
         Ok(n) => {
             restart_checks += 1;
             restart_entries += n;
@@ -1273,8 +1271,9 @@ fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
         Err(e) => failures.push(format!("{stem}: restart: {e}")),
     }
     pob_calc::global_cache::clear_all();
-    lut::clear_timeless_jewel_luts(None);
-    return o.done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks)
+    // the LUT table is process-global: dropped here only when no pool runs (else after it)
+    testkit::release_shared(|| lut::clear_timeless_jewel_luts(None));
+    OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks)
 }
 
 #[test]
@@ -1321,6 +1320,7 @@ fn cs2_l4_overrides() {
             failures.extend(o.failures);
         },
     );
+    lut::clear_timeless_jewel_luts(None);
     for f in &failures {
         eprintln!("  {f}");
     }
@@ -1501,7 +1501,8 @@ fn items_build(xml: &Path, verbose: bool, max_hits: usize) -> (Tally, Vec<String
     }
     drop(build);
     pob_calc::global_cache::clear_all();
-    lut::clear_timeless_jewel_luts(None);
+    // the LUT table is process-global: dropped here only when no pool runs (else after it)
+    testkit::release_shared(|| lut::clear_timeless_jewel_luts(None));
     (t, lines, missing)
 }
 
@@ -1566,6 +1567,7 @@ fn cs2_l4_items_segment() {
             missing.extend(bm);
         },
     );
+    lut::clear_timeless_jewel_luts(None);
     for l in &lines {
         eprintln!("{l}");
     }

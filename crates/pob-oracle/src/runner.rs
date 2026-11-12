@@ -13,6 +13,7 @@
 //!   comparison of their outputs and dumps ([`crate::nondet`]).
 //! * [`ProbeCache`]: the probe cache, `.parity/probe-cache/<sha>/<build-blake3>/<hit>.json.zst`.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::nondet::{compare_runs, NondetRecord};
@@ -850,11 +851,29 @@ pub fn query_cache_summary() -> String {
     );
     if mode == "verify" {
         let (same, diff, none) = verify_stats();
-        s.push_str(&format!(
-            "; verified {same} identical, {diff} differing, {none} without an entry"
-        ));
+        let _ = write!(s, "; verified {same} identical, {diff} differing, {none} without an entry");
     }
     s
+}
+
+/// Rename the staged directory `tmp` to `entry` (atomic: it fails onto an existing non-empty
+/// directory). When `entry` already holds `marker` (a concurrent writer's complete entry), that
+/// one stands and is never removed under its reader. An incomplete `entry` without `marker`
+/// (an older layout, an interrupted delete) is removed and the rename retried.
+pub(crate) fn publish_dir(tmp: &Path, entry: &Path, marker: &Path) -> Result<()> {
+    let err = |e: std::io::Error| OracleError(format!("{}: {e}", entry.display()));
+    match std::fs::rename(tmp, entry) {
+        Ok(()) => Ok(()),
+        Err(_) if marker.is_file() => Ok(()),
+        Err(_) => {
+            let _ = std::fs::remove_dir_all(entry);
+            match std::fs::rename(tmp, entry) {
+                Ok(()) => Ok(()),
+                Err(_) if marker.is_file() => Ok(()),
+                Err(e) => Err(err(e)),
+            }
+        }
+    }
 }
 
 impl QueryCache {
@@ -971,14 +990,10 @@ impl QueryCache {
                 staged.put_file_unchecked(name, src)?;
             }
             staged.put_unchecked("result", result)?;
-            if cache_mode() == CacheMode::Refresh || !self.path("result").is_file() {
+            if cache_mode() == CacheMode::Refresh {
                 let _ = std::fs::remove_dir_all(&self.dir);
             }
-            match std::fs::rename(&tmp, &self.dir) {
-                Ok(()) => Ok(()),
-                Err(_) if self.path("result").is_file() => Ok(()),
-                Err(e) => Err(OracleError(format!("{}: {e}", self.dir.display()))),
-            }
+            publish_dir(&tmp, &self.dir, &self.path("result"))
         })();
         let _ = std::fs::remove_dir_all(&tmp);
         res

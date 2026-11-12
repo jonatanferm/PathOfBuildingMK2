@@ -640,12 +640,13 @@ struct PobRun {
 }
 
 /// PoB's side of one load, from the shared oracle query cache (TP1: `testkit::oracle_query`,
-/// keyed by the PoB tree, the XML, the build name and the scripts) or a fresh LuaJIT PoB.
+/// keyed by the PoB tree, the XML, the build name, the scripts and [`POB_RUN_CALLS`]) or a fresh
+/// LuaJIT PoB.
 fn pob_run(src: &Path, xml: &str, name: &str) -> Result<PobRun, String> {
     let text = pob_oracle::testkit::oracle_query(
         src,
         xml.as_bytes(),
-        &["BM-A pob_run 1", name, QUIET_PRELUDE, ORACLE_LUA, BMA_LUA],
+        &["BM-A pob_run 1", name, QUIET_PRELUDE, ORACLE_LUA, BMA_LUA, &POB_RUN_CALLS.join("\n")],
         || pob_run_texts(src, xml, name).map(|t| serde_json::Value::from(t.to_vec()).to_string()),
     )?;
     let t: Vec<String> = serde_json::from_str(&text).map_err(|e| format!("cached pob_run: {e}"))?;
@@ -659,6 +660,15 @@ fn pob_run(src: &Path, xml: &str, name: &str) -> Result<PobRun, String> {
     })
 }
 
+/// The Lua [`pob_run_texts`] runs after the load (pre dump, pre save, post dump, outputs), in
+/// order; part of the query-cache key, so editing one invalidates the cached runs.
+const POB_RUN_CALLS: [&str; 4] = [
+    "return __bma.pre or 'error\\tno capture'",
+    "return __bma.preSave or 'error\\tno capture'",
+    "return __bma.dump()",
+    "return __oracle_outputs()",
+];
+
 /// [`pob_run`]'s texts from a fresh PoB (the caller holds the oracle lock): the pre-BuildOutput
 /// model dump, its `SaveDB`, the post-load model dump and the outputs JSON.
 fn pob_run_texts(src: &Path, xml: &str, name: &str) -> Result<[String; 4], String> {
@@ -671,16 +681,16 @@ fn pob_run_texts(src: &Path, xml: &str, name: &str) -> Result<[String; 4], Strin
         let r = pob.run(code)?;
         Ok(r.first().map(|r| r.text().to_owned()).unwrap_or_default())
     };
-    let pre = text(&mut pob, "return __bma.pre or 'error\\tno capture'")?;
+    let pre = text(&mut pob, POB_RUN_CALLS[0])?;
     if let Some(e) = pre.strip_prefix("error\t") {
         return Err(format!("pre dump: {e}"));
     }
-    let preSave = text(&mut pob, "return __bma.preSave or 'error\\tno capture'")?;
+    let preSave = text(&mut pob, POB_RUN_CALLS[1])?;
     if let Some(e) = preSave.strip_prefix("error\t") {
         return Err(format!("pre save: {e}"));
     }
-    let post = text(&mut pob, "return __bma.dump()")?;
-    let outputs = text(&mut pob, "return __oracle_outputs()")?;
+    let post = text(&mut pob, POB_RUN_CALLS[2])?;
+    let outputs = text(&mut pob, POB_RUN_CALLS[3])?;
     // a dump that does not parse is an error of this run (not cached)
     OracleOutput::from_json(&outputs).map_err(|e| e.to_string())?;
     Ok([pre, preSave, post, outputs])
@@ -864,6 +874,9 @@ fn compare_saves(
 fn run_build(src: &Path, data: &'static Data, path: &Path, saveDir: Option<&Path>) -> (Tally, String) {
     let mut t = Tally::default();
     let mut log = String::new();
+    // each build from a clean (thread-local) GlobalCache, as PoB's fresh process per build: under
+    // the pool, which builds came before on this worker is scheduling, not corpus order
+    pob_calc::global_cache::clear_all();
     run_build_into(src, data, path, &mut t, &mut log, saveDir);
     (t, log)
 }
@@ -1058,8 +1071,10 @@ fn bm_a_corpus() {
         &builds,
         |_, b| {
             let r = run_build(&src, data, b, saveDir.as_deref());
-            // Drop the decoded LUTs between builds to keep RSS low.
-            lut::clear_timeless_jewel_luts(None);
+            // Drop the decoded LUTs between builds to keep RSS low: serial runs only (the LUT
+            // table is process-global; a clear while another worker is inside `readLUT` makes
+            // its entry vanish), else once after the pool.
+            pob_oracle::testkit::release_shared(|| lut::clear_timeless_jewel_luts(None));
             r
         },
         |_, _, (bt, log)| {
@@ -1067,6 +1082,7 @@ fn bm_a_corpus() {
             t.merge(bt);
         },
     );
+    lut::clear_timeless_jewel_luts(None);
     eprintln!("{}", pob_oracle::runner::query_cache_summary());
     eprintln!(
         "BM-A: {} builds, {} loaded in Rust; model {} lines, {} mismatches; sockets {} lines, \

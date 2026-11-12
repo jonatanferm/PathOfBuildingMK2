@@ -25,7 +25,9 @@ only for the Rust side.
     `Cargo.lock`, `ORACLE_CACHE_EPOCH`, the JIT mode, and the path and stat fingerprint of every
     file of the PoB tree (a patched copy's tree included). `input` is the build's XML bytes;
     `key` lists every other text that decides the result (prelude, scripts, build name, calls,
-    a per-test version tag).
+    a per-test version tag). Put every Lua string the run executes into `key` (BM-A:
+    `POB_RUN_CALLS`; CS1 hashes its whole test file); the version tag is only for what `key`
+    cannot see (e.g. Rust code that post-processes the result before it is cached).
   * `SelectionCache` / `testkit::probe_selection`: one `pob_oracle probe` run of a selection, at
     `<patched sha>/<build key>/sel-<blake3(selection, max dumps, provenance, runner.rs,
     bin/pob_oracle.rs, oracle runtime)>/state/<hit>.json.zst`. `<patched sha>`
@@ -75,7 +77,11 @@ returns its per-build tally.
 
 What stays on the test thread: anything reading process-global state, chiefly the `unported!`
 counters (`pob_calc::stub::stub_report`), which are process-wide (CCR-0128 proposes per-thread
-counters). Those tests run only their Lua side on the pool (CO-C). OF-F was tried with its dump
+counters). The timeless-jewel LUT table (`pob_gamedata::timeless_lut`) is process-wide too:
+dropping it between builds (`clear_timeless_jewel_luts`, for RSS) goes through
+`testkit::release_shared`, which runs it only when no multi-worker pool is running (the serial
+path keeps the per-build drop); a pooled test drops it once after the pool. A clear inside `f`
+races with another worker's `readLUT` (it locks the table twice) and fails that build's load. Those tests run only their Lua side on the pool (CO-C). OF-F was tried with its dump
 loading prefetched (`par_for_each_bounded`, 2 builds in flight): 68 -> 60 s on the quick corpus
 but 1.8 -> 2.5 GB peak RSS, too close to the 3 GB budget on the full corpus, so it stays serial.
 Pooled: BM-A, CS2 (both tests), DF-B, CS0, CS1 (its thread-local filter counters are taken per
@@ -116,6 +122,10 @@ Full corpus (57 builds; before = `.parity/fullsuite/20261111-1426/pob-oracle.log
   results are the same (PWR, OF-A, OF-F fail on the quick corpus before and after, with the same
   messages: quick-corpus gates). The full-corpus BM-A cold run found 28 entries the quick corpus
   had made (shared cache).
+* LUT drop after the pool instead of per build (fix round 2; quick corpus, `POB_TEST_PAR=3`,
+  peak RSS by rusage): BM-A cold (new key) 158.1 s / 1.06 GB, warm 6.0 s / 748 MB, `PAR=1`
+  11.6 s / 383 MB; CS2 warm 30.3-30.7 s / 957 MB-1.08 GB, `PAR=1` 82.5 s / 610 MB. Reports
+  identical between `PAR=1` and 3 (CS2: the same lines; its two tests interleave).
 * `POB_ORACLE_SLOTS=3` (CCR-0127), cold (`POB_QUERY_CACHE=refresh`): CO-C 79.9 → 47.5 s, BM-A
   117.0 → 34.9 s (peak 1.43 GB).
 * `POB_QUERY_CACHE=verify` (quick): CO-C 14 identical / 1 differing, CS0 6 / 9, BM-A 0 / 28;
