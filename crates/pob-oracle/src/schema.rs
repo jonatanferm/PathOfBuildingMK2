@@ -1,14 +1,17 @@
 //! The probe dump formats (calc-architecture.md §9.2) and helpers to read
 //! them from Rust.
 //!
-//! * `pob-state/1` ([`StateDump`]): one probe hit, written by
+//! * `pob-state/2` ([`StateDump`]): one probe hit, written by
 //!   `lua/state_dump.lua`. The encoding is documented there and in the
 //!   crate README: crates/pob-dump/FORMAT.md values and table members
 //!   (`$seq`, `$num`, `$keys`, `$meta`, `$float`, `$bytes`, `$$`-escaped
 //!   keys) plus an identity graph (`"$id": n` on the first occurrence of a
 //!   shared table, `{"$ref": n}` elsewhere) and markers (`$data`, `$node`,
 //!   `$treeNode`, `$object`, `$class`, `$env`, `$foreign`, `$fn`), mod stores
-//!   (`$store`) and items (`$item`).
+//!   (`$store`) and items (`$item`). `/2` (FUP3) adds two members that carry
+//!   injection inputs, not compared data ([`INPUT_KEYS`]): an item's
+//!   `$modLines` and a ModParser closure's upvalues (`$fn` markers' `$up`).
+//!   `pob-state/1` dumps (made before FUP3) are still read: they lack both.
 //! * `pob-hits/1` ([`HitsIndex`]): per-probe hit counts and the list of
 //!   dumped hits of one run.
 //! * `pob-provenance/1` ([`Provenance`]): last writer `file:line` of every
@@ -27,7 +30,18 @@ use serde_json::{Map, Value as J};
 
 use crate::oracle::{OracleError, OracleOutput, Result};
 
-pub const STATE_FORMAT: &str = "pob-state/1";
+/// The format `lua/state_dump.lua` writes (bumped by FUP3: items' `$modLines`, closures' `$up`).
+pub const STATE_FORMAT: &str = "pob-state/2";
+/// Every format [`StateDump::from_json`] reads: [`STATE_FORMAT`] and the `/1` it extends (the
+/// Rust exporter's `pob_calc::probe::export_doc` still writes `/1`, and so do cached pre-FUP3
+/// dumps). [`StateDump::is_current`] tells them apart.
+pub const STATE_FORMATS: &[&str] = &[STATE_FORMAT, "pob-state/1"];
+
+/// Members that are injection inputs, not data: present in PoB's dumps only, so every
+/// comparison ignores them ([`crate::diff`]; `$at`, the inserting line, is metadata of the same
+/// kind): `$modLines` (an item's mod lines, `inject` fills the item's `*ModLines`), `$up` (a
+/// `$fn` marker's upvalues, `mod_json` fills `JewelFuncSpec.args`).
+pub const INPUT_KEYS: &[&str] = &["$at", "$modLines", "$up"];
 pub const HITS_FORMAT: &str = "pob-hits/1";
 pub const PROVENANCE_FORMAT: &str = "pob-provenance/1";
 
@@ -348,10 +362,18 @@ impl StateDump {
     pub fn from_json(s: &str) -> Result<Self> {
         let d: Self =
             serde_json::from_str(s).map_err(|e| OracleError(format!("pob-state JSON: {e}")))?;
-        if d.format != STATE_FORMAT {
+        if !STATE_FORMATS.contains(&d.format.as_str()) {
             return Err(OracleError(format!("unexpected format {}", d.format)));
         }
         Ok(d)
+    }
+
+    /// Written by the current encoder ([`STATE_FORMAT`]): a test that needs what `/2` added
+    /// (items' mod lines, closures' upvalues) re-probes a private dump directory holding older
+    /// dumps (the shared probe cache is keyed by the encoder's text, `patcher::plan_sha`).
+    #[must_use]
+    pub fn is_current(&self) -> bool {
+        self.format == STATE_FORMAT
     }
 
     pub fn load(path: &Path) -> Result<Self> {

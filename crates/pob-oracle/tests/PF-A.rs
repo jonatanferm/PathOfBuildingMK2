@@ -159,7 +159,11 @@ fn probe_into(xml: &Path, sub: &str, select: &[String]) -> Result<PathBuf, Strin
         .join(sub)
         .join(stem(xml));
     let state = dir.join("state");
-    if dir.join("hits.json").is_file() && std::env::var_os("PFA_REPROBE").is_none() {
+    // FUP3: dumps of an older encoder (no `format.txt` of the current pob-state format) are
+    // probed again: the item mod lines of pob-state/2 decide the KNOWN_DIFFS entries
+    let current = std::fs::read_to_string(dir.join("format.txt"))
+        .is_ok_and(|f| f.trim() == pob_oracle::schema::STATE_FORMAT);
+    if current && dir.join("hits.json").is_file() && std::env::var_os("PFA_REPROBE").is_none() {
         return Ok(state);
     }
     let patched = patched_src().ok_or("no patched PoB source")?;
@@ -183,6 +187,7 @@ fn probe_into(xml: &Path, sub: &str, select: &[String]) -> Result<PathBuf, Strin
         .status()
         .map_err(|e| e.to_string())?;
     if status.success() {
+        std::fs::write(dir.join("format.txt"), pob_oracle::schema::STATE_FORMAT).map_err(|e| e.to_string())?;
         Ok(state)
     } else {
         Err(format!("pob_oracle probe failed (see {})", log.display()))
@@ -191,31 +196,11 @@ fn probe_into(xml: &Path, sub: &str, select: &[String]) -> Result<PathBuf, Strin
 
 /// Pairs whose mismatches are an oracle gap, not a PF-A port difference: (build, function,
 /// reason). A listed pair that comes out clean fails the test (the entry is stale).
-const KNOWN_DIFFS: &[(&str, &str, &str)] = &[
-    (
-        "allflame_exp_016",
-        "doActorLifeMana",
-        "CCR-0085 §5: `15% increased Life` (Tree:41415) carries an ItemCondition searchCond \
-         tag on the body armour; pob-state/1 dumps no item mod lines, so \
-         Item:FindModifierSubstring on the injected Kaom's Heart finds nothing",
-    ),
-    (
-        "allflame_exp_016",
-        "doActorAttribsConditions",
-        "CCR-0085 §5: as doActorLifeMana (it ends by calling doActorLifeMana)",
-    ),
-    (
-        "allflame_exp_049",
-        "doActorLifeMana",
-        "CCR-0085 §5: `15% increased Life` (Tree:44316) carries the same ItemCondition \
-         searchCond tag; the body armour's `Regenerate 10% Life …` line is not in the dump",
-    ),
-    (
-        "allflame_exp_049",
-        "doActorAttribsConditions",
-        "CCR-0085 §5: as doActorLifeMana (it ends by calling doActorLifeMana)",
-    ),
-];
+// FUP3: empty. The four CCR-0085 §5 entries (allflame_exp_016 / _049, doActorLifeMana and
+// doActorAttribsConditions: a Tree `15% increased Life` mod with an ItemCondition searchCond tag
+// on the body armour) were oracle gaps of pob-state/1, which dumped no item mod lines; the
+// pob-state/2 items carry them (`$modLines`) and the pairs are clean (FOLLOWUPS "CA" 3).
+const KNOWN_DIFFS: &[(&str, &str, &str)] = &[];
 
 fn known_diff(stem: &str, f: &str) -> Option<&'static str> {
     KNOWN_DIFFS

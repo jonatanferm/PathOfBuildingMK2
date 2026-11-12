@@ -3,7 +3,7 @@
 //! * the patcher round-trips a dummy `stages.toml` (corpus/P3/stages.toml)
 //!   through `loadstring`, every edit reverts to the original text and no
 //!   line number moves;
-//! * function and line probes dump `pob-state/1` with a consistent `$id` /
+//! * function and line probes dump `pob-state/2` with a consistent `$id` /
 //!   `$ref` graph, `<id>#<n>` hit numbering, call stacks and env identities;
 //! * the probed PoB computes exactly what the unpatched PoB computes;
 //! * write provenance covers >= 99% of the output keys;
@@ -461,10 +461,11 @@ fn probe_one_build() {
     }
     assert!(hits.dumps.iter().any(|d| d.hit.starts_with("config:")));
 
-    // every dump: pob-state/1, its hit name, a consistent identity graph
+    // every dump: the current pob-state format, its hit name, a consistent identity graph
     let mut mods_at = (0, 0);
     for d in &hits.dumps {
         let s = StateDump::load(&out.join(&d.file)).unwrap();
+        assert!(s.is_current(), "{}: {}", d.file, s.format);
         assert_eq!(s.hit, d.hit);
         let (probe_id, n) = d.hit.rsplit_once('#').unwrap();
         assert_eq!(
@@ -977,7 +978,8 @@ fn all57_corpus() {
         };
         for d in &hits.dumps {
             let s = StateDump::load(&dir.join(&d.file)).unwrap_or_else(|e| panic!("{stem}: {e}"));
-            assert_eq!(s.format, "pob-state/1");
+            // pob-state/1 from dumps made before FUP3, /2 since (`schema::STATE_FORMATS`)
+            assert!(pob_oracle::schema::STATE_FORMATS.contains(&s.format.as_str()), "{}", s.format);
             dumps += 1;
             if s.kind != "line" {
                 fn_dumps += 1;

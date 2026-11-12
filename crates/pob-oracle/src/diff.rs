@@ -27,7 +27,24 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as J};
 
 use crate::oracle::{flatten, Leaf, OracleError, Result};
-use crate::schema::{children, decode_num, is_marker, read_text, store_class, Provenance};
+use crate::schema::{children, decode_num, is_marker, read_text, store_class, Provenance, INPUT_KEYS};
+
+fn is_input_key(k: &str) -> bool {
+    INPUT_KEYS.contains(&k)
+}
+
+/// Markers (and other unstructured values) compare whole, except for the injection inputs
+/// they carry (a `$fn` marker's `$up`, FUP3).
+fn whole_eq(a: &J, b: &J) -> bool {
+    match (a, b) {
+        (J::Object(x), J::Object(y)) => {
+            x.len() - x.keys().filter(|k| is_input_key(k)).count()
+                == y.len() - y.keys().filter(|k| is_input_key(k)).count()
+                && x.iter().filter(|(k, _)| !is_input_key(k)).all(|(k, v)| y.get(k) == Some(v))
+        }
+        _ => a == b,
+    }
+}
 
 /// §9.2 numeric tolerance (relative, with an absolute floor of 1).
 pub const REL_TOL: f64 = 1e-9;
@@ -52,7 +69,8 @@ pub fn leaf_eq(pob: &J, ours: &J, rel: f64) -> bool {
     }
 }
 
-/// Deep equality with the numeric tolerance (paths ignored, `$at` ignored).
+/// Deep equality with the numeric tolerance (paths ignored, the injection inputs `$at`, `$up`,
+/// `$modLines` ignored: [`crate::schema::INPUT_KEYS`]).
 #[must_use]
 pub fn tree_eq(a: &J, b: &J, rel: f64) -> bool {
     if let (Some(x), Some(y)) = (decode_num(a), decode_num(b)) {
@@ -63,8 +81,8 @@ pub fn tree_eq(a: &J, b: &J, rel: f64) -> bool {
             x.len() == y.len() && x.iter().zip(y).all(|(p, q)| tree_eq(p, q, rel))
         }
         (J::Object(x), J::Object(y)) => {
-            let kx: Vec<_> = x.keys().filter(|k| k.as_str() != "$at").collect();
-            let ky: Vec<_> = y.keys().filter(|k| k.as_str() != "$at").collect();
+            let kx: Vec<_> = x.keys().filter(|k| !is_input_key(k)).collect();
+            let ky: Vec<_> = y.keys().filter(|k| !is_input_key(k)).collect();
             kx == ky
                 && kx
                     .iter()
@@ -94,8 +112,8 @@ pub fn tree_eq_unordered(a: &J, b: &J, rel: f64) -> bool {
     match (a, b) {
         (J::Array(x), J::Array(y)) => bag_eq(x, y),
         (J::Object(x), J::Object(y)) => {
-            let kx: Vec<_> = x.keys().filter(|k| k.as_str() != "$at").collect();
-            let ky: Vec<_> = y.keys().filter(|k| k.as_str() != "$at").collect();
+            let kx: Vec<_> = x.keys().filter(|k| !is_input_key(k)).collect();
+            let ky: Vec<_> = y.keys().filter(|k| !is_input_key(k)).collect();
             kx == ky
                 && kx
                     .iter()
@@ -327,7 +345,7 @@ fn walk(path: &str, a: &J, b: &J, opts: &DiffOptions<'_>, out: &mut Vec<Mismatch
         _ => false,
     };
     if !(structured(a) && structured(b)) {
-        if a != b {
+        if !whole_eq(a, b) {
             out.push(Mismatch {
                 path: path.to_owned(),
                 kind: MismatchKind::Value,
