@@ -25,7 +25,7 @@
 //! | worker → client | `{"ready":true}` | booted (game data loaded) |
 //! | worker → client | `{"seq":n,"ok":true,"stats":{"Life":5021,…}}` | the calc finished; `stats` are the numeric top-level entries of `calcsTab.mainOutput` (non-finite values as `"nan"`, `"inf"`, `"-inf"`) |
 //! | worker → client | `{"seq":n,"ok":false,"error":"…"}` | the calc raised (`LuaError` text); posted by the worker's panic hook just before the abort |
-//! | worker → client | `{"dead":true,"error":"…"}` | the worker trapped (after the error reply) and closed itself |
+//! | worker → client | `{"dead":true,"error":"…"}` | the worker trapped (after the error reply) and closed itself: its script posts it from `run`'s catch, or from its global `error`/`unhandledrejection` listeners when the trap is thrown from a wasm-bindgen-futures task; the page's `Worker.onerror` ([`WorkerEvent::Error`]) is the fallback route |
 //! | worker → client | `{"bootError":"…"}` | the worker could not load the game data and closed itself |
 //!
 //! One request is in flight at a time. A newer XML waits in a one-slot queue (newest wins).
@@ -49,7 +49,17 @@
 //!   gets `Ready`.
 //! * When the worker's calc raised for the current XML, `build_output` stays `Pending` for that
 //!   XML: the build keeps its last good results, as in PoB, where the error aborts the frame
-//!   before `mainEnv` is replaced.
+//!   before `mainEnv` is replaced. The next change of the model asks again.
+//! * When a worker dies without answering the request in flight, that death is the request's
+//!   verdict (as a calc error) only when the worker had booted, had not answered with an error
+//!   before (a panic-hook reply is followed by the death, so a request posted after it was
+//!   posted to a dying worker), and the XML was already asked again once. Otherwise the XML is
+//!   asked of the next worker (unless a newer one waits).
+//! * A model change takes two frames on the web: the `Pending` frame and the `Ready` frame. Both
+//!   run Build.lua:1260-1265 (`wipeGlobalCache`, `UpdateSocketGroups`, `outputRevision += 1`),
+//!   so `outputRevision` rises by 2 per change (not a parity target). Its one reader,
+//!   Launch.lua:114 (`== 1`: a crash on the initial load), sees the first calc, which runs on the
+//!   main thread in one frame.
 //! * The first calc of a build (no `calcsTab.mainEnv` yet: Build:Init, Build.lua:695) runs on the
 //!   main thread directly (CCR-0134 §4: Init and the stat list read `mainEnv` right after it and
 //!   have no placeholder for `Pending`).
@@ -341,6 +351,9 @@ const MAX_BOOT_FAILURES: u32 = 2;
 struct InFlight {
     seq: u64,
     xml: Rc<str>,
+    /// Posted after this worker's error reply: the worker may be dying (its panic hook answered
+    /// and the trap follows), so its death is not this request's verdict.
+    after_error: bool,
 }
 
 struct Inner {
@@ -350,12 +363,16 @@ struct Inner {
     /// Bumped per worker; events of an older worker are dropped.
     generation: u64,
     booted: bool,
+    /// The current worker sent an error reply (a panic-hook reply is followed by its death).
+    errored: bool,
     boot_failures: u32,
     next_seq: u64,
     in_flight: Option<InFlight>,
     queued: Option<Rc<str>>,
     /// The last answer: the XML it is for and the worker's result.
     verdict: Option<(Rc<str>, Result<Stats, String>)>,
+    /// The XML already asked again after a worker died without answering it (one retry).
+    retried: Option<Rc<str>>,
     /// The build whose `buildFlag` an answer raises.
     build: Weak<model::Build>,
     // status
@@ -381,6 +398,7 @@ impl Inner {
         }
         self.generation += 1;
         self.booted = false;
+        self.errored = false;
         let generation = self.generation;
         let me = self.me.clone();
         let sink: Sink = Rc::new(move |ev| {
@@ -403,7 +421,11 @@ impl Inner {
             xml: xml.to_string(),
         }));
         self.requests += 1;
-        self.in_flight = Some(InFlight { seq, xml });
+        self.in_flight = Some(InFlight {
+            seq,
+            xml,
+            after_error: self.errored,
+        });
     }
 
     /// Ask the worker about `xml` (or remember it for when the current request is answered).
@@ -456,6 +478,10 @@ impl Inner {
         if let Err(e) = &result {
             // Launch.lua:118 shows "In 'OnFrame': <msg>" (DIVERGENCE(worker-error))
             self.report(format!("calc error: {e}"));
+            // a Lua error's reply comes from the panic hook and the worker dies next; an error
+            // that did not raise (a bad XML) leaves it alive. The queued XML is posted either way
+            // (a living worker answers it); `on_dead` asks it again of the next worker.
+            self.errored = true;
         }
         let ok = result.is_ok();
         self.verdict = Some((f.xml, result));
@@ -472,16 +498,34 @@ impl Inner {
         }
         // events of this worker that are still queued are dropped from now on
         self.generation += 1;
-        if self.booted {
+        let booted = self.booted;
+        if booted {
             self.boot_failures = 0;
         } else {
             self.boot_failures += 1;
         }
         self.restarts += 1;
         if let Some(f) = self.in_flight.take() {
-            // died without answering (no error reply before the trap)
-            self.report(format!("calc error: {error}"));
-            self.verdict = Some((f.xml, Err(error.to_owned())));
+            // The worker died without answering `f`. Its death is `f`'s verdict only when the
+            // worker had booted, had not already answered with an error (then it was dying
+            // when `f` was posted), and `f` was already asked again once (a crash that is not
+            // the calc's, an out-of-memory say, is retried once). Otherwise `f` is asked of the
+            // next worker, unless a newer XML waits.
+            let retried = self.retried.as_ref().is_some_and(|r| *r == f.xml);
+            if f.after_error || !booted || !retried {
+                if booted && !f.after_error {
+                    self.report(format!(
+                        "the calc worker died without answering ({error}); asking a new worker"
+                    ));
+                    self.retried = Some(f.xml.clone());
+                }
+                if self.queued.is_none() {
+                    self.queued = Some(f.xml);
+                }
+            } else {
+                self.report(format!("calc error: {error}"));
+                self.verdict = Some((f.xml, Err(error.to_owned())));
+            }
         }
         if self.boot_failures >= MAX_BOOT_FAILURES {
             self.report(format!(
@@ -553,11 +597,13 @@ impl WorkerCalc {
                 port: None,
                 generation: 0,
                 booted: false,
+                errored: false,
                 boot_failures: 0,
                 next_seq: 0,
                 in_flight: None,
                 queued: None,
                 verdict: None,
+                retried: None,
                 build: Weak::new(),
                 epoch: 0,
                 requests: 0,
@@ -901,11 +947,23 @@ mod web {
 
     /// The worker's script. It is started from a Blob URL, so the module URLs it imports are
     /// absolute ([`WebWorkerConfig::resolve`]); they come in through the worker's `name`.
-    /// Messages that arrive while the module loads are queued; requests run one at a time.
+    /// Messages that arrive while the module loads are queued; requests run one at a time. A
+    /// trap is reported as `dead` from `run`'s catch (the handler's promise rejected) or from the
+    /// global error listeners (a trap thrown from a wasm-bindgen-futures task after the first
+    /// `await` does not reject that promise); the page's `onerror` is the fallback route.
     const WORKER_JS: &str = r"
 const cfg = JSON.parse(self.name);
 const queue = [];
 let handle = null;
+let dead = false;
+const die = (err) => {
+  if (dead) return;
+  dead = true;
+  self.postMessage(JSON.stringify({ dead: true, error: String(err) }));
+  self.close();
+};
+self.addEventListener('error', (e) => die(e.message || e.error));
+self.addEventListener('unhandledrejection', (e) => die(e.reason));
 self.onmessage = (e) => { if (handle) handle(e.data); else queue.push(e.data); };
 (async () => {
   let m;
@@ -918,16 +976,13 @@ self.onmessage = (e) => { if (handle) handle(e.data); else queue.push(e.data); }
     self.close();
     return;
   }
-  let dead = false;
   let chain = Promise.resolve();
   const run = async (msg) => {
     if (dead) return;
     try {
       self.postMessage(await m.pob_calc_worker_handle(msg));
     } catch (err) {
-      dead = true;
-      self.postMessage(JSON.stringify({ dead: true, error: String(err) }));
-      self.close();
+      die(err);
     }
   };
   handle = (msg) => { chain = chain.then(() => run(msg)); };

@@ -30,8 +30,21 @@ The messages are JSON strings. The full table is in the module docs of `worker_w
 * worker → client: `ready`. The answer `{"seq","ok":true,"stats"}` carries the numeric top-level
   entries of `mainOutput`. `{"seq","ok":false,"error"}` is the `LuaError` text, posted by the
   worker's panic hook before the abort. After that come `dead` (the worker's script caught the
-  trap and closed the worker) and `bootError`.
+  trap and closed the worker) and `bootError`. The script posts `dead` from the handler's catch
+  or from its global `error`/`unhandledrejection` listeners: a trap thrown from a
+  wasm-bindgen-futures task after the handler's first `await` does not reject the handler's
+  promise (checked in headless Chromium with a stub glue module, see Verification). The page's
+  `Worker.onerror` is the fallback route.
 * One request is in flight at a time. Newer XML waits in a one-slot queue, and the newest XML wins.
+* The queued XML is posted when an answer arrives, also after an error reply (a worker that
+  survives an error that did not raise, such as a bad XML, answers it). When a worker dies
+  without answering the request in flight, the death is that request's verdict only if the
+  worker had booted, had not sent an error reply before (a panic-hook reply is followed by the
+  death, so a request posted after it went to a dying worker), and the XML was already asked
+  again once (a crash that is not the calc's, such as out of memory, is retried once).
+  Otherwise the XML is asked of the next worker, unless a newer XML waits.
+* An XML whose verdict is an error stays `Pending` (the build keeps its last good results) until
+  the model changes.
 
 ## 3. What crosses the boundary: verdict + stats, not the env (deviation from "the calc runs in a worker")
 
@@ -50,6 +63,16 @@ relative 1e-9). The test corpus shows 0 differences. A Lua error kills only the 
 keeps the build's last good results. That is the D15 property, the reason the worker exists. The
 cost is that every recalc runs twice and the game data is loaded in both threads, so the page's
 thread is not freed during a calc.
+
+The guarantee is partial: the worker calculates a fresh model loaded from the XML, while the
+main thread calculates the live model, whose thread-locals (`globalOutput`, `mergeLevelCache`)
+and objects already mutated by earlier calcs (calc doc D13/D17) the worker does not have. A
+model whose worker calc passes but whose main-thread calc raises still aborts the page. The
+cross-check reports differences in the results, not this case.
+
+A model change takes two frames on the web (the `Pending` frame and the `Ready` frame). Both
+run Build.lua:1260-1265, so `outputRevision` rises by 2 per change. Its one reader, Launch.lua:114
+(`== 1`), concerns the initial load, whose calc runs on the main thread in one frame (§4).
 
 Proposed (future, not blocking): move `inject` (pure Rust over pob-calc) out of `pob-oracle` into a
 wasm-buildable crate, and turn on `probe` export for the web worker. `WorkerCalc` can then adopt
@@ -103,6 +126,17 @@ Not covered: the main thread prefetches only the latest tree version, so a build
 is U53's (ui doc §12 "wasm loads the build list and tree"). The worker fetches the versions each
 request's XML names.
 
+## Follow-ups (for the orchestrator)
+
+* U19/U21/U23: the placeholders of §4. Until then the first calc of every loaded build runs on
+  the main thread, so a build that raises on its initial load (the common D15 case, Launch.lua:114
+  "if a build crashes on initial load") still aborts the page on wasm.
+* §3: the env adoption (move `inject` to a wasm-buildable crate).
+* The calc error path (`power::BuildOutput` raising) has no test: the Lua error test raises in
+  `LoadDB` (an empty XML), which takes the same `catch_unwind`/panic-hook route.
+* A browser run of the real wasm error path (a raising calc in the worker): only the worker
+  script's routing was checked in a browser, with a stub glue module.
+
 ## Verification (U54)
 
 * `scripts/port/cargo.sh check -p pob-app --target wasm32-unknown-unknown` and `-p pob-port-web`:
@@ -112,6 +146,15 @@ request's XML names.
   numbers once the worker answers), the facade round trip, the client state machine on a scripted
   port, and a Lua error on a worker thread followed by the restart. `--lib calc::worker_web`: 1
   passed (protocol round trip).
+* Review round 1: the client state machine also covers a queued XML behind a raising one (posted
+  to the dying worker, asked again of the next one, one error reported), a death without an
+  answer retried once and then taken as the verdict, and a request in flight when a worker fails
+  to boot (asked of the next worker). The Lua error test covers the same queued case on
+  `ThreadHub`. The worker script's death routing was run in headless Chromium (CDP) with a stub
+  glue module: a handler promise that rejects posts `dead` from `run`'s catch; a throw from a
+  microtask (as a wasm-bindgen-futures task traps) posts `dead` from the global `error` listener,
+  followed by the page's `onerror` (dropped by the generation check). Before the change the
+  microtask case reached the page only as `onerror`.
 * Browser, run by hand: debug wasm built with wasm-bindgen-cli 0.2.129 (`--target web`), headless
   Chromium 153 with WebGPU on SwiftShader, driven over CDP, page `?app=pob`. The new build first
   showed Total Life 60 (level 1). After three clicks on Level "+", the sidebar still showed 60 while

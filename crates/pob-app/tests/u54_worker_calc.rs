@@ -377,6 +377,109 @@ fn client_state_machine() {
     assert!(status.mismatches() > 0);
     assert!(status.errors().last().unwrap().contains("Life"));
 
+    // a queued XML is not lost to a dying worker: A raises (the panic hook's reply, then the
+    // death) while B waits; B is posted to the old worker (a worker that survives an error that
+    // did not raise answers it), and asked again of the new one when the old one dies
+    let (s, spawn) = scripted();
+    let mut wc2 = WorkerCalc::new(spawn);
+    let st = wc2.status();
+    send(&s, 0, &Reply::Ready);
+    build.characterLevel.set(30.0);
+    assert_eq!(wc2.build_output(&build), Poll::Pending);
+    let seq_a = last_seq(&s);
+    build.characterLevel.set(31.0);
+    assert_eq!(wc2.build_output(&build), Poll::Pending);
+    assert_eq!(s.posts.borrow().len(), 1, "B waits");
+    send(
+        &s,
+        0,
+        &Reply::Done {
+            seq: seq_a,
+            result: Err("boom".into()),
+        },
+    );
+    assert_eq!(s.posts.borrow().len(), 2);
+    assert!(last_xml(&s).contains("level=\"31\""));
+    send(
+        &s,
+        0,
+        &Reply::Dead {
+            error: "RuntimeError: unreachable".into(),
+        },
+    );
+    assert_eq!(s.sinks.borrow().len(), 2, "a new worker");
+    assert_eq!(s.posts.borrow().len(), 3, "B asked again of the new worker");
+    assert!(last_xml(&s).contains("level=\"31\""));
+    assert!(st.busy());
+    assert_eq!(st.errors(), vec!["calc error: boom".to_owned()], "A's error only");
+    send(&s, 1, &Reply::Ready);
+    assert_eq!(wc2.build_output(&build), Poll::Pending, "B is being calculated");
+    assert_eq!(s.posts.borrow().len(), 3, "not asked twice");
+    build.buildFlag.set(false);
+    let mut stats_b = Stats::new();
+    stats_b.insert("Life".into(), 1.0);
+    send(
+        &s,
+        1,
+        &Reply::Done {
+            seq: last_seq(&s),
+            result: Ok(stats_b),
+        },
+    );
+    assert!(build.buildFlag.get(), "B's answer recalculates");
+    assert_eq!(wc2.build_output(&build), Poll::Ready(()));
+
+    // a death without an answer (not a calc error: out of memory, say) is retried once; the
+    // second one is the model's verdict
+    build.characterLevel.set(32.0);
+    assert_eq!(wc2.build_output(&build), Poll::Pending);
+    assert_eq!(s.posts.borrow().len(), 4);
+    send(
+        &s,
+        1,
+        &Reply::Dead {
+            error: "out of memory".into(),
+        },
+    );
+    assert_eq!(s.sinks.borrow().len(), 3);
+    assert_eq!(s.posts.borrow().len(), 5, "retried");
+    assert!(last_xml(&s).contains("level=\"32\""));
+    send(&s, 2, &Reply::Ready);
+    send(
+        &s,
+        2,
+        &Reply::Dead {
+            error: "out of memory".into(),
+        },
+    );
+    assert_eq!(s.sinks.borrow().len(), 4);
+    assert!(!st.busy());
+    assert_eq!(wc2.build_output(&build), Poll::Pending, "the verdict: keep the last results");
+    assert_eq!(s.posts.borrow().len(), 5, "not retried twice");
+    assert!(st.errors().last().unwrap().contains("calc error: out of memory"));
+
+    // a worker that dies before it booted does not decide the request: the next worker gets it
+    build.characterLevel.set(33.0);
+    assert_eq!(wc2.build_output(&build), Poll::Pending);
+    assert_eq!(s.posts.borrow().len(), 6, "posted before the boot (the script queues it)");
+    send(&s, 3, &Reply::BootError { error: "404".into() });
+    assert!(st.broken().is_none());
+    assert_eq!(s.sinks.borrow().len(), 5);
+    assert_eq!(s.posts.borrow().len(), 7);
+    assert!(last_xml(&s).contains("level=\"33\""));
+    send(&s, 4, &Reply::Ready);
+    send(
+        &s,
+        4,
+        &Reply::Done {
+            seq: last_seq(&s),
+            result: Ok(Stats::new()),
+        },
+    );
+    assert_eq!(wc2.build_output(&build), Poll::Ready(()));
+    assert_eq!(st.restarts(), 4);
+    drop(wc2);
+
     // two boot failures: the client calculates on the main thread
     let (s, spawn) = scripted();
     let mut wc = WorkerCalc::new(spawn);
@@ -495,5 +598,28 @@ fn thread_worker_lua_error() {
     assert_ne!(life(&build), life0);
     assert_eq!(status.mismatches(), 0, "{:?}", status.errors());
     assert_eq!(status.requests(), 2);
+
+    // a model queued behind the raising one is calculated by the next worker (the old thread
+    // returned after its `dead`, so the post of the queued XML to it is lost)
+    poison.set(true);
+    build.characterLevel.set(42.0);
+    assert_eq!(wc.build_output(&build), Poll::Pending);
+    poison.set(false);
+    build.characterLevel.set(43.0);
+    assert_eq!(wc.build_output(&build), Poll::Pending);
+    build.buildFlag.set(false);
+    hub.pump(PUMP);
+    assert_eq!(status.restarts(), 2, "{:?}", status.errors());
+    assert!(build.buildFlag.get(), "the queued model is answered: {:?}", status.errors());
+    let life2 = life(&build);
+    assert_eq!(wc.build_output(&build), Poll::Ready(()));
+    assert_ne!(life(&build), life2);
+    assert_eq!(status.mismatches(), 0, "{:?}", status.errors());
+    assert_eq!(
+        status.errors().iter().filter(|e| e.contains("calc error")).count(),
+        2,
+        "one error per raising model: {:?}",
+        status.errors()
+    );
     eprintln!("u54 thread worker: {:?}; errors {:?}", replies[1], status.errors());
 }
