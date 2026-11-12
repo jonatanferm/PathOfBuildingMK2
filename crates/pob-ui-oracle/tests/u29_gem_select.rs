@@ -58,10 +58,15 @@ use pob_ui_core::tooltip::tooltip::Tooltip;
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
 use pob_ui_oracle::lua_calc::LuaCalcBridge;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+// TP2: the fixtures and scripts of a test run as independent cases on
+// `oracle_cache::par_map` (at most `POB_TEST_PAR` LuaJIT PoBs / Rust apps at once in the whole
+// process, which replaces the old one-PoB-at-a-time test lock), each on a fresh thread (the Rust
+// side's thread-local state stays per case), and the Lua
+// side of each case goes through the Lua-side cache (`lua_run`). Results are collected in case
+// order, so output and failures do not depend on the schedule.
 
 /// ui doc §11.3: 1280x800 @1.0 and 1920x1080 @1.5.
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
@@ -119,7 +124,7 @@ fn out_dir() -> PathBuf {
 
 // ---- configuration shared by both sides ----------------------------------------------------------
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Mode {
     /// the stand-in calcFunc (scenarios) or the bridge's (dps sort)
     fake_calc: bool,
@@ -660,6 +665,60 @@ fn run_lua(
     (lua_side, frames, r.err().map(|e| e.to_string()))
 }
 
+/// The Lua side of one case through the Lua-side cache (TP2): `run_lua`, then `query` on the VM
+/// (its result is `extra`); `frames` are kept only when `keep_frames` (without image loads, as
+/// the comparisons use them). The key covers this file (stubs and Lua-side wrapper), the
+/// Lua-side code, PoB, the fixture user dir, the test's scripts, the script, the screen, the mode
+/// and the query.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    screen: pob_sg::ScreenInfo,
+    mode: &Mode,
+    query: Option<&str>,
+    keep_frames: bool,
+) -> LuaRun {
+    let fixture = fixture_dir();
+    let scripts = crate_dir().join("tests/u29");
+    let key = oracle_cache::ui_key(
+        "ui-u29",
+        file!(),
+        root,
+        &[&fixture, &scripts],
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+            &format!("{mode:?}"),
+            query.unwrap_or(""),
+            if keep_frames { "frames" } else { "" },
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let (mut lua_side, mut frames, error) = run_lua(root, script, user, screen, mode);
+        let mut extra = Vec::new();
+        if let (Some(q), None) = (query, &error) {
+            extra = lua_side
+                .app
+                .with_vm(|pob| pob.eval::<Vec<String>>(q))
+                .map_err(|e| anyhow::anyhow!("Lua query: {e}"))?;
+        }
+        drop(lua_side);
+        if keep_frames {
+            drop_image_loads(&mut frames);
+        } else {
+            frames.clear();
+        }
+        Ok(LuaRun {
+            frames,
+            error,
+            snapshots: Vec::new(),
+            extra,
+        })
+    })
+    .unwrap_or_else(|e| panic!("Lua side: {e:#}"))
+}
+
 fn run_rust(
     root: &Path,
     script: &pob_host::script::Script,
@@ -685,17 +744,10 @@ fn run_rust(
     (rust_side, frames, err)
 }
 
-/// Run `f` on a fresh thread: the Rust side's process-global PoB state lives in thread-locals
-/// (`skills_tab::levelCostCleared`, the stat-map memo, the stat describer's scopes), and the Lua
-/// side is a fresh VM per run, so each run gets fresh state.
-fn in_thread<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
-    std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(f)
-        .expect("spawn")
-        .join()
-        .unwrap_or_else(|p| std::panic::resume_unwind(p))
-}
+// Each case runs on a fresh `par_map` thread (256 MB stack): the Rust side's process-global PoB
+// state lives in thread-locals (`skills_tab::levelCostCleared`, the stat-map memo, the stat
+// describer's scopes), and the Lua side is a fresh VM per run (or a cache read), so each run
+// gets fresh state. (Before TP2 a separate `in_thread` per Rust run did this.)
 
 // ---- u29_data_invariants -----------------------------------------------------------------------
 
@@ -735,8 +787,8 @@ fn u29_data_invariants() {
 
 // ---- u29_dps_sort ------------------------------------------------------------------------------
 
-fn lua_dps(lua: &mut LuaSide) -> Vec<String> {
-    let code = r#"
+/// The sorted list and sort cache of gem3, read from the Lua VM.
+const LUA_DPS: &str = r#"
 local ctl = __u29.gem3
 local sc = ctl.sortCache
 local res = { "dpsBuilder=" .. tostring(ctl.dpsBuilder ~= nil) .. " pending=" .. tostring(sc.pendingGems ~= nil) .. " base=" .. tostring(sc.baseDPS) }
@@ -745,10 +797,6 @@ for i, id in ipairs(ctl.list) do
 end
 return res
 "#;
-    lua.app
-        .with_vm(|pob| pob.eval::<Vec<String>>(code))
-        .unwrap_or_else(|e| panic!("Lua dps: {e}"))
-}
 
 fn rust_dps(rust: &mut RustSide) -> Vec<String> {
     let cx = &mut rust.app.cx;
@@ -778,9 +826,6 @@ fn rust_dps(rust: &mut RustSide) -> Vec<String> {
 
 #[test]
 fn u29_dps_sort() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let types = std::env::var("U29_DPS_TYPES").unwrap_or_else(|_| "EXCEPTIONAL".to_owned());
     let filter = std::env::var("U29_DPS_FIXTURES").ok();
@@ -789,12 +834,12 @@ fn u29_dps_sort() {
         focus_new: true,
         show_types: Some(types.clone()),
     };
-    let mut failures = Vec::new();
-    let mut ran = 0;
-    for name in fixture_builds() {
-        if filter.as_ref().is_some_and(|f| !name.contains(f.as_str())) {
-            continue;
-        }
+    let names: Vec<String> = fixture_builds()
+        .into_iter()
+        .filter(|name| !filter.as_ref().is_some_and(|f| !name.contains(f.as_str())))
+        .collect();
+    let ran = names.len();
+    let results = oracle_cache::par_map(names, |name| {
         let script = runner::parse_script(&format!(
             "frames 1\nload-build \"Builds/{name}\"\nframes 2\n"
         ))
@@ -802,30 +847,26 @@ fn u29_dps_sort() {
         let user = UserDir::new(Some(&fixture_dir())).unwrap();
         let screen = runner::screen(1280, 800, 1.0);
         let t0 = std::time::Instant::now();
-        let (mut lua_side, _, e) = run_lua(&root, &script, &user, screen, &mode);
-        assert!(e.is_none(), "{name}: Lua: {e:?}");
-        let lua = lua_dps(&mut lua_side);
-        drop(lua_side);
+        let run = lua_run(&root, &script, &user, screen, &mode, Some(LUA_DPS), false);
+        assert!(run.error.is_none(), "{name}: Lua: {:?}", run.error);
+        let lua = run.extra;
         let t1 = std::time::Instant::now();
+        // the Rust side on this case thread (fresh per case: its thread-local state is new)
         let rust = {
-            let (root, script, mode, name) =
-                (root.clone(), script.clone(), mode.clone(), name.clone());
-            in_thread(move || {
-                let (mut rust_side, _, e) = run_rust(&root, &script, &user, screen, &mode);
-                assert!(e.is_none(), "{name}: Rust: {e:?}");
-                rust_dps(&mut rust_side)
-            })
+            let (mut rust_side, _, e) = run_rust(&root, &script, &user, screen, &mode);
+            assert!(e.is_none(), "{name}: Rust: {e:?}");
+            rust_dps(&mut rust_side)
         };
-        ran += 1;
         let supported = lua.iter().filter(|l| l.contains(" true ")).count();
         let colors = ["^x228866", "^xFF4422", "^xFFFF66"]
             .map(|c| lua.iter().filter(|l| l.ends_with(c)).count());
-        println!(
+        let line = format!(
             "{name} ({types}): {} gems listed, {supported} canSupport, dps up/down/same {colors:?}; Lua {:.1}s, Rust (bridge) {:.1}s",
             lua.len() - 1,
             (t1 - t0).as_secs_f64(),
             t1.elapsed().as_secs_f64()
         );
+        let mut failure = None;
         if lua != rust {
             let mut diff = Vec::new();
             for i in 0..lua.len().max(rust.len()) {
@@ -834,13 +875,20 @@ fn u29_dps_sort() {
                     diff.push(format!("  {i}: lua {l:?}\n     rust {r:?}"));
                 }
             }
-            failures.push(format!(
+            failure = Some(format!(
                 "{name}: {} differing rows\n{}",
                 diff.len(),
                 diff.join("\n")
             ));
         }
+        (line, failure)
+    });
+    let mut failures = Vec::new();
+    for (line, failure) in results {
+        println!("{line}");
+        failures.extend(failure);
     }
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0, "no fixture selected");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -956,9 +1004,6 @@ fn rust_tooltips(rust: &mut RustSide) -> Vec<String> {
 
 #[test]
 fn u29_gem_tooltips() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let filter = std::env::var("U29_TT_FIXTURES").ok();
     let mode = Mode {
@@ -966,33 +1011,26 @@ fn u29_gem_tooltips() {
         focus_new: false,
         show_types: None,
     };
-    let mut failures = Vec::new();
-    let (mut tooltips, mut lines, mut errors, mut variants) = (0, 0, 0, 0);
-    for name in fixture_builds() {
-        if filter.as_ref().is_some_and(|f| !name.contains(f.as_str())) {
-            continue;
-        }
+    let names: Vec<String> = fixture_builds()
+        .into_iter()
+        .filter(|name| !filter.as_ref().is_some_and(|f| !name.contains(f.as_str())))
+        .collect();
+    let results = oracle_cache::par_map(names, |name| {
+        let mut out = TooltipCase::default();
         let script = runner::parse_script(&format!(
             "frames 1\nload-build \"Builds/{name}\"\nframes 2\n"
         ))
         .unwrap();
         let user = UserDir::new(Some(&fixture_dir())).unwrap();
         let screen = runner::screen(1280, 800, 1.0);
-        let (mut lua_side, _, e) = run_lua(&root, &script, &user, screen, &mode);
-        assert!(e.is_none(), "{name}: Lua: {e:?}");
-        let lua: Vec<String> = lua_side
-            .app
-            .with_vm(|pob| pob.eval::<Vec<String>>(LUA_TOOLTIPS))
-            .unwrap_or_else(|e| panic!("Lua tooltips: {e}"));
-        drop(lua_side);
+        let run = lua_run(&root, &script, &user, screen, &mode, Some(LUA_TOOLTIPS), false);
+        assert!(run.error.is_none(), "{name}: Lua: {:?}", run.error);
+        let lua: Vec<String> = run.extra;
+        // the Rust side on this case thread (fresh per case: its thread-local state is new)
         let rust = {
-            let (root, script, mode, name) =
-                (root.clone(), script.clone(), mode.clone(), name.clone());
-            in_thread(move || {
-                let (mut rust_side, _, e) = run_rust(&root, &script, &user, screen, &mode);
-                assert!(e.is_none(), "{name}: Rust: {e:?}");
-                rust_tooltips(&mut rust_side)
-            })
+            let (mut rust_side, _, e) = run_rust(&root, &script, &user, screen, &mode);
+            assert!(e.is_none(), "{name}: Rust: {e:?}");
+            rust_tooltips(&mut rust_side)
         };
         let mut bad = 0;
         for i in 0..lua.len().max(rust.len()) {
@@ -1002,41 +1040,66 @@ fn u29_gem_tooltips() {
             if l != r && head(l).starts_with("group ") && head(l) != head(r) {
                 // PoB picks an old-format gem's variant in `pairs` order (u15_lua_calc's
                 // `reference_xml` note): the two VMs loaded different gems, nothing to compare
-                variants += 1;
-                println!(
+                out.variants += 1;
+                out.lines.push(format!(
                     "{name} #{i}: load variant differs: lua {:?} rust {:?}",
                     head(l),
                     head(r)
-                );
+                ));
                 continue;
             }
             if l != r {
                 bad += 1;
                 if bad <= 8 {
-                    failures.push(format!("{name} #{i}:\n  lua:  {l:?}\n  rust: {r:?}"));
+                    out.failures
+                        .push(format!("{name} #{i}:\n  lua:  {l:?}\n  rust: {r:?}"));
                 }
             }
         }
         if bad > 8 {
-            failures.push(format!("{name}: {bad} differing tooltips in all"));
+            out.failures
+                .push(format!("{name}: {bad} differing tooltips in all"));
         }
-        tooltips += lua.len();
-        lines += lua.iter().map(|t| t.lines().count() - 1).sum::<usize>();
-        errors += lua.iter().filter(|t| t.ends_with(" ERROR")).count();
-        println!("{name}: {} tooltips compared, {bad} differ", lua.len());
+        out.tooltips += lua.len();
+        out.tt_lines += lua.iter().map(|t| t.lines().count() - 1).sum::<usize>();
+        out.errors += lua.iter().filter(|t| t.ends_with(" ERROR")).count();
+        out.lines
+            .push(format!("{name}: {} tooltips compared, {bad} differ", lua.len()));
+        out
+    });
+    let mut failures = Vec::new();
+    let (mut tooltips, mut lines, mut errors, mut variants) = (0, 0, 0, 0);
+    for case in results {
+        for l in &case.lines {
+            println!("{l}");
+        }
+        failures.extend(case.failures);
+        tooltips += case.tooltips;
+        lines += case.tt_lines;
+        errors += case.errors;
+        variants += case.variants;
     }
     println!("u29_gem_tooltips: {tooltips} tooltips, {lines} lines ({errors} raise a Lua error on both sides, {variants} skipped: PoB loaded another gem variant)");
+    println!("{}", oracle_cache::summary());
     assert!(tooltips > 0, "no fixture selected");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// One fixture's tooltip comparison (collected in fixture order).
+#[derive(Default)]
+struct TooltipCase {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    tooltips: usize,
+    tt_lines: usize,
+    errors: usize,
+    variants: usize,
 }
 
 // ---- u29_scenarios -----------------------------------------------------------------------------
 
 #[test]
 fn u29_scenarios() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let dir = crate_dir().join("tests/u29");
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -1053,33 +1116,33 @@ fn u29_scenarios() {
         focus_new: false,
         show_types: None,
     };
-    let mut failures = Vec::new();
-    let mut ran = 0;
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
+        for (w, h, s) in SCREENS {
+            cases.push((path.clone(), stem.clone(), (w, h, s)));
+        }
+    }
+    let ran = cases.len();
+    let results = oracle_cache::par_map(cases, |(path, stem, (w, h, s))| {
         let (script, base_dir) = runner::load_script(&path).unwrap();
         let fx = runner::fixtures(&script, &base_dir).unwrap();
-        for (w, h, s) in SCREENS {
+        {
             let tag = format!("u29_{stem}@{w}x{h}@{s}");
             let user = UserDir::new(fx.user_dir.as_deref()).unwrap();
             let screen = runner::screen(w, h, s);
-            let (lua_side, mut lua, lua_error) = run_lua(&root, &script, &user, screen, &mode);
-            drop(lua_side);
+            let run = lua_run(&root, &script, &user, screen, &mode, None, true);
+            let (lua, lua_error) = (run.frames, run.error);
+            // the Rust side on this case thread (fresh per case: its thread-local state is new)
             let (mut rust, rust_error) = {
-                let (root, script, mode) = (root.clone(), script.clone(), mode.clone());
-                in_thread(move || {
-                    let (rust_side, rust, rust_error) =
-                        run_rust(&root, &script, &user, screen, &mode);
-                    drop(rust_side);
-                    (rust, rust_error)
-                })
+                let (rust_side, rust, rust_error) = run_rust(&root, &script, &user, screen, &mode);
+                drop(rust_side);
+                (rust, rust_error)
             };
-            drop_image_loads(&mut lua);
             drop_image_loads(&mut rust);
-            ran += 1;
             let run = RunResult {
                 lua,
                 rust,
@@ -1097,28 +1160,36 @@ fn u29_scenarios() {
                 .flat_map(|f| &f.effects)
                 .filter(|e| matches!(e, SideEffect::WindowTitle(t) if t.starts_with("gem ")))
                 .count();
-            println!(
+            let line = format!(
                 "{tag}: {} frames, {ops} Lua draw ops, {titles} gem change calls, {n} divergences{}{}",
                 run.lua.len(),
                 lua_error.as_ref().map_or_else(String::new, |e| format!(", Lua error: {e}")),
                 rust_error.as_ref().map_or_else(String::new, |e| format!(", Rust error: {e}"))
             );
+            let mut failure = None;
             if n != 0
                 || rust_error.is_some()
                 || lua_error.is_some()
                 || run.lua.len() != run.rust.len()
                 || ops == 0
             {
-                failures.push(format!(
+                failure = Some(format!(
                     "{tag}: {n} divergences, frames lua {} rust {} (see {})",
                     run.lua.len(),
                     run.rust.len(),
                     out_dir().join(&tag).join("report.txt").display()
                 ));
             }
+            (line, failure)
         }
+    });
+    let mut failures = Vec::new();
+    for (line, failure) in results {
+        println!("{line}");
+        failures.extend(failure);
     }
     println!("u29_scenarios: {ran} runs");
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

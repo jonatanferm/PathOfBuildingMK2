@@ -3174,6 +3174,7 @@ name = "pob-ui-oracle"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "blake3",
  "image",
  "mlua",
  "pob-app",
@@ -3190,6 +3191,7 @@ dependencies = [
  "serde",
  "serde_json",
  "wgpu 30.0.1",
+ "zstd",
 ]
 
 [[package]]

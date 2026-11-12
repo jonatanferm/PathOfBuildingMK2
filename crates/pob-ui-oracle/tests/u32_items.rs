@@ -62,10 +62,16 @@ use pob_ui_core::prelude::*;
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
 use pob_ui_oracle::lua_calc::LuaCalcBridge;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+// TP2: every (script, screen) runs as an independent case on `oracle_cache::par_map` (at most
+// `POB_TEST_PAR` LuaJIT PoBs / Rust apps at once in the whole process, which replaces the old
+// one-PoB-at-a-time test lock; the bridge still boots its own PoB per operation under the
+// machine-wide oracle lock, or reads it from the Lua-side cache), each case on a fresh thread
+// (the Rust side's thread-local state and hooks stay per case), and the Lua side of each case
+// goes through the Lua-side cache (`lua_run`). Results are collected in case order, so output
+// and failures do not depend on the schedule.
 
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
 
@@ -1172,6 +1178,57 @@ fn read_saved(user: &UserDir, names: &[String]) -> Vec<(String, Option<String>)>
         .collect()
 }
 
+/// The Lua side of one run through the Lua-side cache (TP2): boot, `script`, the snapshots and
+/// the `saved` files of the user dir afterwards (`extra[0]`, JSON), frames without image loads.
+/// The key covers this file (stubs and Lua-side wrapper), the Lua-side code, PoB, the fixture user
+/// dir, this test's scripts and fixtures, the script, the screen, the layout and `saved`.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+    saved: &[String],
+) -> anyhow::Result<LuaRun> {
+    let stubs = format!(
+        "U32_LAYOUT = \"{}\"\n{LUA_STUBS}",
+        LAYOUT.with(|l| l.borrow().clone())
+    );
+    let scripts = test_dir();
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u32",
+        file!(),
+        root,
+        &inputs,
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+            &stubs,
+            &saved.join("\n"),
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        let mut lua_side = LuaSide {
+            app: lua_app,
+            stubs: stubs.clone(),
+        };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
+        drop(lua_side);
+        drop_image_loads(&mut frames);
+        Ok(LuaRun {
+            frames,
+            error: r.err().map(|e| e.to_string()),
+            snapshots: std::mem::take(&mut d.snapshots),
+            extra: vec![serde_json::to_string(&read_saved(user, saved))?],
+        })
+    })
+}
+
 /// Run `script` on both sides with `fixture` as the user dir (fresh copies per side). The Lua
 /// VM is dropped before the Rust side starts (memory).
 fn run_sides(
@@ -1183,26 +1240,13 @@ fn run_sides(
 ) -> anyhow::Result<(Side, Side)> {
     let user = UserDir::new(fixture)?;
 
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    let stubs = format!(
-        "U32_LAYOUT = \"{}\"\n{LUA_STUBS}",
-        LAYOUT.with(|l| l.borrow().clone())
-    );
-    let mut lua_side = LuaSide {
-        app: lua_app,
-        stubs,
-    };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
-    drop(lua_side);
-    drop_image_loads(&mut frames);
+    // Lua (cached)
+    let run = lua_run(root, script, &user, fixture, screen, saved)?;
     let lua = Side {
-        frames,
-        error: r.err().map(|e| e.to_string()),
-        snapshots: std::mem::take(&mut d.snapshots),
-        saved: read_saved(&user, saved),
+        frames: run.frames,
+        error: run.error,
+        snapshots: run.snapshots,
+        saved: serde_json::from_str(run.extra.first().map_or("[]", String::as_str))?,
     };
 
     // Rust
@@ -1342,11 +1386,18 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
     errs
 }
 
+/// One case's outcome (collected in case order).
+#[derive(Default)]
+struct CaseOut {
+    line: String,
+    failure: Option<String>,
+    ran: usize,
+    t4_pairs: usize,
+    t4_bytes: usize,
+}
+
 #[test]
 fn u32_scenarios() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u32")
@@ -1358,22 +1409,13 @@ fn u32_scenarios() {
     assert!(!scripts.is_empty(), "no tests/u32/*.pobscript");
     let filter = std::env::var("U32_FILTER").ok();
     let only_screen = std::env::var("U32_SCREEN").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
-    let (mut t4_pairs, mut t4_bytes) = (0, 0);
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
-        let text = std::fs::read_to_string(&path).unwrap();
-        let (script, base_dir) = runner::load_script(&path).unwrap();
-        let fx = runner::fixtures(&script, &base_dir).unwrap();
-        let layout = directives(&text, "u32-layout")
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| "a".to_owned());
-        LAYOUT.with(|l| *l.borrow_mut() = layout);
+        let (script, _) = runner::load_script(&path).unwrap();
         // a script that sets its own `screen` (the popups are centred, so their coordinates
         // depend on the virtual height) runs once, at that screen
         let own_screen = match script.steps.first() {
@@ -1386,6 +1428,20 @@ fn u32_scenarios() {
             if only_screen.as_ref().is_some_and(|o| *o != w.to_string()) {
                 continue;
             }
+            cases.push((path.clone(), stem.clone(), (w, h, s)));
+        }
+    }
+    let results = oracle_cache::par_map(cases, |(path, stem, (w, h, s))| {
+        let mut out = CaseOut::default();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (script, base_dir) = runner::load_script(&path).unwrap();
+        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        let layout = directives(&text, "u32-layout")
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| "a".to_owned());
+        LAYOUT.with(|l| *l.borrow_mut() = layout);
+        {
             let tag = format!("u32_{stem}@{w}x{h}@{s}");
             let (lua, rust) = match run_sides(
                 &root,
@@ -1396,11 +1452,11 @@ fn u32_scenarios() {
             ) {
                 Ok(s) => s,
                 Err(e) => {
-                    failures.push(format!("{tag}: {e:#}"));
-                    continue;
+                    out.failure = Some(format!("{tag}: {e:#}"));
+                    return out;
                 }
             };
-            ran += 1;
+            out.ran = 1;
             let titles = (window_titles(&lua.frames), window_titles(&rust.frames));
             let mut notes = T4Notes::default();
             let t4r = t4(&lua, &rust, &mut notes);
@@ -1418,8 +1474,8 @@ fn u32_scenarios() {
             let ops = draw_ops(&run.lua);
             let t4_line = match &t4r {
                 Ok((p, b)) => {
-                    t4_pairs += p;
-                    t4_bytes += b;
+                    out.t4_pairs += p;
+                    out.t4_bytes += b;
                     let mut pending = notes.pending_sections.clone();
                     pending.sort();
                     pending.dedup();
@@ -1430,7 +1486,7 @@ fn u32_scenarios() {
                 }
                 Err(e) => format!("T4 FAILED: {}", e.join("; ")),
             };
-            println!(
+            out.line = format!(
                 "{tag}: {} frames, {ops} Lua draw ops, {n} divergences, {t4_line}, titles {:?}{}{}{}",
                 run.lua.len(),
                 distinct_titles(&titles.0),
@@ -1455,7 +1511,7 @@ fn u32_scenarios() {
                 || t4r.is_err()
                 || !expect.is_empty()
             {
-                failures.push(format!(
+                out.failure = Some(format!(
                     "{tag}: {n} divergences, frames lua {} rust {}, {ops} ops, {t4_line}, titles lua {:?} rust {:?}, errors lua {:?} rust {:?}, expectations {expect:?} (see {})",
                     run.lua.len(),
                     run.rust.len(),
@@ -1467,8 +1523,21 @@ fn u32_scenarios() {
                 ));
             }
         }
+        out
+    });
+    let mut failures = Vec::new();
+    let (mut ran, mut t4_pairs, mut t4_bytes) = (0, 0, 0);
+    for case in results {
+        if !case.line.is_empty() {
+            println!("{}", case.line);
+        }
+        failures.extend(case.failure);
+        ran += case.ran;
+        t4_pairs += case.t4_pairs;
+        t4_bytes += case.t4_bytes;
     }
     println!("u32: {ran} runs, T4 {t4_pairs} pairs ({t4_bytes} byte-identical)");
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

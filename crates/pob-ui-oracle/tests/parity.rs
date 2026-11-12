@@ -36,7 +36,8 @@ use pob_sg::trace::{ApiCall, DiffConfig};
 use pob_ui_oracle::diff_report;
 use pob_ui_oracle::runner::{self, RunOptions, RunResult, Target};
 
-type CaseFn = Box<dyn Fn() -> Result<String, String>>;
+/// `Send + Sync`: the gallery and scenario cases run on `oracle_cache::par_map` (TP2).
+type CaseFn = Box<dyn Fn() -> Result<String, String> + Send + Sync>;
 
 struct Case {
     name: String,
@@ -524,11 +525,25 @@ fn main() -> ExitCode {
     println!("running {} parity cases", selected.len());
     let (mut passed, mut failed) = (0usize, Vec::new());
     let mut galleries_ran = 0usize;
-    for c in selected {
+    // TP2: the gallery and scenario cases are independent runs (each its own Lua VM, user dir,
+    // Rust app and report directory): they run on the bounded pool (`POB_TEST_PAR`, fresh thread
+    // per case), the `oracle/` cases (determinism runs of the CLI, audit, ...) after them, one at
+    // a time as before. Results are printed in case order.
+    let run_case = |c: &Case| {
         let t0 = std::time::Instant::now();
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (c.run)()))
             .unwrap_or_else(|p| Err(format!("panicked: {}", pob_host::panic_message(&*p))));
-        let dt = t0.elapsed().as_secs_f64();
+        (r, t0.elapsed().as_secs_f64())
+    };
+    let (pooled, serial): (Vec<&Case>, Vec<&Case>) = selected
+        .into_iter()
+        .partition(|c| c.name.starts_with("gallery/") || c.name.starts_with("scenario/"));
+    let pooled_results = pob_ui_oracle::oracle_cache::par_map(pooled.clone(), run_case);
+    let results = pooled
+        .into_iter()
+        .zip(pooled_results)
+        .chain(serial.into_iter().map(|c| (c, run_case(c))));
+    for (c, (r, dt)) in results {
         match r {
             Ok(msg) => {
                 println!("test {} ... ok ({dt:.1}s; {msg})", c.name);

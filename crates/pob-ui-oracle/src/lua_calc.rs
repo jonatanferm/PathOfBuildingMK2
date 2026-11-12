@@ -11,7 +11,10 @@
 //!
 //! One operation = one fresh LuaJIT PoB (`JitPob::boot_oracle`, JIT off, A6), dropped when the
 //! operation ends, under the machine-wide oracle lock (`runner::OracleLock`): PoB leaks state
-//! between builds in one VM (A3), and a VM costs ≈400 MB. Each operation:
+//! between builds in one VM (A3), and a VM costs ≈400 MB. The Lua half of an operation (boot,
+//! load, the dump chunk) is a pure function of its inputs and goes through the Lua-side cache
+//! (TP2, [`crate::oracle_cache`], keyed by `session_key`): a hit boots no VM and takes no lock;
+//! steps 1 and the injection/adoption always run. Each operation:
 //!
 //! 1. `build:SaveDB()` of the live Rust model (BM-A) → XML text;
 //! 2. boot PoB with the pob-state/1 encoder (`lua/state_dump.lua`) in the pre chunk, wrap
@@ -326,12 +329,77 @@ impl LuaSession {
     /// The documents of [`DUMP_BUILD_OUTPUT_LUA`].
     pub fn dump_build_output(&mut self) -> Result<BuildOutputDocs, String> {
         let r = self.run(DUMP_BUILD_OUTPUT_LUA)?;
-        let [main, calcs] = <[String; 2]>::try_from(r)
-            .map_err(|r| format!("LuaCalcBridge: dump returned {} values", r.len()))?;
-        Ok(BuildOutputDocs {
-            main: StateDump::from_json(&main).map_err(|e| e.0)?,
-            calcs: StateDump::from_json(&calcs).map_err(|e| e.0)?,
-        })
+        build_output_docs(r)
+    }
+
+    /// [`LuaSession::load`] + [`LuaSession::dump_build_output`] through the Lua-side cache
+    /// ([`crate::oracle_cache`], keyed by [`session_key`]): a hit boots no PoB and takes no
+    /// oracle lock; a miss holds a `oracle_cache::LuaVmPermit` while its VM lives.
+    pub fn cached_build_output(
+        src: &Path,
+        xml: &str,
+        name: &str,
+    ) -> Result<BuildOutputDocs, String> {
+        let key = session_key("bridge-build-output", src, xml, name, &[DUMP_BUILD_OUTPUT_LUA])?;
+        let decode = |b: &[u8]| serde_json::from_slice::<Vec<String>>(b).ok();
+        let bytes = crate::oracle_cache::get_or_compute_with(
+            &key,
+            || {
+                let r = crate::oracle_cache::LuaVmPermit::scope(|| {
+                    let mut s = LuaSession::load(src, xml, name)?;
+                    s.run(DUMP_BUILD_OUTPUT_LUA)
+                })?;
+                serde_json::to_vec(&r).map_err(|e| format!("LuaCalcBridge: {e}"))
+            },
+            |a, b| match (decode(a), decode(b)) {
+                (Some(x), Some(y)) => {
+                    x.len() == y.len()
+                        && x.iter()
+                            .zip(&y)
+                            .all(|(p, q)| crate::oracle_cache::same_state_doc(p, q))
+                }
+                _ => a == b,
+            },
+        )?;
+        let r = decode(&bytes).ok_or_else(|| "LuaCalcBridge: bad cached dump".to_owned())?;
+        build_output_docs(r)
+    }
+
+    /// [`LuaSession::load`] + [`LuaSession::call_misc`] through the Lua-side cache (as
+    /// [`LuaSession::cached_build_output`]).
+    pub fn cached_call_misc(
+        src: &Path,
+        xml: &str,
+        name: &str,
+        override_body: &str,
+        use_full_dps: Option<bool>,
+    ) -> Result<StateDump, String> {
+        let full = full_lua(use_full_dps);
+        let key = session_key(
+            "bridge-call-misc",
+            src,
+            xml,
+            name,
+            &[override_body, full, CALL_MISC_LUA],
+        )?;
+        let doc = crate::oracle_cache::get_or_compute_with(
+            &key,
+            || {
+                crate::oracle_cache::LuaVmPermit::scope(|| {
+                    let mut s = LuaSession::load(src, xml, name)?;
+                    s.call_misc_text(override_body, use_full_dps)
+                        .map(String::into_bytes)
+                })
+            },
+            |a, b| {
+                crate::oracle_cache::same_state_doc(
+                    &String::from_utf8_lossy(a),
+                    &String::from_utf8_lossy(b),
+                )
+            },
+        )?;
+        let doc = String::from_utf8(doc).map_err(|e| format!("LuaCalcBridge: cached dump: {e}"))?;
+        StateDump::from_json(&doc).map_err(|e| e.0)
     }
 
     /// `calcFunc(override, useFullDPS)` where `override_body` is the body of a Lua function of
@@ -341,21 +409,76 @@ impl LuaSession {
         override_body: &str,
         use_full_dps: Option<bool>,
     ) -> Result<StateDump, String> {
-        let full = match use_full_dps {
-            None => "nil",
-            Some(true) => "true",
-            Some(false) => "false",
-        };
+        let doc = self.call_misc_text(override_body, use_full_dps)?;
+        StateDump::from_json(&doc).map_err(|e| e.0)
+    }
+
+    /// [`LuaSession::call_misc`]'s document as JSON text.
+    fn call_misc_text(
+        &mut self,
+        override_body: &str,
+        use_full_dps: Option<bool>,
+    ) -> Result<String, String> {
+        let full = full_lua(use_full_dps);
         self.run(&format!(
             "function __bridge_override(b)\n{override_body}\nend\n__bridge_full = {full}\n"
         ))?;
         let r = self.run(CALL_MISC_LUA)?;
-        let doc = r
-            .into_iter()
+        r.into_iter()
             .next()
-            .ok_or_else(|| "LuaCalcBridge: calcFunc dump returned nothing".to_owned())?;
-        StateDump::from_json(&doc).map_err(|e| e.0)
+            .ok_or_else(|| "LuaCalcBridge: calcFunc dump returned nothing".to_owned())
     }
+}
+
+/// `useFullDPS` as the Lua literal [`LuaSession::call_misc`] assigns.
+fn full_lua(use_full_dps: Option<bool>) -> &'static str {
+    match use_full_dps {
+        None => "nil",
+        Some(true) => "true",
+        Some(false) => "false",
+    }
+}
+
+/// The two documents [`DUMP_BUILD_OUTPUT_LUA`] returns.
+fn build_output_docs(r: Vec<String>) -> Result<BuildOutputDocs, String> {
+    let [main, calcs] = <[String; 2]>::try_from(r)
+        .map_err(|r| format!("LuaCalcBridge: dump returned {} values", r.len()))?;
+    Ok(BuildOutputDocs {
+        main: StateDump::from_json(&main).map_err(|e| e.0)?,
+        calcs: StateDump::from_json(&calcs).map_err(|e| e.0)?,
+    })
+}
+
+/// The cache key of one bridge session (TP2): everything the VM of [`LuaSession::load`] sees and
+/// runs. `pob_oracle::runner::source_key` covers PoB's `src/` (stat fingerprint of every file),
+/// `JitPob`'s runtime (`jit.rs`, `headless.rs`, `oracle.rs`, `oracle.lua`, so `boot_oracle` and
+/// `load_build_xml`), the mlua/LuaJIT versions and the JIT mode; then the canonical root, the pre
+/// chunk (the state encoder included), [`BRIDGE_INIT_LUA`], the build name and XML, and `chunks`
+/// (the operation's Lua code and arguments). `pob_oracle`'s `jit.rs` is in that runtime; the
+/// rest of this crate's code runs after the VM is gone and is not part of the key.
+fn session_key(
+    kind: &str,
+    src: &Path,
+    xml: &str,
+    name: &str,
+    chunks: &[&str],
+) -> Result<crate::oracle_cache::Key, String> {
+    let root = std::fs::canonicalize(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    let mut root_s = root.to_string_lossy().replace('\\', "/");
+    if !root_s.ends_with('/') {
+        root_s.push('/');
+    }
+    let mut k = crate::oracle_cache::KeyBuilder::new(kind);
+    k.part(crate::oracle_cache::pob_tree_key(&root)?)
+        .part(&root_s)
+        .part(pre_chunk(&root_s))
+        .part(BRIDGE_INIT_LUA)
+        .part(name)
+        .part(xml);
+    for c in chunks {
+        k.part(c);
+    }
+    Ok(k.finish())
 }
 
 /// The two documents of one `build_output`.
@@ -1174,10 +1297,7 @@ impl LuaCalcBridge {
     pub fn try_build_output(&mut self, build: &BuildRef) -> Result<(), String> {
         let src = pob_src(self.pob_src.as_deref())?;
         let xml = save_xml(build)?;
-        let docs = {
-            let mut s = LuaSession::load(&src, &xml, &session_name(build))?;
-            s.dump_build_output()?
-        };
+        let docs = LuaSession::cached_build_output(&src, &xml, &session_name(build))?;
         let (base, rep) = adopt_build_output(build, &docs)?;
         self.misc = Some((Rc::downgrade(build), base));
         self.last_report = Some(rep);
@@ -1243,10 +1363,13 @@ impl BridgeMiscCalc {
         let src = pob_src(self.pob_src.as_deref())?;
         let body = override_lua(&self.build, ov.map(|o| &**o))?;
         let xml = save_xml(&self.build)?;
-        let doc = {
-            let mut s = LuaSession::load(&src, &xml, &session_name(&self.build))?;
-            s.call_misc(&body, use_full_dps)?
-        };
+        let doc = LuaSession::cached_call_misc(
+            &src,
+            &xml,
+            &session_name(&self.build),
+            &body,
+            use_full_dps,
+        )?;
         let mut rep = AdoptReport::default();
         let i = inj(&doc, &self.build, &mut rep)?;
         // CalcSetup.lua:1921-1922 the calc appends to override.conditions

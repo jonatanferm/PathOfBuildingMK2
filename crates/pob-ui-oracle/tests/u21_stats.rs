@@ -53,11 +53,18 @@ use pob_ui_core::tooltip::tooltip::Tooltip;
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
 use pob_ui_oracle::lua_calc::LuaCalcBridge;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-/// One LuaJIT PoB at a time (memory; ui doc §11.3). The bridge boots its own, one per
-/// operation, while the Lua side's VM is already dropped.
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+// TP2: the scripts and fixtures of a test run as independent cases on
+// `oracle_cache::par_map` (the process-wide case pool, which replaces the old one-PoB-at-a-time
+// test lock; the bridge still boots its own PoB per operation under the machine-wide oracle
+// lock, or reads it from the Lua-side cache), each case on a fresh thread (the Rust side's
+// thread-local state stays per case), and the Lua side of each case goes through the Lua-side
+// cache (`lua_run`). Results are collected in case order, so output and failures do not depend
+// on the schedule. This binary's process keeps the memory of every case it ran, so its cases run
+// one at a time (`limit_par(1)` in `inputs`, before any test admits a case): with up to 3 at
+// once it peaked at 3.8-4.1 GB, serially at 3.0 GB.
 
 /// ui doc §11.3: 1280x800 @1.0 and 1920x1080 @1.5.
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
@@ -67,6 +74,7 @@ const POINT_STR: &str = "^7 12 / 123   ^7 0 / 8";
 const POINT_REQ: &str = "Required Level: 90\nEstimated Progress:\nActs: 10";
 
 fn inputs() -> Option<PathBuf> {
+    oracle_cache::limit_par(1);
     let root = pob_testpaths::require(
         pob_testpaths::pob_root(),
         "PoB checkout (.PathOfBuilding)",
@@ -480,6 +488,64 @@ struct Sides {
     rust_error: Option<String>,
 }
 
+/// The Lua side of one case through the Lua-side cache (TP2): boot, `script`, then `query` on
+/// the VM (its result is `extra`; a query error fails the case); `frames` are kept only when
+/// `keep_frames`, without image loads. The key covers this file (stubs and Lua-side wrapper),
+/// the Lua-side code, PoB, the fixture user dir, this test's scripts, the script, the screen and
+/// the query.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+    query: Option<&str>,
+    keep_frames: bool,
+) -> anyhow::Result<LuaRun> {
+    let scripts = crate_dir().join("tests/u21");
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u21",
+        file!(),
+        root,
+        &inputs,
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+            query.unwrap_or(""),
+            if keep_frames { "frames" } else { "" },
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        let mut lua_side = LuaSide { app: lua_app };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
+        let error = r.err().map(|e| e.to_string());
+        let mut extra = Vec::new();
+        if let (Some(q), None) = (query, &error) {
+            extra = lua_side
+                .app
+                .with_vm(|pob| pob.eval::<Vec<String>>(q))
+                .map_err(|e| anyhow::anyhow!("Lua query: {e}"))?;
+        }
+        drop(lua_side);
+        if keep_frames {
+            drop_image_loads(&mut frames);
+        } else {
+            frames.clear();
+        }
+        Ok(LuaRun {
+            frames,
+            error,
+            snapshots: Vec::new(),
+            extra,
+        })
+    })
+}
+
 fn run_sides(
     root: &Path,
     script: &pob_host::script::Script,
@@ -487,14 +553,9 @@ fn run_sides(
     screen: pob_sg::ScreenInfo,
 ) -> anyhow::Result<Sides> {
     let user = UserDir::new(fixture)?;
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    let mut lua_side = LuaSide { app: lua_app };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut lua, r) = runner::drive(&mut lua_side, script, &mut d);
-    let lua_error = r.err().map(|e| e.to_string());
-    drop(lua_side);
+    // Lua (cached)
+    let run = lua_run(root, script, &user, fixture, screen, None, true)?;
+    let (lua, lua_error) = (run.frames, run.error);
     // Rust (the bridge boots its own PoB per calc)
     user.reset()?;
     let handles = OracleHandles::default();
@@ -512,7 +573,6 @@ fn run_sides(
         ),
     };
     drop(rust_side);
-    drop_image_loads(&mut lua);
     drop_image_loads(&mut rust);
     Ok(Sides {
         lua,
@@ -524,7 +584,6 @@ fn run_sides(
 
 #[test]
 fn u21_sidebar() {
-    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let dir = crate_dir().join("tests/u21");
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -536,27 +595,29 @@ fn u21_sidebar() {
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u21/*.pobscript");
     let filter = std::env::var("U21_FILTER").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
-    let mut total_texts = 0;
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
+        for (w, h, s) in SCREENS {
+            cases.push((path.clone(), stem.clone(), (w, h, s)));
+        }
+    }
+    // (output line, failure, ran, strings drawn) per case, in case order
+    let results = oracle_cache::par_map(cases, |(path, stem, (w, h, s))| {
         let (script, base_dir) = runner::load_script(&path).unwrap();
         let fx = runner::fixtures(&script, &base_dir).unwrap();
-        for (w, h, s) in SCREENS {
+        {
             let tag = format!("u21_{stem}@{w}x{h}@{s}");
             let sides = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s))
             {
                 Ok(s) => s,
                 Err(e) => {
-                    failures.push(format!("{tag}: {e:#}"));
-                    continue;
+                    return (None, Some(format!("{tag}: {e:#}")), 0, 0);
                 }
             };
-            ran += 1;
             let run = RunResult {
                 lua: sides.lua,
                 rust: sides.rust,
@@ -569,8 +630,7 @@ fn u21_sidebar() {
             let n = diff_report::write_report(&out_dir(), &tag, &run, false).unwrap_or(usize::MAX);
             let ops = draw_ops(&run.lua);
             let texts = drawn_texts(&run.lua);
-            total_texts += texts;
-            println!(
+            let line = format!(
                 "{tag}: {} frames, {ops} Lua draw ops ({texts} strings), {n} divergences{}{}",
                 run.lua.len(),
                 sides
@@ -582,22 +642,35 @@ fn u21_sidebar() {
                     .as_ref()
                     .map_or_else(String::new, |e| format!(", Rust error: {e}"))
             );
+            let mut failure = None;
             if n != 0
                 || sides.rust_error.is_some()
                 || sides.lua_error.is_some()
                 || run.lua.len() != run.rust.len()
                 || ops == 0
             {
-                failures.push(format!(
+                failure = Some(format!(
                     "{tag}: {n} divergences, frames lua {} rust {} (see {})",
                     run.lua.len(),
                     run.rust.len(),
                     out_dir().join(&tag).join("report.txt").display()
                 ));
             }
+            (Some(line), failure, 1, texts)
         }
+    });
+    let mut failures = Vec::new();
+    let (mut ran, mut total_texts) = (0, 0);
+    for (line, failure, r, t) in results {
+        if let Some(l) = line {
+            println!("{l}");
+        }
+        failures.extend(failure);
+        ran += r;
+        total_texts += t;
     }
     println!("u21_sidebar: {ran} runs, {total_texts} Lua strings drawn");
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -685,7 +758,8 @@ fn tooltip_lines(tt: &Tooltip) -> Vec<String> {
         .collect()
 }
 
-fn lua_compare(lua: &mut LuaSide, cases: &[Case]) -> Vec<Vec<String>> {
+/// The Lua chunk comparing `cases` (`calcFunc` + `AddStatComparesToTooltip`), one result per case.
+fn lua_compare_code(cases: &[Case]) -> String {
     let mut code = String::from(
         "local b = main.modes.BUILD\nlocal calcFunc, calcBase = b.calcsTab:GetMiscCalculator()\nlocal res = { }\n",
     );
@@ -715,13 +789,7 @@ end
         ));
     }
     code.push_str("return res\n");
-    let out: Vec<String> = lua
-        .app
-        .with_vm(|pob| pob.eval::<Vec<String>>(&code))
-        .unwrap_or_else(|e| panic!("Lua compare: {e}"));
-    out.into_iter()
-        .map(|s| s.split('\n').map(str::to_owned).collect())
-        .collect()
+    code
 }
 
 fn node_map(build: &BuildRef, id: f64) -> Shared<LjIntMap<pob_calc::classes::NodeRef>> {
@@ -773,11 +841,10 @@ fn rust_compare(rust: &mut RustSide, cases: &[Case]) -> Vec<Vec<String>> {
 
 #[test]
 fn u21_compare_tooltips() {
-    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
-    let mut failures = Vec::new();
-    let (mut compared, mut lines_total) = (0, 0);
-    for name in fixture_builds() {
+    let results = oracle_cache::par_map(fixture_builds(), |name| {
+        let mut out = (Vec::new(), Vec::new(), 0, 0);
+        let (lines_out, failures, compared, lines_total) = &mut out;
         let xml = std::fs::read_to_string(fixture_dir().join("Path of Building/Builds").join(&name))
             .unwrap();
         let cases = cases(&xml);
@@ -787,15 +854,18 @@ fn u21_compare_tooltips() {
         .unwrap();
         let user = UserDir::new(Some(&fixture_dir())).unwrap();
         let screen = runner::screen(1280, 800, 1.0);
-        // Lua
-        let handles = OracleHandles::default();
-        let lua_app = runner::lua_side(&root, &user, &handles, Entry::Launch, false).unwrap();
-        let mut lua_side = LuaSide { app: lua_app };
-        let mut d = Driver::new(screen, handles, user.path.clone());
-        let (_, r) = runner::drive(&mut lua_side, &script, &mut d);
-        r.unwrap_or_else(|e| panic!("{name}: Lua: {e}"));
-        let lua = lua_compare(&mut lua_side, &cases);
-        drop(lua_side);
+        // Lua (cached)
+        let code = lua_compare_code(&cases);
+        let run = lua_run(&root, &script, &user, Some(&fixture_dir()), screen, Some(&code), false)
+            .unwrap_or_else(|e| panic!("{name}: Lua: {e:#}"));
+        if let Some(e) = &run.error {
+            panic!("{name}: Lua: {e}");
+        }
+        let lua: Vec<Vec<String>> = run
+            .extra
+            .into_iter()
+            .map(|s| s.split('\n').map(str::to_owned).collect())
+            .collect();
         // Rust
         user.reset().unwrap();
         let handles = OracleHandles::default();
@@ -807,9 +877,9 @@ fn u21_compare_tooltips() {
         let rust = rust_compare(&mut rust_side, &cases);
         drop(rust_side);
         for ((c, l), r) in cases.iter().zip(&lua).zip(&rust) {
-            compared += 1;
-            lines_total += l.len() - 1;
-            println!("{name} {}: {} | {} lines", c.name, l[0], l.len() - 1);
+            *compared += 1;
+            *lines_total += l.len() - 1;
+            lines_out.push(format!("{name} {}: {} | {} lines", c.name, l[0], l.len() - 1));
             if l != r {
                 failures.push(format!(
                     "{name} {}:\n  lua:  {l:?}\n  rust: {r:?}",
@@ -817,8 +887,20 @@ fn u21_compare_tooltips() {
                 ));
             }
         }
+        out
+    });
+    let mut failures = Vec::new();
+    let (mut compared, mut lines_total) = (0, 0);
+    for (lines, f, c, l) in results {
+        for line in lines {
+            println!("{line}");
+        }
+        failures.extend(f);
+        compared += c;
+        lines_total += l;
     }
     println!("u21_compare_tooltips: {compared} comparisons, {lines_total} tooltip lines");
+    println!("{}", oracle_cache::summary());
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
@@ -911,7 +993,8 @@ fn rust_ser(v: &Val) -> String {
     }
 }
 
-fn lua_sidebar(lua: &mut LuaSide) -> Vec<String> {
+/// The Lua chunk of `u21_sidebar_breakdown` (every call's serialized result).
+fn lua_sidebar_code() -> String {
     let mut code = LUA_SER.replace("__SKIP__", SECTION_CONTROL_FIELDS);
     code.push_str(
         r#"
@@ -941,9 +1024,7 @@ end
 return res
 "#,
     );
-    lua.app
-        .with_vm(|pob| pob.eval::<Vec<String>>(&code))
-        .unwrap_or_else(|e| panic!("Lua sidebar breakdown: {e}"))
+    code
 }
 
 fn rust_sidebar(rust: &mut RustSide) -> Vec<String> {
@@ -999,26 +1080,24 @@ fn rust_sidebar(rust: &mut RustSide) -> Vec<String> {
 /// field by field (sorted keys) and compared with PoB's.
 #[test]
 fn u21_sidebar_breakdown() {
-    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
-    let mut failures = Vec::new();
-    let (mut compared, mut cells) = (0, 0);
-    for name in fixture_builds() {
+    let code = lua_sidebar_code();
+    let results = oracle_cache::par_map(fixture_builds(), |name| {
+        let mut out = (String::new(), Vec::new(), 0, 0);
+        let (line, failures, compared, cells) = &mut out;
         let script = runner::parse_script(&format!(
             "frames 1\nload-build \"Builds/{name}\"\nframes 2\n"
         ))
         .unwrap();
         let user = UserDir::new(Some(&fixture_dir())).unwrap();
         let screen = runner::screen(1280, 800, 1.0);
-        // Lua
-        let handles = OracleHandles::default();
-        let lua_app = runner::lua_side(&root, &user, &handles, Entry::Launch, false).unwrap();
-        let mut lua_side = LuaSide { app: lua_app };
-        let mut d = Driver::new(screen, handles, user.path.clone());
-        let (_, r) = runner::drive(&mut lua_side, &script, &mut d);
-        r.unwrap_or_else(|e| panic!("{name}: Lua: {e}"));
-        let lua = lua_sidebar(&mut lua_side);
-        drop(lua_side);
+        // Lua (cached)
+        let run = lua_run(&root, &script, &user, Some(&fixture_dir()), screen, Some(&code), false)
+            .unwrap_or_else(|e| panic!("{name}: Lua: {e:#}"));
+        if let Some(e) = &run.error {
+            panic!("{name}: Lua: {e}");
+        }
+        let lua = run.extra;
         // Rust
         user.reset().unwrap();
         let handles = OracleHandles::default();
@@ -1032,12 +1111,12 @@ fn u21_sidebar_breakdown() {
         let index_keys = lua.iter().filter(|l| l.starts_with("index ")).count();
         let n_cells: usize = lua.iter().map(|l| l.matches("breakdown=").count()).sum();
         let bytes: usize = lua.iter().map(String::len).sum();
-        println!(
+        *line = format!(
             "{name}: {} calls ({index_keys} index keys), {n_cells} breakdown fields, {bytes} bytes",
             lua.len()
         );
-        compared += lua.len();
-        cells += n_cells;
+        *compared += lua.len();
+        *cells += n_cells;
         if lua.len() != rust.len() {
             failures.push(format!("{name}: {} Lua calls, {} Rust", lua.len(), rust.len()));
         }
@@ -1046,8 +1125,18 @@ fn u21_sidebar_breakdown() {
                 failures.push(format!("{name}:\n  lua:  {l}\n  rust: {r}"));
             }
         }
+        out
+    });
+    let mut failures = Vec::new();
+    let (mut compared, mut cells) = (0, 0);
+    for (line, f, c, n) in results {
+        println!("{line}");
+        failures.extend(f);
+        compared += c;
+        cells += n;
     }
     println!("u21_sidebar_breakdown: {compared} calls, {cells} breakdown fields");
+    println!("{}", oracle_cache::summary());
     let shown: Vec<_> = failures.iter().take(20).cloned().collect();
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), shown.join("\n"));
 }
@@ -1128,8 +1217,9 @@ fn extras(i: usize, x: f64) -> (Option<f64>, Option<&'static str>) {
 
 #[test]
 fn u21_format_stat() {
-    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
+    // one heavy case (a LuaJIT PoB, then a Rust app) on this thread: hold a pool permit
+    let _permit = oracle_cache::Permit::acquire();
     let vals = values();
     assert_eq!(vals.len(), 500);
     let datas = stat_datas();
@@ -1157,13 +1247,29 @@ fn u21_format_stat() {
     }
     code.push_str("return res\n");
     let user = UserDir::new(Some(&fixture_dir())).unwrap();
-    let lua: Vec<String> = {
+    // Lua (cached: boot, OnInit, the chunk)
+    let fixture = fixture_dir();
+    let key = oracle_cache::ui_key(
+        "ui-u21-format-stat",
+        file!(),
+        &root,
+        &[&fixture],
+        &[&code],
+    );
+    let lua: Vec<String> = oracle_cache::cached_lua_run(key, || {
         let handles = OracleHandles::default();
-        let mut app = runner::lua_side(&root, &user, &handles, Entry::Launch, false).unwrap();
+        let mut app = runner::lua_side(&root, &user, &handles, Entry::Launch, false)?;
         app.on_init();
-        app.with_vm(|pob| pob.eval::<Vec<String>>(&code))
-            .unwrap_or_else(|e| panic!("Lua FormatStat: {e}"))
-    };
+        let extra = app
+            .with_vm(|pob| pob.eval::<Vec<String>>(&code))
+            .map_err(|e| anyhow::anyhow!("Lua FormatStat: {e}"))?;
+        Ok(LuaRun {
+            extra,
+            ..LuaRun::default()
+        })
+    })
+    .unwrap_or_else(|e| panic!("{e:#}"))
+    .extra;
     // Rust
     let handles = OracleHandles::default();
     let (sg, sys) = boot::oracle_parts(&root, &user.path, &handles).unwrap();
