@@ -145,11 +145,12 @@ fn build_output_on_stubs() {
     }
 }
 
-/// Runs that may raise on a stub gap: measured on port/CA (rust-port f275edb + CA, 2026-11-10):
-/// the 5 CALCS runs raise in `buildOutput`'s CALCS lists (Calcs.lua:605, `output.PowerCharges > 0`
-/// with `PowerCharges` nil: PF-B's `doActorCharges`, CalcPerform.lua:980-1139, is a stub).
-/// docs/port/FOLLOWUPS.md "HYG2 exposed"; lower to 0 when PF-B lands.
-const MAX_STUB_ERRORS: usize = 5;
+/// Runs that may raise on a stub gap: none. History: on port/CA (rust-port f275edb + CA,
+/// 2026-11-10) the 5 CALCS runs raised in `buildOutput`'s CALCS lists (Calcs.lua:605,
+/// `output.PowerCharges > 0` with `PowerCharges` nil while PF-B's `doActorCharges` was a stub);
+/// FUP2 measured 0 of 15 runs raising and lowered the bound from 5 to 0
+/// (docs/port/FOLLOWUPS.md "HYG2 exposed").
+const MAX_STUB_ERRORS: usize = 0;
 
 /// The calc segments whose stubs may leave a value nil that ported code then raises on (calc
 /// doc §11.1 rows CS1-CS3, PF-A..PF-G, CA; `pob_calc::stub` site prefixes).

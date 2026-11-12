@@ -499,7 +499,7 @@ fn PassiveTree_ctor_classes(
         for (ascendClassId, ascendClass) in alternate_ascendancies.pairs() {
             let id = ascendClass.get(n!("id"));
             // L142
-            if legacyAlternateAscendancyIds.truthy(val_key(&id)) {
+            if read_at(&legacyAlternateAscendancyIds, &id).truthy() {
                 // L143
                 legacyAscMap.set(val_key(&id), true);
             } else {
@@ -694,7 +694,7 @@ fn num_list(v: &Val) -> Vec<f64> {
         .unwrap_or_default()
 }
 
-/// A Lua value used as a table key.
+/// A Lua value used as a table key to store at (`t[v] = x`): a nil or NaN key raises.
 fn val_key(v: &Val) -> Key {
     match v {
         Val::Str(s) => Key::S(Name::from(&**s)),
@@ -702,6 +702,16 @@ fn val_key(v: &Val) -> Key {
         Val::Bool(b) => Key::B(*b),
         Val::Nil => lua_error!("table index is nil"),
         other => lua_error!("PassiveTree: {} table key", other.lua_type()),
+    }
+}
+
+/// `t[v]` read (FUP2, FOLLOWUPS "FUP1" item 6): a nil or NaN key reads nil (`lj_tab_get` finds
+/// nothing), where a store at it raises ([`val_key`]); the same rule as item.rs `tget`.
+fn read_at(t: &Table, v: &Val) -> Val {
+    match v {
+        Val::Nil => Val::Nil,
+        Val::Num(x) => Key::try_num(*x).map_or(Val::Nil, |k| t.get(k)),
+        other => t.get(val_key(other)),
     }
 }
 
@@ -892,7 +902,7 @@ fn PassiveTree_ctor_nodes(this: &mut PassiveTree, treeVersion: Name, versionNum:
             node.r#type.set(n!("AscendClassStart"));
             // L554
             let an = node.ascendancyName.get().map_or(Val::Nil, Val::from);
-            let ascendClass = this.ascendNameMap.get(val_key(&an)).get(n!("ascendClass"));
+            let ascendClass = read_at(&this.ascendNameMap, &an).get(n!("ascendClass"));
             // L555
             ascendClass
                 .table()
@@ -906,14 +916,14 @@ fn PassiveTree_ctor_nodes(this: &mut PassiveTree, treeVersion: Name, versionNum:
                 // L559
                 for (_, effect) in masteryEffects.pairs() {
                     let effect = effect.table().expect("mastery effect");
-                    let effectId = val_key(&effect.get(n!("effect")));
+                    let effectId = effect.get(n!("effect"));
                     // L560
-                    if !this.masteryEffects.truthy(effectId) {
+                    if !read_at(&this.masteryEffects, &effectId).truthy() {
                         // L561
                         let me = new_node_table(effect.num(n!("effect")));
                         me.sd.set(Shared::new(str_list(&effect.get(n!("stats")))));
                         let me = Rc::new(me);
-                        this.masteryEffects.set(effectId, node_val(&me));
+                        this.masteryEffects.set(val_key(&effectId), node_val(&me));
                         // L562
                         this.ProcessStats(&me, None);
                         // (Lua: `sd` is `effect.stats`, which ProcessStats split in place)
@@ -921,9 +931,7 @@ fn PassiveTree_ctor_nodes(this: &mut PassiveTree, treeVersion: Name, versionNum:
                     } else {
                         // Copy multiline stats from an earlier ProcessStats call
                         // L565
-                        let me = this
-                            .masteryEffects
-                            .get(effectId)
+                        let me = read_at(&this.masteryEffects, &effectId)
                             .obj::<Node>()
                             .expect("mastery effect node");
                         effect.set(n!("stats"), sd_table(&me));
@@ -1017,11 +1025,7 @@ fn PassiveTree_ctor_nodes(this: &mut PassiveTree, treeVersion: Name, versionNum:
         // Find the node group
         // L612
         let g = node.extra.get(n!("g"));
-        let group = if g.is_nil() {
-            Val::Nil
-        } else {
-            groups.get(val_key(&g))
-        };
+        let group = read_at(&groups, &g);
         // L613
         if let Some(group) = group.table() {
             // L614
@@ -1053,7 +1057,7 @@ fn PassiveTree_ctor_nodes(this: &mut PassiveTree, treeVersion: Name, versionNum:
 /// `self.ascendNameMap[node.ascendancyName].class.name`.
 fn ascend_class_name(this: &PassiveTree, node: &Node) -> Name {
     let an = node.ascendancyName.get().map_or(Val::Nil, Val::from);
-    let entry = this.ascendNameMap.get(val_key(&an));
+    let entry = read_at(&this.ascendNameMap, &an);
     match entry.get(n!("class")).get(n!("name")) {
         Val::Str(s) => Name::from(&*s),
         other => lua_error!("className is a {} value", other.lua_type()),
@@ -1817,4 +1821,24 @@ pub fn setJewelRadiiGlobally(treeVersion: &str) {
         jewelRadius,
         maxJewelRadius,
     });
+}
+
+#[cfg(test)]
+mod fup2_key_tests {
+    use super::*;
+
+    /// FOLLOWUPS "FUP1" item 6: `t[0/0]` and `t[nil]` read nil in Lua; a store at NaN raises
+    /// "table index is NaN" (LuaJIT: `local t = {} ; print(t[0/0])` → nil, `t[0/0] = 1` → error).
+    #[test]
+    fn nan_and_nil_keys_read_nil() {
+        let t = Table::new();
+        t.set(1_i64, true);
+        t.set(n!("Warden"), true);
+        assert!(read_at(&t, &Val::Num(f64::NAN)).is_nil());
+        assert!(read_at(&t, &Val::Nil).is_nil());
+        assert!(read_at(&t, &Val::Num(1.0)).truthy());
+        assert!(read_at(&t, &Val::from("Warden")).truthy());
+        let e = pob_lua::error::catch(|| val_key(&Val::Num(f64::NAN))).unwrap_err();
+        assert!(e.0.contains("table index is NaN"), "{}", e.0);
+    }
 }
