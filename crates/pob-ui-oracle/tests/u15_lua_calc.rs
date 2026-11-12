@@ -272,7 +272,7 @@ fn bridge_build_output_matches_pob() {
         let xml = std::fs::read_to_string(&path).unwrap();
         let t0 = std::time::Instant::now();
         let build = load(&xml);
-        let mut bridge = LuaCalcBridge::new(Some(src.clone()));
+        let mut bridge = LuaCalcBridge::lua(Some(src.clone()));
         assert!(matches!(bridge.build_output(&build), Poll::Ready(())));
         let t_bridge = t0.elapsed();
         let ct = &build.calcsTab;
@@ -693,7 +693,7 @@ fn bridge_misc_calc_matches_pob() {
             2,
             "{stem}: two specs"
         );
-        let mut bridge = LuaCalcBridge::new(Some(src.clone()));
+        let mut bridge = LuaCalcBridge::lua(Some(src.clone()));
         assert!(matches!(bridge.build_output(&build), Poll::Ready(())));
         let (calc, _) = match bridge.misc_calculator(&build) {
             Poll::Ready(x) => x,
@@ -921,7 +921,7 @@ fn bridge_model_writes() {
     build.skillsTab.displayGroup.set(Some(orphan.clone()));
     build.mainSocketGroup.set(99.0);
     build.calcsTab.input.set("skill_number", 99.0);
-    let mut bridge = LuaCalcBridge::new(Some(src.clone()));
+    let mut bridge = LuaCalcBridge::lua(Some(src.clone()));
     assert!(matches!(bridge.build_output(&build), Poll::Ready(())));
     let groups = build.skillsTab.socketGroupList.get().snapshot();
     assert!(

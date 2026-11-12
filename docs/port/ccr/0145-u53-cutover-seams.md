@@ -6,16 +6,19 @@ U53 integrates the whole app and runs it end to end against PoB with the Rust ca
 touched files of merged units; each change below is the smallest one that makes the full app
 equal PoB, and each site is marked `CCR-0145 §n`.
 
-## 1. `POB_UI_CALC=rust`: the unit scenarios on the Rust calc
+## 1. The unit scenarios run on the Rust calc (`POB_UI_CALC`)
 
 Every UI unit's acceptance test builds its Rust side with `LuaCalcBridge::new(..)` (ui doc §11.3:
 "Rust-side numbers come from LuaCalcBridge until the Rust calc reaches parity"). The calc is at
-parity (docs/port/STATUS.md, INT-1), so the same scenarios must run on the Rust calc.
+parity (docs/port/STATUS.md, INT-1), so the same scenarios now run on the Rust calc.
 
-- `crates/pob-ui-oracle/src/lua_calc.rs` (U15): `pub fn rust_calc_selected()` reads
-  `POB_UI_CALC`; with `POB_UI_CALC=rust`, `LuaCalcBridge::try_build_output` / `build_output` and
-  `misc_calculator` delegate to `pob_app::calc::RustCalc` (calc:PWR/CA). Unset: unchanged (PoB in a
-  second VM), so `u15_lua_calc` keeps testing the bridge.
+- `crates/pob-ui-oracle/src/lua_calc.rs` (U15): `LuaCalcBridge::new` delegates `build_output` /
+  `try_build_output` and `misc_calculator` to `pob_app::calc::RustCalc` (calc:PWR/CA) unless
+  `POB_UI_CALC=lua` (then PoB in a second VM, as before). `LuaCalcBridge::lua(src)` (new field
+  `force_lua`) always runs PoB: `u15_lua_calc` (which tests the bridge itself) and the desktop
+  feature `lua-calc` use it.
+- Measured with the Rust calc: every app unit harness u16-u52 green (STATUS.md, U53), and about
+  10x faster than through the bridge (u41: 106 s against 1,943 s in the last full suite).
 
 ## 2. `scenarios/e2e` and its harness
 

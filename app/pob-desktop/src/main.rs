@@ -75,7 +75,7 @@ fn main() -> anyhow::Result<()> {
             pob_app::PobApp::with_calc(
                 parts,
                 std::rc::Rc::new(move || {
-                    Box::new(pob_ui_oracle::lua_calc::LuaCalcBridge::new(Some(src.clone())))
+                    Box::new(pob_ui_oracle::lua_calc::LuaCalcBridge::lua(Some(src.clone())))
                 }),
             )
         })
