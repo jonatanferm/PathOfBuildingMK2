@@ -154,6 +154,15 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    the Rust port reproduces it. `CA.rs` records it as `D13_POB_WARM_CACHE`: for that build the
    warm run is checked against PoB's warm values and the fixed point is checked after a wipe.
    A new build that differs on a warm cache must first be measured in PoB the same way.
+   **Second build: fresh_017** (INT-1-FRESH corpus, `.parity/fresh`; found by INT-1-FRESH,
+   docs/port/parity/INT-1-fresh-triage.md §4 B; recorded by INT-1F-B, 2026-11-12). An SSF
+   Allflame Champion, Lacerate of Butchering, also a bleed build. Measured the same way in PoB
+   (`pob_headless`, POB_ENGINE=jit, PoB v2.67.2): 24 of 78,992 output keys differ between the
+   two runs (BleedStacks 0.675 → 1.25, LifeLeechInstances and ManaLeechInstances 2.7 → 5,
+   BleedDPS 34,158.45 → 53,560.428711765730, TotalDPS 2,277,409.28 → 4,217,424.593125107,
+   CombinedDPS 2,311,567.73 → 4,270,985.021836872), and 0 differ with a wipe between them.
+   Rust's warm run has PoB's warm values, and L6 (the cold run) is exact for this build. It is
+   the second entry of `D13_POB_WARM_CACHE`.
 6. **The Saviour's Reflection mirage skill outlives its env's actor** (owners: MI and AS;
    found at the CS2 merge, CCR-0105 §6). upstream_Dual_Savior raises `attempt to index field
    'actor' (a nil value)` (calc_active_skill.rs:713) in MAIN, CALCS, `getMiscCalculator` and
