@@ -238,7 +238,8 @@ pub fn default_shell_hooks() -> ShellHooks {
             BuildTab::Tree => crate::tabs::tree::core::draw_tab(cx, vp, ev),
             BuildTab::Config => crate::tabs::config::core::draw_tab(cx, vp, ev),
             BuildTab::Items => crate::tabs::items::core::draw_tab(cx, vp, ev),
-            _ => {}
+            // U47 (CCR-0136 §2)
+            BuildTab::Compare => crate::tabs::compare::layout::draw_tab(cx, vp, ev),
         }),
         tab_flag: Rc::new(|cx, flag| match flag {
             TabFlag::Notes => crate::tabs::notes::mod_flag(cx),

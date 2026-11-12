@@ -1,0 +1,21 @@
+# U47 a: the Compare tab imports allflame_exp_048 on its first Draw (CompareEntry: LoadFromXML,
+# the entry's tabs, SyncCalcsSkillSelection, BuildOutput; ImportBuild restores the title).
+# Summary: the top-bar dividers, UpdateSetSelectors (the entry's spec/skill/item/config set
+# lists, RefreshSkillSelectControls of the cmp* row), the shared view scroll bar (no content:
+# hidden), wheel scrolling in the content area (HandleScrollInput, nothing to scroll).
+#! u47-import allflame_exp_048.xml
+#! u47-expect-text u47 SUMMARY allflame_exp_048
+screen 1920 1080 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 98
+click LEFTBUTTON
+frames 3
+move 700 500
+frames 2
+wheel down 2
+frames 2
+wheel up 1
+frames 2

@@ -1,0 +1,41 @@
+# U47 f: Config view with Sub/allflame_exp_030: RebuildConfigControls on entry, syncControlValue,
+# the header controls and the primary config set list, the section grid (diffs first, the
+# multi-column placement at this width), the scroll bar and wheel scrolling (the controls move
+# and clip), the search box (typing filters the sections; Ctrl+A, BACK clears it), the
+# show-all toggle, Ctrl+F (selects the search box).
+#! u47-import Sub/allflame_exp_030.xml
+#! u47-expect-text u47 CONFIG total=
+screen 1280 800 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 732 138
+click LEFTBUTTON
+frames 3
+move 900 600
+wheel down 3
+frames 2
+wheel up 1
+frames 2
+move 400 196
+click LEFTBUTTON
+type "res"
+frames 2
+key-down CTRL
+press a
+key-up CTRL
+press BACK
+frames 2
+move 650 196
+click LEFTBUTTON
+frames 3
+move 900 600
+key-down CTRL
+press f
+key-up CTRL
+type "life"
+frames 2
