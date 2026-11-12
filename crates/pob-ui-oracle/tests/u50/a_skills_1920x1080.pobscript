@@ -1,0 +1,26 @@
+# U50 a: Skills view against allflame_exp_048 (no common gems: every group unmatched, all
+# gems additional), the group header icons of both builds, hovering a supported active gem
+# and a gem of the comparison build, wheel scrolling (the shared view scroll bar).
+#! u50-import allflame_exp_048.xml
+#! u50-expect-text Ethereal Knives of the Massacre (Body Armour)
+screen 1920 1080 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 98
+click LEFTBUTTON
+frames 3
+move 504 138
+click LEFTBUTTON
+frames 3
+move 345 632
+frames 2
+move 765 600
+frames 2
+wheel down 3
+frames 2
+move 345 500
+frames 2
+wheel up 1
+frames 2

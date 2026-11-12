@@ -1,0 +1,34 @@
+# U50 d: Config view against Sub/allflame_exp_030: the fixed header (column headers), the
+# section boxes, the diff badges and diff-row highlights, the labels (long ones at size
+# 12), wheel scrolling, the search box filtering to nothing (the empty message) and back.
+#! u50-import Sub/allflame_exp_030.xml
+#! u50-expect-text No configuration options to display.
+#! u50-expect-text diff)
+screen 1280 800 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 732 138
+click LEFTBUTTON
+frames 3
+move 900 600
+wheel down 3
+frames 2
+wheel up 1
+frames 2
+move 400 196
+click LEFTBUTTON
+type "zzzqqq"
+frames 2
+key-down CTRL
+press a
+key-up CTRL
+press BACK
+frames 2
+move 650 196
+click LEFTBUTTON
+frames 3

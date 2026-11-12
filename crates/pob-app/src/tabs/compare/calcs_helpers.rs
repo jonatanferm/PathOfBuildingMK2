@@ -124,6 +124,15 @@ fn row_table(r: &pob_calc::classes::TabRow) -> Table {
     t
 }
 
+/// A breakdown value with a nested breakdown instance as its data table (CCR-0144 §2; as
+/// `build::stats`' `bd_val`).
+fn bd_val(v: Val) -> Val {
+    match v.obj::<pob_calc::breakdown::Breakdown>() {
+        Some(b) => Val::Table(b.t.clone()),
+        None => v,
+    }
+}
+
 // ---- the helpers ------------------------------------------------------------------------------
 
 /// Format a modifier value with its type for display
@@ -401,7 +410,9 @@ pub fn GetBreakdownLines(sectionData: &Table, build: &model::BuildRef) -> Option
     if let Some(m) = m {
         let (ns, name) = (m[0].to_str(), m[1].to_str());
         // L153
-        let t = actorBreakdown.get(Name::from(&ns));
+        // CCR-0144 §2: `breakdown.MainHand`/`.OffHand` are nested breakdown instances
+        // (`Val::Obj(Breakdown)`), plain tables in Lua
+        let t = bd_val(actorBreakdown.get(Name::from(&ns)));
         breakdown = if t.truthy() { t.get(Name::from(&name)) } else { t };
     } else {
         // L155

@@ -162,9 +162,9 @@ pub fn default_draw_hooks() -> CompareDrawHooks {
         draw_tree: Rc::new(super::draw_a::draw_tree_hook), // U49 (CCR-0143 §6)
         draw_summary: Rc::new(super::draw_a::draw_summary_hook), // U49 (CCR-0143 §6)
         draw_items: Rc::new(super::draw_a::draw_items_hook), // U49 (CCR-0143 §6)
-        draw_skills: Rc::new(|_, _, _, _| {}),
-        draw_calcs: Rc::new(|_, _, _, _| {}),
-        draw_config: Rc::new(|_, _, _, _, _| {}),
+        draw_skills: Rc::new(CompareTab::DrawSkills),
+        draw_calcs: Rc::new(CompareTab::DrawCalcs),
+        draw_config: Rc::new(CompareTab::DrawConfig),
     }
 }
 
