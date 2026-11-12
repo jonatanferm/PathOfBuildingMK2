@@ -973,7 +973,7 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
         let new_group_nil = matches!(
             (&*node.elem, &**k),
             ("Skill", "mainActiveSkill" | "mainActiveSkillCalcs")
-        ) && ((lua && &**v == "nil") || (!lua && &**v == "nan"));
+        ) && ((&**v == "nil") || (!lua && &**v == "nan"));
         if new_group_nil {
             notes.gem_nil_bools += 1;
             attrs.push((k.to_string(), "nil".to_owned()));

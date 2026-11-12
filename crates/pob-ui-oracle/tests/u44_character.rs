@@ -803,7 +803,7 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
                 notes.gem_nil_bools += 1;
             }
             attrs.push((k.to_string(), "nil".to_owned()));
-        } else if let Some(d) = rust_default.filter(|_| lua && &**v == "nil") {
+        } else if let Some(d) = rust_default.filter(|_| &**v == "nil") {
             notes.gem_nil_bools += 1;
             attrs.push((k.to_string(), d.to_owned()));
         } else if &*node.elem == "Spec" && &**k == "masteryEffects" {
