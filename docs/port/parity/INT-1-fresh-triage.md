@@ -61,7 +61,9 @@ totals from the result files.
 4. **Not covered here.**
    - Breakdowns are INT-3, and L6 does not compare them.
    - PoB nondeterminism: `oracle.sh nondet` was not run on the fresh corpus. No mismatch
-     needs it, because every PoB value is matched.
+     needs it, because every PoB value is matched. Later, fresh_076 `ManaCostRaw` turned out
+     to be nondeterministic in PoB. FUP4 recorded it with `oracle.sh nondet --fresh` and
+     `ca_l6_corpus` now reads the record (FOLLOWUPS "FUP2" item 1).
    - The ±0 tolerance (CCR-0001/0002): how many keys pass only through it was not counted on
      this corpus.
 
