@@ -176,8 +176,7 @@ fail, restarts 6/6 identical; overrides 0 failures. Provenance `check`: 2,159 `@
 `@pob-skip`, 226 `@pob-file` (one more: `calc_perform_shared.rs`), 0 errors; `coverage` is
 unchanged from rust-port (0 uncovered, the same 421 lines covered twice by pob-app's tab code);
 `locals_audit.py --check` ok. Further pob-oracle binaries (full corpus): CO-A 2/2 and CO-B 2/2
-(they read `apply_{a,b}.rs` at the new path), SK-B 2/2 and SK-A's `ska_rows_cover_act_int`
-(sources at the new path), ORC-X 6/6, DF-C, OF-G, OF-I, PF-E, PF-D 2/2 (L4 through
+(they read `apply_{a,b}.rs` at the new path), SK-A 2/2 and SK-B 2/2 (sources at the new path), ORC-X 6/6, DF-C, OF-G, OF-I, PF-E, PF-D 2/2 (L4 through
 `run_segment`), MS-B 2/2, BM-B 5/5, oracle_harness 2/2, u0_smoke; U0 5/6, its
 `provenance_check_and_coverage` failing on the same pre-existing coverage duplicates as rust-port.
 A simulated pre-split branch that edits `hit_dps.rs`,
