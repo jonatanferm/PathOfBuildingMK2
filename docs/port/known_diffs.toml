@@ -158,3 +158,22 @@ keys = ["Classes/CalcBreakdownControl.lua:481", "Classes/CalcBreakdownControl.lu
 kind = "value"
 reason = "Multiplier/PerStat tag text of a mod table row ('per <div> <var>'): for a tag with divVar, PoB prints the div that the last EvalMod wrote into the shared, data-owned tag (ModStore.lua:401, 499; whichever store and cfg evaluated it last). The Rust calc never writes it (calc doc §5.3), so the port prints actor.modDB:GetMultiplier(tag.divVar, cfg) of the breakdown's actor and section cfg (ui doc §13 item 14). The only divVar tags at the pin are the two Rage Vortex stat-map mods (Data/Skills/act_str.lua:9102, 9105; CCR-0015 §1)."
 ccr = "CCR-0015"
+
+[[diff]]
+id = "INT-3-1"
+unit = "INT-3"
+builds = ["upstream_Dual_Wield_Cospris_CoC"]
+stage = "calcsEnv"
+keys = ["player.breakdown.ReqStr.rowList*", "player.breakdown.ReqInt.rowList*"]
+kind = "value"
+reason = "PoB nondeterminism, not a port difference: an old-format gem (skillId, no variantId) takes the first pairs(possibleVariants) match on grantedEffectId (SkillsTab.lua:472-478, string keys), and Data.lua:1127-1136 gives the synthesised 'Vaal Righteous Fire of Arcane Devotion' the gameId and grantedEffectId of Vaal Righteous Fire, so PoB's gem name (the Req* rows' sourceName, CalcPerform.lua:2143) is either variant per process (CCR-0104 'PoB nondeterminism'; INT-3-triage.md §3 D, §4: Rust's variant in 1 of 4 PoB runs). Accepted by crates/pob-oracle/tests/INT-3.rs POB_NONDET_NAMES (INT3_STRICT=1 disables)."
+ccr = "CCR-0104"
+
+[[diff]]
+id = "INT-3-2"
+unit = "INT-3"
+builds = ["*"]
+stage = "calcsEnv"
+keys = ["Tabulate rows: mod.source Skill:ExplosiveTrap / Skill:ExplosiveTrapAltX"]
+kind = "value"
+reason = "PoB nondeterminism, not a port difference: Explosive Trap and Explosive Trap of Shrapnel share one statMap table (Data/Skills/act_dex.lua:7326), and Data.lua:1049 and 1065-1079 stamps its mods' source from whichever of the two grantedEffects pairs(data.skills) (string keys) reaches last, so the source of the shared stat-map mods differs between PoB processes (INT-3-triage.md §3 F, §4). Accepted by crates/pob-oracle/tests/INT-3.rs nondet_row (INT3_STRICT=1 disables). The flask-source analogue is PF-C-1."
