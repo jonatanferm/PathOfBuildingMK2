@@ -212,10 +212,7 @@ fn write_entry(path: &Path, data: &[u8]) {
         res
     })();
     if let Err(e) = r {
-        eprintln!(
-            "pob-ui-oracle cache: cannot write {}: {e}",
-            path.display()
-        );
+        eprintln!("pob-ui-oracle cache: cannot write {}: {e}", path.display());
     }
 }
 
@@ -310,19 +307,23 @@ pub fn get_or_compute_json_with<T: serde::Serialize + serde::de::DeserializeOwne
                 _ => false,
             }
     };
-    let bytes = get_or_compute_with(key, || {
-        let v = compute()?;
-        let s = serde_json::to_vec(&v).map_err(|e| format!("cache encode: {e}"))?;
-        let round = serde_json::from_slice::<T>(&s)
-            .ok()
-            .and_then(|r| serde_json::to_vec(&r).ok());
-        if round.as_deref() == Some(&s[..]) {
-            Ok(s)
-        } else {
-            direct = Some(v);
-            Err(String::from(NOT_CACHEABLE))
-        }
-    }, same_bytes);
+    let bytes = get_or_compute_with(
+        key,
+        || {
+            let v = compute()?;
+            let s = serde_json::to_vec(&v).map_err(|e| format!("cache encode: {e}"))?;
+            let round = serde_json::from_slice::<T>(&s)
+                .ok()
+                .and_then(|r| serde_json::to_vec(&r).ok());
+            if round.as_deref() == Some(&s[..]) {
+                Ok(s)
+            } else {
+                direct = Some(v);
+                Err(String::from(NOT_CACHEABLE))
+            }
+        },
+        same_bytes,
+    );
     match bytes {
         Ok(b) => serde_json::from_slice(&b).map_err(|e| format!("cache decode {}: {e}", key.hex)),
         Err(e) if e == NOT_CACHEABLE && direct.is_some() => Ok(direct.expect("computed value")),
@@ -391,10 +392,17 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// BLAKE3 of the contents of every file under `dirs` (relative names included), in name order.
-/// A missing directory hashes as empty.
+/// BLAKE3 of the contents of every file under `dirs` (names relative to `base` included), in name
+/// order. A missing directory hashes as empty. Only relative names go in, never `base` itself:
+/// the same tree hashes the same in every worktree.
 #[must_use]
 pub fn tree_hash(base: &Path, dirs: &[&str]) -> String {
+    tree_hash_except(base, dirs, &[])
+}
+
+/// [`tree_hash`] without the files (or whole directories) named in `skip` (relative to `base`).
+#[must_use]
+pub fn tree_hash_except(base: &Path, dirs: &[&str], skip: &[&str]) -> String {
     let mut h = blake3::Hasher::new();
     for d in dirs {
         h.update(d.as_bytes());
@@ -403,6 +411,12 @@ pub fn tree_hash(base: &Path, dirs: &[&str]) -> String {
         walk(&base.join(d), &mut files);
         for f in files {
             let rel = f.strip_prefix(base).unwrap_or(&f).to_string_lossy();
+            if skip
+                .iter()
+                .any(|s| rel == *s || rel.strip_prefix(s).is_some_and(|r| r.starts_with('/')))
+            {
+                continue;
+            }
             h.update(&(rel.len() as u64).to_le_bytes());
             h.update(rel.as_bytes());
             let data = std::fs::read(&f).unwrap_or_default();
@@ -413,48 +427,241 @@ pub fn tree_hash(base: &Path, dirs: &[&str]) -> String {
     h.finalize().to_hex()[..32].to_owned()
 }
 
+/// The third-party packages of `Cargo.lock` (every `[[package]]` block with a `source`: registry
+/// or git), in file order. The workspace's own entries (no `source`) are left out: they change
+/// with every workspace dependency edit, and the workspace code that runs is hashed by content.
+#[must_use]
+pub fn third_party_lock(lock: &str) -> String {
+    let mut out = String::new();
+    for block in lock.split("[[package]]").skip(1) {
+        if block.lines().any(|l| l.starts_with("source = ")) {
+            out.push_str("[[package]]");
+            out.push_str(block.trim_end());
+            out.push('\n');
+        }
+    }
+    out
+}
+
 /// The workspace code a UI oracle run's Lua side executes or draws through, hashed by content:
-/// this crate (`src/`, `lua/`, `probe/`), pob-sg (the `Sg` the Lua side draws through, its fonts
-/// and trace recorder), pob-host (scripts, the headless image loader, key delivery), pob-lua
-/// (formatting used by the bridge), pob-oracle (the LuaJIT natives and prelude) and `Cargo.lock`
-/// (every third-party version, mlua/LuaJIT included). Conservative: any edit there retires the
-/// UI entries. Memoised per process.
+/// this crate's `src/` (boot, runner, the SG bridge, patches, markers, this cache's value types)
+/// but not the parts that run only outside a Lua UI side (`lua_calc.rs`: the bridge, keyed and
+/// cached on its own and never started inside [`cached_lua_run`]; `diff_report.rs`: comparison
+/// after both sides ran; `bin/`: the CLI tools), its `lua/`, `probe/`, `build.rs` and
+/// `Cargo.toml` (features); pob-sg (the `Sg` the Lua side draws through, its fonts and trace
+/// recorder), pob-host (scripts, the headless image loader, key delivery) and pob-lua; of
+/// pob-oracle what `boot.rs` takes from it (`jit`: the prelude, the natives, the JIT switch; and
+/// what `jit.rs` uses: `headless.rs`, the `lua/` module, `lib.rs`) and its `Cargo.toml`; and the
+/// third-party packages of `Cargo.lock` ([`third_party_lock`]; mlua/LuaJIT included).
+///
+/// TP4: the TP2 set hashed all of pob-oracle's `src/` and the whole `Cargo.lock`, so every merge
+/// that touched the calc oracle (diff, inject, patcher, a new bin) or added a workspace crate or
+/// dependency retired every UI entry: 9 of the 49 rust-port merges of 2026-11-11/12, about one
+/// full-suite run in two.
 #[must_use]
 pub fn lua_side_code_hash() -> &'static str {
     static H: OnceLock<String> = OnceLock::new();
     H.get_or_init(|| {
-        tree_hash(
-            &workspace_root(),
+        let ws = workspace_root();
+        let mut k = KeyBuilder::new("lua-side-code");
+        k.part(tree_hash_except(
+            &ws,
             &[
                 "crates/pob-ui-oracle/src",
                 "crates/pob-ui-oracle/lua",
                 "crates/pob-ui-oracle/probe",
                 "crates/pob-ui-oracle/build.rs",
+                "crates/pob-ui-oracle/Cargo.toml",
                 "crates/pob-sg/src",
                 "crates/pob-sg/Cargo.toml",
                 "crates/pob-host/src",
                 "crates/pob-host/Cargo.toml",
                 "crates/pob-lua/src",
                 "crates/pob-lua/Cargo.toml",
-                "crates/pob-oracle/src",
+                "crates/pob-oracle/src/lib.rs",
+                "crates/pob-oracle/src/jit.rs",
+                "crates/pob-oracle/src/headless.rs",
+                "crates/pob-oracle/src/lua",
                 "crates/pob-oracle/Cargo.toml",
-                "Cargo.lock",
             ],
-        )
+            &[
+                "crates/pob-ui-oracle/src/lua_calc.rs",
+                "crates/pob-ui-oracle/src/diff_report.rs",
+                "crates/pob-ui-oracle/src/bin",
+            ],
+        ));
+        k.part(third_party_lock(
+            &std::fs::read_to_string(ws.join("Cargo.lock")).unwrap_or_default(),
+        ));
+        k.finish().hex
     })
 }
 
-/// `pob_oracle::runner::source_key` of `dir` (stat fingerprint of every file, the oracle runtime,
-/// the LuaJIT versions and the JIT mode), memoised by that function.
+/// The content key of a PoB tree (`src/` or `runtime/`): every file's path relative to `dir` and
+/// the BLAKE3 of its content, except PoB's derived caches (`pob_oracle::patcher::is_derived_cache`:
+/// the timeless jewel `.bin`s PoB inflates and rewrites on any run), plus what decides how the
+/// tree runs: the oracle runtime `JitPob` boots it with (`jit.rs`, `headless.rs`, `oracle.rs`,
+/// `oracle.lua`, compiled in), the mlua/LuaJIT versions and the JIT mode. Memoised per process.
+///
+/// TP4: content-addressed. TP2 used `pob_oracle::runner::source_key`, which hashes the canonical
+/// path and every file's mtime: a PoB checkout at another path, or the same files touched (a
+/// `git checkout`, a copy), missed every entry. The per-file content hashes are kept in a stat
+/// index under the cache root ([`file_content_hashes`]), so only changed files are read again.
 pub fn pob_tree_key(dir: &Path) -> Result<String, String> {
-    pob_oracle::runner::source_key(dir).map_err(|e| e.0)
+    use std::collections::HashMap;
+    static KEYS: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+    let canon = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // held while a key is computed: the cases of a `par_map` ask at once, and one walk is enough
+    let mut keys = KEYS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(k) = keys.get(&canon) {
+        return Ok(k.clone());
+    }
+    let key = tree_content_key(&canon, &root().join("stat-index"))?;
+    keys.insert(canon, key.clone());
+    Ok(key)
+}
+
+/// [`pob_tree_key`] of the canonical `canon`, not memoised, with the stat index in `index_dir`.
+fn tree_content_key(canon: &Path, index_dir: &Path) -> Result<String, String> {
+    const ORACLE_RUNTIME: &[&str] = &[
+        include_str!("../../pob-oracle/src/jit.rs"),
+        include_str!("../../pob-oracle/src/headless.rs"),
+        include_str!("../../pob-oracle/src/oracle.rs"),
+        include_str!("../../pob-oracle/src/oracle.lua"),
+    ];
+    let mut k = KeyBuilder::new("pob-tree");
+    for code in ORACLE_RUNTIME {
+        k.part(code);
+    }
+    k.part(pob_oracle::runner::lua_runtime_versions());
+    k.part(if pob_oracle::jit::oracle_jit_off() {
+        "jit.off"
+    } else {
+        "jit.on"
+    });
+    let files = file_content_hashes(canon, index_dir)?;
+    k.part((files.len() as u64).to_le_bytes());
+    for (rel, sum) in &files {
+        k.part(rel).part(sum);
+    }
+    Ok(k.finish().hex)
+}
+
+/// One file of a stat index: what `stat` said when its content was hashed, and when.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct StatRecord {
+    len: u64,
+    mtime_ns: u64,
+    ino: u64,
+    /// When the content was read (ns since the epoch).
+    hashed_ns: u64,
+    blake3: String,
+}
+
+/// A record is trusted only when the file's mtime is this much older than the time its content
+/// was read: a write in the same timestamp tick as the read (racy git) is hashed again.
+const RACY_NS: u64 = 2_000_000_000;
+
+/// Nanoseconds since the epoch.
+fn epoch_ns(t: std::time::SystemTime) -> u64 {
+    t.duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+}
+
+/// `(path relative to the canonical `dir`, BLAKE3 hex of the content)` of every file under `dir`
+/// but PoB's derived caches, in name order. The content hashes are reused from a stat index
+/// (`<root>/stat-index/<hash of dir>.json`: size, mtime and inode of each file at the time it was
+/// read) when the file's stat is unchanged and its mtime was older than that read by
+/// [`RACY_NS`]; any other file is read and hashed. The index only saves reads: the result is the
+/// content, whatever the index says about other files or paths.
+fn file_content_hashes(dir: &Path, index_dir: &Path) -> Result<Vec<(String, String)>, String> {
+    use std::collections::BTreeMap;
+    let mut files = Vec::new();
+    walk(dir, &mut files);
+    let index_path = index_dir.join(format!(
+        "{}.json",
+        &blake3::hash(dir.to_string_lossy().as_bytes()).to_hex()[..32]
+    ));
+    let old: BTreeMap<String, StatRecord> = std::fs::read(&index_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let mut new: BTreeMap<String, StatRecord> = BTreeMap::new();
+    let mut out = Vec::with_capacity(files.len());
+    let mut changed = false;
+    for f in files {
+        let rel = f
+            .strip_prefix(dir)
+            .unwrap_or(&f)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if pob_oracle::patcher::is_derived_cache(&rel) {
+            continue;
+        }
+        let meta = std::fs::metadata(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+        let mtime_ns = meta.modified().map_or(0, epoch_ns);
+        #[cfg(unix)]
+        let ino = std::os::unix::fs::MetadataExt::ino(&meta);
+        #[cfg(not(unix))]
+        let ino = 0;
+        let reuse = old.get(&rel).filter(|r| {
+            r.len == meta.len()
+                && r.mtime_ns == mtime_ns
+                && r.ino == ino
+                && mtime_ns.saturating_add(RACY_NS) < r.hashed_ns
+        });
+        let rec = if let Some(r) = reuse {
+            r.clone()
+        } else {
+            changed = true;
+            let hashed_ns = epoch_ns(std::time::SystemTime::now());
+            let data = std::fs::read(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+            StatRecord {
+                len: meta.len(),
+                mtime_ns,
+                ino,
+                hashed_ns,
+                blake3: blake3::hash(&data).to_hex().to_string(),
+            }
+        };
+        out.push((rel.clone(), rec.blake3.clone()));
+        new.insert(rel, rec);
+    }
+    if (changed || new.len() != old.len()) && mode() != Mode::Off {
+        if let Ok(json) = serde_json::to_vec(&new) {
+            write_plain(&index_path, &json);
+        }
+    }
+    Ok(out)
+}
+
+/// Write `data` to `path` through a private temp file and a rename (an optimisation: errors are
+/// ignored).
+fn write_plain(path: &Path, data: &[u8]) {
+    let Some(dir) = path.parent() else { return };
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let tmp = private_tmp(path);
+    if std::fs::write(&tmp, data).is_ok() && std::fs::rename(&tmp, path).is_ok() {
+        return;
+    }
+    let _ = std::fs::remove_file(&tmp);
 }
 
 /// The key of one UI oracle Lua-side run of a test: `test_file` is the test's `file!()` (its source
 /// holds the Lua stubs and the Lua-side wrapper, so it is hashed whole), `pob_root` the PoB
-/// checkout (`src/` and `runtime/` fingerprints), `fixtures` the directories and files the run
-/// reads (hashed by content), and `params` everything else that decides the run (script text,
-/// screen, mode, query chunks). The caller adds nothing else: everything goes through here.
+/// checkout (`src/` and `runtime/` content keys, [`pob_tree_key`]), `fixtures` the directories and
+/// files the run reads (hashed by content: a directory's files by their names relative to it, so
+/// never by where the checkout is), and `params` everything else that decides the run (script
+/// text, screen, mode, query chunks). The caller adds nothing else: everything goes through here.
+///
+/// TP4: no absolute path goes in. TP2 hashed each fixture's path, which is under the worktree
+/// (`CARGO_MANIFEST_DIR`), so the full suite's `../pob-fullsuite` worktree, the main checkout and
+/// every agent worktree each had keys of their own.
 pub fn ui_key(
     kind: &str,
     test_file: &str,
@@ -472,11 +679,10 @@ pub fn ui_key(
     k.part(pob_tree_key(&pob_root.join("src"))?);
     k.part(pob_tree_key(&pob_root.join("runtime"))?);
     for f in fixtures {
-        k.part(f.to_string_lossy().as_bytes());
         if f.is_dir() {
-            k.part(tree_hash(f, &[""]));
+            k.part("dir").part(tree_hash(f, &[""]));
         } else {
-            k.part(std::fs::read(f).unwrap_or_default());
+            k.part("file").part(std::fs::read(f).unwrap_or_default());
         }
     }
     for p in params {
@@ -995,8 +1201,107 @@ mod tests {
         let a = "<A x=\"1\" y=\"2\"/>\n<B z=\"3\"/>";
         let b = "<B z=\"3\"/>\n<A y=\"2\" x=\"1\"/>";
         assert!(same_text_unordered(a, b));
-        assert!(!same_text_unordered(a, "<A x=\"1\" y=\"3\"/>\n<B z=\"3\"/>"));
+        assert!(!same_text_unordered(
+            a,
+            "<A x=\"1\" y=\"3\"/>\n<B z=\"3\"/>"
+        ));
         assert!(!same_text_unordered(a, "<A x=\"1\" y=\"2\"/>"));
+    }
+
+    /// TP4: a fresh scratch directory holding `files`.
+    fn scratch_tree(tag: &str, files: &[(&str, &str)]) -> PathBuf {
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let d = std::env::temp_dir().join(format!(
+            "puoc-{tag}-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        for (rel, text) in files {
+            let p = d.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        }
+        std::fs::canonicalize(d).unwrap()
+    }
+
+    /// The PoB tree key and the fixture hash of `ui_key` depend on content and relative names
+    /// only: two copies at different paths, written at different times, key the same; an edit or
+    /// a rename does not; PoB's jewel `.bin` caches do not count.
+    #[test]
+    fn keys_are_content_addressed() {
+        let index = scratch_tree("index", &[]);
+        let files = [
+            ("Modules/A.lua", "return 1"),
+            ("Data/TimelessJewelData/X.zip", "zip"),
+        ];
+        let a = scratch_tree("pa", &files);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let b = scratch_tree("pb", &files);
+        std::fs::write(b.join("Data/TimelessJewelData/X.bin"), "inflated").unwrap();
+        let ka = tree_content_key(&a, &index).unwrap();
+        assert_eq!(
+            ka,
+            tree_content_key(&b, &index).unwrap(),
+            "same content, other path/mtime"
+        );
+        assert_eq!(
+            ka,
+            tree_content_key(&a, &index).unwrap(),
+            "from the stat index"
+        );
+        let c = scratch_tree("pc", &[("Modules/A.lua", "return 2"), files[1]]);
+        assert_ne!(ka, tree_content_key(&c, &index).unwrap(), "content edit");
+        let d = scratch_tree("pd", &[("Modules/B.lua", "return 1"), files[1]]);
+        assert_ne!(ka, tree_content_key(&d, &index).unwrap(), "rename");
+        // fixture hashes: relative names and content only
+        assert_eq!(
+            tree_hash(&a, &[""]),
+            tree_hash(&c.join("../").join(a.file_name().unwrap()), &[""])
+        );
+        assert_eq!(
+            tree_hash_except(&b, &[""], &["Data/TimelessJewelData/X.bin"]),
+            tree_hash(&a, &[""])
+        );
+        assert_ne!(tree_hash(&a, &[""]), tree_hash(&c, &[""]));
+        for p in [&a, &b, &c, &d, &index] {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
+
+    /// A file rewritten with the same size and mtime right after its content was hashed (inside
+    /// the racy window) is read again, not taken from the stat index.
+    #[test]
+    fn stat_index_rehashes_racy_files() {
+        let index = scratch_tree("index", &[]);
+        let a = scratch_tree("racy", &[("A.lua", "return 1")]);
+        let f = a.join("A.lua");
+        let mtime = std::fs::metadata(&f).unwrap().modified().unwrap();
+        let k1 = tree_content_key(&a, &index).unwrap();
+        std::fs::write(&f, "return 2").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&f)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+        assert_ne!(k1, tree_content_key(&a, &index).unwrap());
+        for p in [&a, &index] {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
+
+    #[test]
+    fn third_party_lock_keeps_registry_packages_only() {
+        let lock = "version = 4\n\n[[package]]\nname = \"pob-app\"\nversion = \"0.0.1\"\ndependencies = [\n \"mlua\",\n]\n\n[[package]]\nname = \"mlua\"\nversion = \"0.10.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"ab\"\n";
+        let t = third_party_lock(lock);
+        assert!(
+            t.contains("name = \"mlua\"") && !t.contains("pob-app"),
+            "{t}"
+        );
+        let edited = lock.replace(" \"mlua\",\n", " \"mlua\",\n \"serde\",\n");
+        assert_eq!(t, third_party_lock(&edited), "a workspace dependency edit");
+        assert_ne!(t, third_party_lock(&lock.replace("0.10.0", "0.10.1")));
     }
 
     #[test]

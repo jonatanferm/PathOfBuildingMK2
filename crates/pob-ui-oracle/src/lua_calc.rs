@@ -340,7 +340,13 @@ impl LuaSession {
         xml: &str,
         name: &str,
     ) -> Result<BuildOutputDocs, String> {
-        let key = session_key("bridge-build-output", src, xml, name, &[DUMP_BUILD_OUTPUT_LUA])?;
+        let key = session_key(
+            "bridge-build-output",
+            src,
+            xml,
+            name,
+            &[DUMP_BUILD_OUTPUT_LUA],
+        )?;
         let decode = |b: &[u8]| serde_json::from_slice::<Vec<String>>(b).ok();
         let bytes = crate::oracle_cache::get_or_compute_with(
             &key,
@@ -450,12 +456,17 @@ fn build_output_docs(r: Vec<String>) -> Result<BuildOutputDocs, String> {
 }
 
 /// The cache key of one bridge session (TP2): everything the VM of [`LuaSession::load`] sees and
-/// runs. `pob_oracle::runner::source_key` covers PoB's `src/` (stat fingerprint of every file),
-/// `JitPob`'s runtime (`jit.rs`, `headless.rs`, `oracle.rs`, `oracle.lua`, so `boot_oracle` and
-/// `load_build_xml`), the mlua/LuaJIT versions and the JIT mode; then the canonical root, the pre
-/// chunk (the state encoder included), [`BRIDGE_INIT_LUA`], the build name and XML, and `chunks`
-/// (the operation's Lua code and arguments). `pob_oracle`'s `jit.rs` is in that runtime; the
-/// rest of this crate's code runs after the VM is gone and is not part of the key.
+/// runs. [`crate::oracle_cache::pob_tree_key`] covers PoB's `src/` (by content), `JitPob`'s
+/// runtime (`jit.rs`, `headless.rs`, `oracle.rs`, `oracle.lua`, so `boot_oracle` and
+/// `load_build_xml`), the mlua/LuaJIT versions and the JIT mode; then the pre chunk (the state
+/// encoder included), [`BRIDGE_INIT_LUA`], the build name and XML, and `chunks` (the operation's
+/// Lua code and arguments). The rest of this crate's code runs after the VM is gone and is not
+/// part of the key.
+///
+/// TP4: content-addressed, no path. The pre chunk goes in with an empty root: the root only
+/// shortens chunk names in the documents to `src/`-relative ones (`state_dump.lua` `S.relSource`,
+/// which falls back to the last `/src/` of the name), so the documents do not depend on where the
+/// checkout is; TP2 hashed the canonical root (twice) and the mtime of every PoB file.
 fn session_key(
     kind: &str,
     src: &Path,
@@ -463,15 +474,9 @@ fn session_key(
     name: &str,
     chunks: &[&str],
 ) -> Result<crate::oracle_cache::Key, String> {
-    let root = std::fs::canonicalize(src).map_err(|e| format!("{}: {e}", src.display()))?;
-    let mut root_s = root.to_string_lossy().replace('\\', "/");
-    if !root_s.ends_with('/') {
-        root_s.push('/');
-    }
     let mut k = crate::oracle_cache::KeyBuilder::new(kind);
-    k.part(crate::oracle_cache::pob_tree_key(&root)?)
-        .part(&root_s)
-        .part(pre_chunk(&root_s))
+    k.part(crate::oracle_cache::pob_tree_key(src)?)
+        .part(pre_chunk(""))
         .part(BRIDGE_INIT_LUA)
         .part(name)
         .part(xml);
@@ -1108,9 +1113,7 @@ impl Rebind {
         let out: Vec<ExplodeSource> = list
             .into_iter()
             .map(|e| match e {
-                ExplodeSource::Item(it) => {
-                    ExplodeSource::Item(self.live_item(&it).unwrap_or(it))
-                }
+                ExplodeSource::Item(it) => ExplodeSource::Item(self.live_item(&it).unwrap_or(it)),
                 n => n,
             })
             .collect();
