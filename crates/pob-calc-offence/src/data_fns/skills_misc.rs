@@ -312,8 +312,7 @@ pub(crate) fn GAZombieCorpseGroundImpact_preDamageFunc(
 ) {
     // L757
     let summonSkill = activeSkill
-        .summonSkill
-        .get()
+        .summonSkill()
         .unwrap_or_else(|| lua_error!("attempt to index field 'summonSkill' (a nil value)"));
     let v = 1.0 / summonSkill.skillData.get().num_or(n!("summonSpeed"), 1.0);
     activeSkill.skillData.get().set(n!("hitTimeOverride"), v);
@@ -328,8 +327,7 @@ pub(crate) fn MinionInstability_preDamageFunc(
 ) {
     // L757
     let summonSkill = activeSkill
-        .summonSkill
-        .get()
+        .summonSkill()
         .unwrap_or_else(|| lua_error!("attempt to index field 'summonSkill' (a nil value)"));
     let v = 1.0 / summonSkill.skillData.get().num_or(n!("summonSpeed"), 1.0);
     activeSkill.skillData.get().set(n!("hitTimeOverride"), v);

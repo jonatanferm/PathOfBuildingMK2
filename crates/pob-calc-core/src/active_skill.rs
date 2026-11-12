@@ -77,7 +77,11 @@ pub struct ActiveSkill {
     pub effectList: Field<Shared<Vec<SkillEffectRef>>>,
     /// May point into another env (copyActiveSkill, D2).
     pub actor: Field<ActorWeak>,
-    pub summonSkill: Field<Option<ActiveSkillRef>>,
+    /// The summoning skill of a minion's skill (`createActiveSkill(…, summonSkill)`,
+    /// CalcActiveSkill.lua:89). A back-pointer, so `Weak` (calc doc §3.3 rule 4, CCR-0135): the
+    /// summoning skill owns the minion (`activeSkill.minion`), which owns this skill. Read it
+    /// with [`ActiveSkill::summonSkill`].
+    pub summonSkill: Field<Option<ActiveSkillWeak>>,
     pub socketGroup: Field<Option<SocketGroupRef>>,
     pub skillTypes: Field<SkillTypes>,
     pub minionSkillTypes: Field<Option<SkillTypes>>,
@@ -191,6 +195,20 @@ impl ActiveSkill {
     /// `activeSkill.actor`.
     pub fn actor(&self) -> Option<ActorRef> {
         self.actor.get().upgrade()
+    }
+
+    /// `activeSkill.summonSkill`: `None` where Lua's field is nil (not a minion's skill).
+    ///
+    /// CCR-0135: in Lua the summoning skill is alive as long as this skill is reachable (it owns
+    /// the minion that owns this skill, or `copyActiveSkill` keeps a foreign one alive in
+    /// `extra`), so the upgrade cannot fail. A dead handle is a Rust ownership bug, not a Lua
+    /// nil, and panics instead of turning into a silent nil.
+    pub fn summonSkill(&self) -> Option<ActiveSkillRef> {
+        self.summonSkill.get().map(|w| {
+            w.upgrade().unwrap_or_else(|| {
+                panic!("activeSkill.summonSkill: the summoning skill was dropped (ownership bug, CCR-0135)")
+            })
+        })
     }
 
     /// `activeSkill[pass.label ~= "Off Hand" and "igniteCfg" or "OHigniteCfg"]`:

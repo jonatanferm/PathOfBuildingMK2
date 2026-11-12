@@ -310,7 +310,7 @@ pub fn canGrantedEffectSupportActiveSkill(
     let effectiveSkillTypes: SkillTypeSet;
     // L100
     let effectiveMinionTypes: Option<SkillTypeSet>;
-    let summonSkill = activeSkill.summonSkill.get();
+    let summonSkill = activeSkill.summonSkill();
     // L101 Use the skillTypes from the gem so it ignores any support added types
     if imbuedSupport.is_some_and(Val::truthy) {
         // L102

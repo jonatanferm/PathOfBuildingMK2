@@ -2918,6 +2918,7 @@ dependencies = [
  "pob-calc-setup",
  "pob-gamedata",
  "pob-lua",
+ "pob-testpaths",
  "rustix 1.1.4",
 ]
 

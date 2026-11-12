@@ -1,7 +1,7 @@
 # CCR-0135: INT-2: `ActiveSkill.summonSkill` closes an `Rc` cycle (every minion skill leaks its env's skill graph)
 
 Unit: **INT-2** (performance; found while profiling, not fixed here: the files belong to the
-calc core contract and to CS1/AS). Status: **pending**. Number reserved with
+calc core contract and to CS1/AS). Status: **applied** 2026-11-12 by LEAK1 (AMENDMENTS A12; the §3 open point resolved with a `summonSkillKeep` keep-alive). Number reserved with
 `scripts/port/next_ccr.sh`. Measurements: `docs/port/parity/INT-2-perf.md` §5.
 
 ## 1. Problem

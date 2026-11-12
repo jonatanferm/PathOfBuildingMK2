@@ -13,6 +13,10 @@
 //!   `ActiveSkill.actor` is a `Weak` (calc doc §3.3 rule 4). CCR-0113: `copyActiveSkill` keeps a
 //!   foreign actor (one that is not `env.player`) alive in `newSkill.extra["actorKeep"]` as
 //!   `Val::Obj(ActorRef)`, see [`actorKeepKey`].
+//! * `activeSkill.summonSkill` (CalcActiveSkill.lua:89) is a `Weak` back-pointer (CCR-0135, calc
+//!   doc §3.3 rule 4; a strong one closed the cycle summoning skill → `minion` → minion skill →
+//!   `summonSkill`). `copyActiveSkill` keeps a foreign summoning skill (one whose actor is not
+//!   `env.player`) alive in `newSkill.extra["summonSkillKeep"]`, see [`summonSkillKeepKey`].
 #![allow(non_snake_case)]
 // Lua statement shapes are kept (locals assigned per branch, `if … then … else … end`).
 #![allow(
@@ -380,7 +384,8 @@ pub fn createActiveSkill(
 ) -> ActiveSkillRef {
     // L84-92 ---@class ActiveSkill
     let activeSkill = ActiveSkill::new(activeEffect.clone(), supportList.clone(), actor);
-    activeSkill.summonSkill.set(summonSkill.clone());
+    // CCR-0135: a Weak back-pointer (the summoning skill owns the minion that owns this skill).
+    activeSkill.summonSkill.set(summonSkill.as_ref().map(Rc::downgrade));
     activeSkill.socketGroup.set(socketGroup);
 
     // L95
@@ -543,6 +548,12 @@ pub fn actorKeepKey() -> Name {
     n!("actorKeep")
 }
 
+/// CCR-0135: the `newSkill.extra` key under which [`copyActiveSkill`] keeps the copied skill's
+/// foreign summoning skill alive (`Val::Obj(ActiveSkillRef)`). Rust-only; PoB has no such key.
+pub fn summonSkillKeepKey() -> Name {
+    n!("summonSkillKeep")
+}
+
 /// @pob Modules/CalcActiveSkill.lua:167-192 h=0b95f5c3
 /// → (newSkill, newEnv).
 /// Copy an Active Skill
@@ -574,7 +585,7 @@ pub fn copyActiveSkill(
         &skill.supportList.get(),
         skill.actor.get(),
         skill.socketGroup.get(),
-        skill.summonSkill.get(),
+        skill.summonSkill(),
     );
     // CCR-0113: Lua's `skill.actor` reference (L181) is strong. The source skill may come from
     // another env (a `GlobalCache` entry's skill, CalcMirages.lua:134/137) whose only owner is
@@ -586,6 +597,15 @@ pub fn copyActiveSkill(
     if let Some(actor) = skill.actor() {
         if !Rc::ptr_eq(&actor, &env.player) {
             newSkill.extra.set(actorKeepKey(), Val::Obj(actor));
+        }
+    }
+    // CCR-0135: likewise `skill.summonSkill` (L181) is strong in Lua and a `Weak` here. A
+    // summoning skill from another env (the source is a cached env's minion skill) is owned only
+    // by that env; keep it alive on the copy. It never reaches the copy, so this closes no cycle.
+    // One whose actor is `env.player` is owned by `env` already.
+    if let Some(summon) = skill.summonSkill() {
+        if !summon.actor().is_some_and(|a| Rc::ptr_eq(&a, &env.player)) {
+            newSkill.extra.set(summonSkillKeepKey(), Val::Obj(summon));
         }
     }
     // L182
@@ -721,7 +741,7 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
             .get()
             .is_some_and(|m| Rc::ptr_eq(&m, activeSkill))
     };
-    let summon = activeSkill.summonSkill.get();
+    let summon = activeSkill.summonSkill();
 
     // L236 Set mode flags
     // L237
