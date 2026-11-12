@@ -1783,10 +1783,8 @@ mod oracle_side {
     /// measured at INT-1-FRESH (rust-port 645e2e1; docs/port/parity/INT-1-fresh-triage.md §1):
     /// 100 builds, headline 1,300/1,300, CALCS lists 300/300, used-tracking key sets 900/900, misc
     /// calculator 2,200/2,200, 0 Rust errors. `keys` is PoB's 85,603 main-output keys, all exact.
-    /// Until INT-1F-A lands, Rust adds 3 Rust-only `ManaCostWarningList` keys (fresh_015, _018;
-    /// triage §4 A), so the run compares 85,606 keys, 85,603 of them exact, and fails the
-    /// exactness assert above before it reaches this pin; INT-1F-A removes them, and then the
-    /// run compares exactly these 85,603.
+    /// Before INT-1F-A, Rust added 3 Rust-only `ManaCostWarningList` keys (fresh_015, _018;
+    /// triage §4 A); INT-1F-A (CCR-0133) removed them, so the run compares exactly these 85,603.
     const L6_FRESH: L6Pins = L6Pins {
         builds: 100,
         headline: 1_300,

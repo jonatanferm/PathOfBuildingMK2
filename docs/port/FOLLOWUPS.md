@@ -334,7 +334,7 @@ CCR-0101).
    pin value needs no bump: INT-1F-B's `L6_FRESH.keys = 85_603` is what `ca_l6_corpus` compares
    after INT-1F-A (the 3 Rust-only `ManaCostWarningList` keys are gone). Its doc comment ("Until
    INT-1F-A lands, Rust adds 3 Rust-only … keys … fails the exactness assert") should then say
-   that INT-1F-A removed them (CCR-0133).
+   that INT-1F-A removed them (CCR-0133). **Done** at the INT-1F-A merge (INT-1F-B merged first).
 2. **CalcPerform.lua:1985-1991 still ignores `levelCostCleared`** (owner: PF,
    `calc_perform/pools_charges.rs` `has_cost` / `cost_of`; AMENDMENTS A8 item 11). A build with
    `ManaCostGainAsReservation` / `LifeCostGainAsReservation` and an item-granted triggered skill
