@@ -25,9 +25,10 @@
 //! judge the segment on a scratch merge of those branches (2026-11-09:
 //! all57 57/57, unit 14/14).
 //!
-//! Inputs: dumps from `testkit::dump_dirs` (`.parity/probe/<stem>/state/`, the
-//! probe cache), `data/dump`. Fill a build's dumps with
-//! `scripts/port/oracle.sh run --build X.xml --stage buildDefenceEstimations:2612,buildDefenceEstimations:3165`.
+//! Inputs: one `pob_oracle probe` run per build selecting every hit of
+//! `buildDefenceEstimations:2612,buildDefenceEstimations:3165` under `docs/port/stages.toml`,
+//! from the shared probe cache (`testkit::probe_dumps`, CK2: keyed by the patched source, the
+//! build's bytes, the selection and the probe code; probed here when absent), `data/dump`.
 //! Unit corpus: `corpus/DF-F/*.xml` (`derive.py`), test `dff_l4_unit`.
 //! Knobs: `DFF_BUILDS=stem1,stem2`, `DFF_LIMIT=n`, `DFF_VERBOSE=1` (print
 //! every mismatch), `DFF_ALL_HITS=1` (every recorded pair, not just the
@@ -291,7 +292,19 @@ fn run_corpus(builds: &[PathBuf]) -> Tally {
     let mut t = Tally::default();
     for xml in builds {
         let stem = stem(xml);
-        let dirs = testkit::dump_dirs(stem, Some(xml));
+        let held = match testkit::probe_dumps(
+            Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+            xml,
+            Some(&testkit::default_stages()),
+            &testkit::selection(&[STAGE_IN, STAGE_OUT]),
+        ) {
+            Ok(d) => d,
+            Err(e) => {
+                t.missing.push(format!("{stem} (probe failed: {e})"));
+                continue;
+            }
+        };
+        let dirs = held.dirs().to_vec();
         let mut hits = paired_hits(&dirs);
         if hits.is_empty() {
             t.missing.push(stem.to_owned());
@@ -397,7 +410,7 @@ fn dff_l4_unit() {
     let t = run_corpus(&builds);
     t.report("DF-F L4 unit");
     if t.hits == 0 {
-        return skip("no paired dumps for corpus/DF-F (fill: scripts/port/oracle.sh run --build corpus/DF-F/<x>.xml --stage buildDefenceEstimations:2612@main,buildDefenceEstimations:3165@main)");
+        return skip("no paired dumps for corpus/DF-F (see the missing list)");
     }
     assert!(
         t.missing.is_empty(),

@@ -9,16 +9,16 @@
 //! segment calls them through `pools_charges::callee_replay` (CCR-0093), and this test answers each
 //! call by applying the state delta PoB recorded around that call site (`pob_oracle::replay`).
 //! The extra line probes around the call sites are in `corpus/PF-D/stages.toml` (`pfd:<line>`
-//! fires before `<line>`); fill them with
+//! fires before `<line>`). The dumps of a build are one `pob_oracle probe` run of
 //!
 //! ```text
-//! scripts/port/oracle.sh run --build .parity/builds/X.xml --stages crates/pob-oracle/corpus/PF-D/stages.toml \
-//!     --stage 'perform:1943@main,perform:2308@main,pfd:*@main,getCachedOutputValue:*@main'
+//! --stages crates/pob-oracle/corpus/PF-D/stages.toml \
+//!     --select 'perform:1943@main,perform:2308@main,pfd:*@main,getCachedOutputValue:*@main'
 //! ```
 //!
-//! (`corpus/PF-D/probe_all.sh` does it for every all57 build and the unit corpus.) All dumps of a
-//! build are read from the one probe-cache directory that holds its `pfd:*` dumps, so `:in` and
-//! `:out` come from the same PoB process.
+//! from the shared probe cache (`testkit::probe_dumps`, CK2: keyed by the patched source, the
+//! build's bytes, the selection and the probe code; probed here when absent), so `:in` and `:out`
+//! come from the same PoB process.
 //!
 //! A build that calls `getCachedOutputValue` (CalcPerform.lua:2281/2288/2299) has a replay floor:
 //! replaying that callee alone (no PF-D code) already leaves identity/aliasing mismatches (its new
@@ -107,11 +107,23 @@ fn unit_corpus() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/PF-D")
 }
 
-/// The probe-cache directory with this build's `pfd:*` dumps (one PoB process).
-fn pfd_dir(xml: &Path) -> Option<PathBuf> {
-    testkit::dump_dirs(stem(xml), Some(xml))
-        .into_iter()
-        .find(|d| testkit::find_dump(std::slice::from_ref(d), "pfd:2194").is_some())
+/// The probe selection of the PF-D dumps (module docs).
+const SELECT: &[&str] = &[
+    "perform:1943@main",
+    "perform:2308@main",
+    "pfd:*@main",
+    "getCachedOutputValue:*@main",
+];
+
+/// This build's PF-D dumps: one PoB process (`testkit::probe_dumps` under
+/// `corpus/PF-D/stages.toml`). Hold the result while reading them.
+fn pfd_dumps(xml: &Path) -> Result<testkit::BuildDumps, String> {
+    testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&unit_corpus().join("stages.toml")),
+        &testkit::selection(SELECT),
+    )
 }
 
 fn load(dir: &Path, hit: &str) -> Option<StateDump> {
@@ -433,11 +445,18 @@ impl Tally {
 fn run_corpus(builds: &[PathBuf]) -> Tally {
     let mut t = Tally::default();
     for xml in builds {
-        let Some(dir) = pfd_dir(xml) else {
+        let dumps = match pfd_dumps(xml) {
+            Ok(d) => d,
+            Err(e) => {
+                t.missing.push(format!("{} (probe failed: {e})", stem(xml)));
+                continue;
+            }
+        };
+        if testkit::find_dump(dumps.dirs(), "pfd:2194").is_none() {
             t.missing.push(format!("{} (no pfd:* dumps)", stem(xml)));
             continue;
-        };
-        match run_build(xml, &dir) {
+        }
+        match run_build(xml, dumps.path()) {
             Ok(r) => t.runs.push(r),
             Err(e) => t.missing.push(format!("{}: {e}", stem(xml))),
         }

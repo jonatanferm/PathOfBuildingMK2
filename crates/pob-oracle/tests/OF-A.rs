@@ -18,9 +18,11 @@
 //!   `calcSkillDuration`, `calcs.calcTotemLife` and `calcResistForType` on random inputs; results,
 //!   breakdowns and the tables the functions write are compared as canonical text.
 //!
-//! Dumps: `scripts/port/oracle.sh exec probe <xml> --out-dir D --cache --max-dumps 3000
-//! --select 'offence:362,offence:1037,runSkillFunc:in,runSkillFunc:out'` per build (the
-//! probe cache keeps them). Knobs: `OFA_BUILDS=stem1,stem2`, `OFA_VERBOSE=1`, `OFA_ONLY=a,b`
+//! Dumps: one `pob_oracle probe <xml> --stages docs/port/stages.toml --max-dumps 3000
+//! --select 'offence:362,offence:1037,runSkillFunc:in,runSkillFunc:out'` run per build, from the
+//! shared probe cache (`testkit::probe_dumps`, CK2: keyed by the patched source, the build's
+//! bytes, the selection and the probe code; probed by the build's child process when absent).
+//! Knobs: `OFA_BUILDS=stem1,stem2`, `OFA_VERBOSE=1`, `OFA_ONLY=a,b`
 //! (fuzz checks), `OFA_FUZZ_N` (cases per check, default 1500).
 #![allow(non_snake_case)]
 #![allow(
@@ -106,15 +108,28 @@ fn enclosing(d: &StateDump) -> String {
 
 fn l4_build(xml: &Path, t: &mut L4Tally) {
     let stem = stem(xml).to_owned();
-    // the dumps of one probe run (the run that holds the most `offence:362` hits next to
-    // `offence:1037` ones): dumps of different PoB processes do not pair (calc doc §9.5)
-    let all = testkit::dump_dirs(&stem, Some(xml));
-    let dirs: Vec<PathBuf> = all
-        .iter()
-        .filter(|d| !l4kit::hits_of(std::slice::from_ref(*d), "offence:1037").is_empty())
-        .max_by_key(|d| l4kit::hits_of(std::slice::from_ref(*d), "offence:362").len())
-        .map(|d| vec![d.clone()])
-        .unwrap_or_default();
+    // the dumps of one probe run: dumps of different PoB processes do not pair (calc doc §9.5)
+    let held = match testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&testkit::default_stages()),
+        &pob_oracle::runner::ProbeOptions {
+            max_dumps: 3000,
+            ..testkit::selection(&[
+                "offence:362",
+                "offence:1037",
+                "runSkillFunc:in",
+                "runSkillFunc:out",
+            ])
+        },
+    ) {
+        Ok(d) => d,
+        Err(e) => {
+            t.missing.push(format!("{stem}: probe failed: {e}"));
+            return;
+        }
+    };
+    let dirs: Vec<PathBuf> = held.dirs().to_vec();
     let ins = l4kit::hits_of(&dirs, "offence:362");
     if ins.is_empty() {
         t.missing.push(format!("{stem}: no offence:362 dumps"));

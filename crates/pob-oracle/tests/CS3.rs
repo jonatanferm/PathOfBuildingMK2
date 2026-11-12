@@ -21,7 +21,8 @@
 //! it as the `cs3Model` local, so `diff_against` compares env, locals and model in one tree.
 //!
 //! **Dumps.** One `pob_oracle probe` run per build (both probes, every hit, same process, so in
-//! and out pair up) into `$CARGO_TARGET_TMPDIR/CS3/<stem>/`, reused while complete.
+//! and out pair up), an entry of the shared content-keyed oracle cache (`testkit::oracle_dir`,
+//! [`ensure_dumps`]; CK2, CCR-0147 §3 item 2), made when absent.
 //!
 //! **Representation differences** (counted and printed, not gated):
 //! * `nil-default`: a typed Rust field cannot be nil, so a key PoB leaves nil exports as its
@@ -99,18 +100,14 @@ fn corpus_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/CS3")
 }
 
-/// `$CARGO_TARGET_TMPDIR/CS3/<hash of the probe inputs>`: new probes or a new model expression
-/// get fresh patched sources and dumps.
-fn tmp_dir() -> PathBuf {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    MODEL_LUA.hash(&mut h);
-    std::fs::read_to_string(corpus_dir().join("stages.toml"))
-        .unwrap_or_default()
-        .hash(&mut h);
+/// The root of this test's patched copies: `$CARGO_TARGET_TMPDIR/CS3/patched-<BLAKE3 of
+/// model.lua>/` (the copy in it is `<sha>/`, the sha of `corpus/CS3/stages.toml`'s plan), so a
+/// new model expression gets a copy of its own.
+fn patched_root() -> PathBuf {
+    let h = blake3::hash(MODEL_LUA.as_bytes()).to_hex();
     Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("CS3")
-        .join(format!("{:016x}", h.finish()))
+        .join(format!("patched-{}", &h[..16]))
 }
 
 fn stem(p: &Path) -> String {
@@ -137,35 +134,27 @@ fn builds() -> Option<Vec<PathBuf>> {
     Some(v)
 }
 
-/// The patched PoB source (the two line probes plus the `cs3Model` local), made once.
-fn patched_src() -> Result<PathBuf, String> {
-    static P: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+// ---- cs3-probe begin
+
+/// The patched PoB source (the two line probes plus the `cs3Model` local) and its patcher sha,
+/// made once per process.
+///
+/// CK2 (CCR-0147 §3 item 2): the copy is published with `patcher::patch_into` into
+/// [`patched_root`], a root of this test's own, and edited there. It was made with `pob_oracle
+/// patch --root`, which since FUP1 publishes into the shared `<.parity>/patched-src/<sha>/`
+/// whatever root it is given, so the edit changed that shared copy in place, and a later
+/// model.lua was never applied to it (the edit is skipped once `cs3Model = ` is in the file).
+fn patched_src() -> Result<(PathBuf, String), String> {
+    static P: OnceLock<Result<(PathBuf, String), String>> = OnceLock::new();
     P.get_or_init(|| {
         let src = pob_testpaths::pob_src().ok_or("no PoB checkout")?;
-        let root = tmp_dir().join("patched");
-        std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-        let out = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-            .arg("patch")
-            .arg("--stages")
-            .arg(corpus_dir().join("stages.toml"))
-            .arg("--pob")
-            .arg(&src)
-            .arg("--root")
-            .arg(&root)
-            .stderr(std::process::Stdio::null())
-            .output()
-            .map_err(|e| format!("pob_oracle patch: {e}"))?;
-        if !out.status.success() {
-            return Err(format!("pob_oracle patch failed ({})", out.status));
-        }
-        let dir = String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .last()
-            .unwrap_or_default()
-            .trim()
-            .to_owned();
-        let dir = PathBuf::from(dir);
-        let f = dir.join("Modules/CalcSetup.lua");
+        let p = pob_oracle::patcher::patch_into(
+            &src,
+            Some(&corpus_dir().join("stages.toml")),
+            &patched_root(),
+        )
+        .map_err(|e| format!("patch: {}", e.0))?;
+        let f = p.src.join("Modules/CalcSetup.lua");
         let text = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
         let expr = MODEL_LUA.trim_end().to_owned() + " ";
         if !text.contains("cs3Model = ") {
@@ -177,48 +166,101 @@ fn patched_src() -> Result<PathBuf, String> {
                 }
                 t = t.replace(&anchor, &format!("{anchor}{expr}"));
             }
-            std::fs::write(&f, t).map_err(|e| e.to_string())?;
+            // written next to the file and renamed over it: a concurrent reader of the copy sees
+            // the old or the new text, never a partial one
+            let tmp = f.with_extension(format!("lua.tmp.{}", std::process::id()));
+            std::fs::write(&tmp, t).map_err(|e| format!("{}: {e}", tmp.display()))?;
+            std::fs::rename(&tmp, &f).map_err(|e| format!("{}: {e}", f.display()))?;
         }
-        Ok(dir)
+        Ok((p.src, p.sha))
     })
     .clone()
 }
 
-/// The build's dumps from one `pob_oracle probe` run (made on first use).
-fn ensure_dumps(xml: &Path, stem: &str) -> Result<PathBuf, String> {
-    let dir = tmp_dir().join("dumps").join(stem);
-    let state = dir.join("state");
-    let done = dir.join("complete");
-    if done.is_file() {
-        return Ok(dir);
-    }
-    let src = patched_src()?;
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-        .arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(&dir)
-        .arg("--patched")
-        .arg(&src)
-        .arg("--select")
-        .arg("initEnv:1451,initEnv:end")
-        .arg("--max-dumps")
-        .arg("400")
-        .arg("--no-provenance")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("pob_oracle probe: {e}"))?;
-    if !status.success() || !state.is_dir() {
-        return Err(format!(
-            "pob_oracle probe {} failed ({status})",
-            xml.display()
-        ));
-    }
-    std::fs::write(&done, b"").map_err(|e| format!("{}: {e}", done.display()))?;
-    Ok(dir)
+/// The `pob_oracle probe` flags of a build's run.
+const PROBE_ARGS: &[&str] = &[
+    "--select",
+    "initEnv:1451,initEnv:end",
+    "--max-dumps",
+    "400",
+    "--no-provenance",
+];
+
+/// The build's dumps from one `pob_oracle probe` run: `hits.json`, `outputs.json` and
+/// `state/<hit>.json.zst`. CK2 (CCR-0147 §3 item 2): an entry of the shared content-keyed oracle
+/// cache (`testkit::oracle_dir`, `.parity/probe-cache/<source key>/<build key>/dir-<key>/`), made
+/// when absent; `POB_QUERY_CACHE` applies. The key is the patched tree [`patched_src`] boots (its
+/// source key: the canonical path, which holds the model hash and the patcher sha, i.e.
+/// `corpus/CS3/stages.toml`, the patcher and the dump/probe Lua; the stat fingerprint of every
+/// file, so the edited CalcSetup.lua; the oracle and Lua runtimes), the build's bytes, the sha,
+/// model.lua, the probe flags, the probe's Rust code (`runner.rs`, `bin/pob_oracle.rs`) and this
+/// span of CS3.rs. It replaced `$CARGO_TARGET_TMPDIR/CS3/<DefaultHasher(model.lua, stages.toml)>/
+/// dumps/<stem>/`, reused while a `complete` marker existed whatever harness or PoB tree made it.
+/// Hold the result while reading the dumps.
+fn ensure_dumps(xml: &Path, stem: &str) -> Result<testkit::OracleDir, String> {
+    let (src, sha) = patched_src()?;
+    let text = std::fs::read(xml).map_err(|e| format!("{}: {e}", xml.display()))?;
+    let args = PROBE_ARGS.join(" ");
+    testkit::oracle_dir(
+        &src,
+        &text,
+        &[
+            "CS3 ensure_dumps 1",
+            &sha,
+            MODEL_LUA,
+            &args,
+            include_str!("../src/runner.rs"),
+            include_str!("../src/bin/pob_oracle.rs"),
+            cs3_probe_code(),
+        ],
+        |dir| {
+            let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
+                .arg("probe")
+                .arg(xml)
+                .arg("--out-dir")
+                .arg(dir)
+                .arg("--patched")
+                .arg(&src)
+                .args(PROBE_ARGS)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map_err(|e| format!("pob_oracle probe: {e}"))?;
+            let state = dir.join("state");
+            if !status.success() || !state.is_dir() {
+                return Err(format!("pob_oracle probe {stem} failed ({status})"));
+            }
+            // the dumps compressed in place (`hit_files` and `StateDump::load` read both)
+            for e in std::fs::read_dir(&state)
+                .map_err(|e| format!("{}: {e}", state.display()))?
+                .filter_map(Result::ok)
+            {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "json") {
+                    let raw = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+                    let z = zstd::encode_all(&raw[..], 9).map_err(|e| e.to_string())?;
+                    let mut name = p.as_os_str().to_owned();
+                    name.push(".zst");
+                    std::fs::write(&name, z).map_err(|e| format!("{}: {e}", p.display()))?;
+                    std::fs::remove_file(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+                }
+            }
+            Ok(())
+        },
+    )
+}
+
+// ---- cs3-probe end
+
+/// The span of this file between the `cs3-probe` markers (part of [`ensure_dumps`]'s key).
+fn cs3_probe_code() -> &'static str {
+    const SELF: &str = include_str!("CS3.rs");
+    // split literals, so the markers' text does not occur here
+    let begin = concat!("// ---- cs3-probe ", "begin");
+    let end = concat!("// ---- cs3-probe ", "end");
+    let a = SELF.find(begin).expect("CS3.rs: cs3-probe begin marker");
+    let b = SELF[a..].find(end).expect("CS3.rs: cs3-probe end marker") + a;
+    &SELF[a..b]
 }
 
 /// The dump files of a probe in `state/`, by hit number.
@@ -1476,10 +1518,15 @@ fn release(env: &pob_calc::env::EnvRef) {
     b.calcsTab.calcsOutput.set(None);
 }
 
-/// `{"$fn": …}`: a Lua function in PoB's dump.
+/// `{"$fn": …}`: a Lua function in PoB's dump, with the closure's upvalues (`"$up"`, an
+/// injection input no comparison reads: `schema::INPUT_KEYS`) in a `pob-state/2` dump (FUP3).
+/// CK2: this took a one-key `$fn` marker only, which the `/1` dumps of the old, never
+/// invalidated `$CARGO_TARGET_TMPDIR/CS3/` cache wrote; on fresh dumps every ModParser closure
+/// carries `$up`, so the L5 jewel-func class missed them (81 runs failed).
 fn is_lua_fn(v: &J) -> bool {
-    v.as_object()
-        .is_some_and(|o| o.len() == 1 && o.contains_key("$fn"))
+    v.as_object().is_some_and(|o| {
+        o.contains_key("$fn") && o.keys().all(|k| k == "$fn" || k == "$up")
+    })
 }
 
 /// `{"func": {"$fn": key}, "type": …}`: the Rust `Value::JewelFunc` (`JewelFuncSpec`) export.

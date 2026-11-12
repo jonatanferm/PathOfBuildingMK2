@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # OF-B L4 inputs (tests/OF-B.rs): one oracle run per build, owned by this unit.
 #
+# CK2 (CCR-0147 §3 item 4): the test no longer reads this directory by default; it probes the same
+# selection into the shared, content-keyed probe cache itself (testkit::probe_dumps). These runs
+# are an explicit override: OFB_DUMP_DIR=<parity>/unit/OF-B makes the test read them.
+#
 # Writes `.parity/unit/OF-B/<stem>/{outputs,hits}.json` and `state/offence:{1037,1692}#n.json.zst`
 # for all57 (`.parity/builds/*.xml`) plus the unit corpus (`corpus/OF-B/*.xml`), or for the
 # builds given as arguments. Every dump of a directory comes from the same PoB process, so

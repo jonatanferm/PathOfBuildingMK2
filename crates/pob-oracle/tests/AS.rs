@@ -22,8 +22,14 @@
 //!   themselves (gem / support merge order) must match exactly. A
 //!   `Skill:<id>AltX/AltY` source is PoB's per-process variant choice (CCR-0010) and compared
 //!   with the suffix dropped; a formatted `-0` vs `0` is the CCR-0002 host artefact.
-//! * `as_l4_corpus`: L4 on the probe dumps `.parity/probe/<stem>/state/buildActiveSkillModList:in#n`:
-//!   inject, run the Rust `buildActiveSkillModList`, diff the whole state against `:out#n`.
+//! * `as_l4_corpus`: L4 on the main env's `buildActiveSkillModList:in#n` / `:out#n` dumps of
+//!   every all57 build: inject, run the Rust `buildActiveSkillModList`, diff the whole state
+//!   against `:out#n`. The dumps are one `pob_oracle probe` run per build selecting
+//!   `buildActiveSkillModList:in@main,buildActiveSkillModList:out@main` under
+//!   `docs/port/stages.toml` (as the corpus run did), from the shared probe cache
+//!   (`testkit::probe_dumps`: keyed by the patched source, the build's bytes, the selection and the
+//!   probe code; probed when absent). CK2 (CCR-0147 §3): this read the keyless
+//!   `.parity/probe/<stem>/state/` of a 2026-10-09 `scripts/port/oracle.sh corpus` run.
 //! * `as_census`: the data facts the port relies on (`minionList = { }` only on Raise Spectre;
 //!   every support has `addSkillTypes`).
 //!
@@ -1073,7 +1079,7 @@ const AS_CASES: (usize, usize) = (3790, 1225);
 /// choice: observed 2995 / 6 on rust-port 746b103 and 3115 LUA-ORDER in the test audit
 /// (edd8169); the bounds add about 10 % / 2x headroom. ±0 and raise-on-both were 0.
 const AS_MAX_BUCKETS: [usize; 4] = [3400, 12, 0, 0];
-/// `as_l4_corpus`: the `buildActiveSkillModList:in#n`/`:out#n` dump pairs under `.parity/probe`.
+/// `as_l4_corpus`: the `buildActiveSkillModList:in#n`/`:out#n` dump pairs of the full corpus.
 const AS_L4_PAIRS: usize = 56;
 
 // ---------------------------------------------------------------------------------------------
@@ -1199,11 +1205,15 @@ fn as_l4_corpus() {
     let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity not found") else {
         return; // POB_ALLOW_SKIP=1
     };
-    let probe = parity.join("probe");
-    let mut stems: Vec<String> = std::fs::read_dir(&probe)
+    let mut stems: Vec<String> = std::fs::read_dir(parity.join("builds"))
         .map(|rd| {
             rd.filter_map(Result::ok)
-                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter_map(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .strip_suffix(".xml")
+                        .map(str::to_owned)
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -1213,9 +1223,26 @@ fn as_l4_corpus() {
     let mut fails: Vec<String> = Vec::new();
     let mut paths: std::collections::BTreeMap<String, usize> = Default::default();
     let mut explained: std::collections::BTreeMap<&'static str, usize> = Default::default();
+    let mut probe_failed: Vec<String> = Vec::new();
     for stem in &stems {
-        let dir = probe.join(stem).join("state");
-        let Ok(rd) = std::fs::read_dir(&dir) else {
+        let xml = parity.join("builds").join(format!("{stem}.xml"));
+        let held = match testkit::probe_dumps(
+            Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+            &xml,
+            Some(&testkit::default_stages()),
+            &testkit::selection(&[
+                "buildActiveSkillModList:in@main",
+                "buildActiveSkillModList:out@main",
+            ]),
+        ) {
+            Ok(d) => d,
+            Err(e) => {
+                probe_failed.push(format!("{stem}: {e}"));
+                continue;
+            }
+        };
+        let dir = held.path();
+        let Ok(rd) = std::fs::read_dir(dir) else {
             continue;
         };
         let mut ins: Vec<String> = rd
@@ -1287,8 +1314,25 @@ fn as_l4_corpus() {
             let ret = Table::new();
             ret.set(n!("n"), 0.0);
             locals.push(("ret".to_owned(), Val::Table(ret)));
-            let mm = testkit::diff_against(&dout, Some(&env), &locals, stem);
-            let (mm, why) = explain(mm, &skill);
+            // CK2: a buff's `modList` is filled in the order of `pairs(stats)` over the
+            // string-keyed stat table (CalcActiveSkill.lua:62, via skillModList and the
+            // GlobalEffect split at 805-860), PoB's per-process order (calc doc §3.4/§9.5); the
+            // shared normalisation turns a list holding the same mods in another order into one
+            // LUA-ORDER mismatch, counted as explained below. The stale corpus dumps this read
+            // before happened to agree with our order; a fresh probe of allflame_exp_025 does not.
+            let mm = testkit::diff_against_normalised(&dout, Some(&env), &locals, stem);
+            let (mm, mut why) = explain(mm, &skill);
+            let mm: Vec<_> = mm
+                .into_iter()
+                .filter(|m| {
+                    let order = m.kind == pob_oracle::diff::MismatchKind::LuaOrder
+                        && testkit::buff_mod_list_path(&m.path) == Some(m.path.as_str());
+                    if order {
+                        why.push("buff modList in stat-map `pairs` order (LUA-ORDER, calc doc §9.5)");
+                    }
+                    !order
+                })
+                .collect();
             for w in why {
                 *explained.entry(w).or_default() += 1;
             }
@@ -1325,18 +1369,22 @@ fn as_l4_corpus() {
             }
         }
     }
+    assert!(probe_failed.is_empty(), "AS L4: probes failed: {probe_failed:?}");
     if pairs == 0 {
         let _ = pob_testpaths::require(
             None::<()>,
-            "no buildActiveSkillModList probe dumps (scripts/port/oracle.sh corpus)",
+            "no buildActiveSkillModList probe dumps",
         );
         return; // POB_ALLOW_SKIP=1
     }
     eprintln!("AS L4: {pass}/{pairs} buildActiveSkillModList in→out dumps match");
-    assert_eq!(
-        pairs, AS_L4_PAIRS,
-        "buildActiveSkillModList dump pairs compared (HYG2/V2)"
-    );
+    // a filtered corpus (the quick corpus) has fewer pairs; the full corpus has exactly these
+    if !pob_testpaths::quick_corpus() {
+        assert_eq!(
+            pairs, AS_L4_PAIRS,
+            "buildActiveSkillModList dump pairs compared (HYG2/V2)"
+        );
+    }
     for (w, n) in &explained {
         eprintln!("  explained ({n} mismatches): {w}");
     }

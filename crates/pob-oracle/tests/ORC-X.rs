@@ -18,7 +18,10 @@
 //!   those must survive and the callee's writes (`output.TotalDPS`) must
 //!   still land, so the diff against `:out` is exactly the caller's changes.
 //!
-//! Inputs: `.parity/probe/<stem>/state/` (`scripts/port/oracle.sh corpus`),
+//! Inputs: the main env's `initEnv:out`, `perform:in`, `offence:in` and `offence:out` dumps of
+//! one `pob_oracle probe` run per build under `docs/port/stages.toml` ([`corpus_dumps`]; CK2,
+//! CCR-0147 §3: this was the keyless, hand-filled `.parity/probe/<stem>/state/` of
+//! `scripts/port/oracle.sh corpus`), from the shared probe cache, probed when absent;
 //! `data/dump`. Knobs: `ORCX_BUILDS=stem1,stem2`, `ORCX_LIMIT=n`,
 //! `ORCX_VERBOSE=1` (print every mismatch). A missing input fails
 //! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
@@ -196,8 +199,37 @@ fn note_key(n: &str) -> String {
     out
 }
 
-/// The gate's stages, then `runSkillFunc:in/out` (present once
-/// `orcx_replay_run_skill_func_all57` has probed them).
+/// The probe selection of [`corpus_dumps`]: the gate's stages of the main env, as the corpus
+/// run (`scripts/port/oracle.sh corpus`, the default selection) dumped them.
+const CORPUS_SELECT: &[&str] = &[
+    "initEnv:out@main",
+    "perform:in@main",
+    "offence:in@main",
+    "offence:out@main",
+];
+
+/// The build's [`CORPUS_SELECT`] dumps: one `pob_oracle probe` run under
+/// `docs/port/stages.toml` (provenance on, as the corpus run), from the shared probe cache
+/// (`testkit::probe_dumps`: keyed by the patched source, the build's bytes, the selection and
+/// the probe code), probed when absent. `None` (printed) when the probe fails.
+fn corpus_dumps(xml: &Path) -> Option<testkit::BuildDumps> {
+    testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&testkit::default_stages()),
+        &testkit::selection(CORPUS_SELECT),
+    )
+    .map_err(|e| eprintln!("{}: probe failed: {e}", stem(xml)))
+    .ok()
+}
+
+/// The dirs of [`corpus_dumps`] (empty when the probe failed).
+fn dirs_of(d: Option<&testkit::BuildDumps>) -> Vec<PathBuf> {
+    d.map(|d| d.dirs().to_vec()).unwrap_or_default()
+}
+
+/// The gate's stages, then `runSkillFunc:in/out` (the dumps
+/// of the replay test's selection, `rsf_dumps`).
 const ROUND_TRIP_STAGES: &[&str] = &[
     "initEnv:out",
     "perform:in",
@@ -225,15 +257,24 @@ fn orcx_identity_round_trip_all57() {
         return; // POB_ALLOW_SKIP=1
     }
     let mut tallies: BTreeMap<&str, Tally> = BTreeMap::new();
+    let mut rsf_probed: std::collections::BTreeSet<String> = Default::default();
     for xml in &builds {
         let stem = stem(xml);
+        let held = corpus_dumps(xml);
+        let dirs = dirs_of(held.as_ref());
+        // CK2: the runSkillFunc dumps of the replay test's selection, probed here when absent
+        // (the round trip used to read them only once that test had probed them, and not under
+        // `POB_QUERY_CACHE=refresh`, so their coverage depended on test order and cache mode)
+        let rsf = rsf_dumps(xml);
+        if rsf.is_some() {
+            rsf_probed.insert(stem.to_owned());
+        }
+        let extra: Vec<PathBuf> = rsf.iter().map(|d| d.path().to_path_buf()).collect();
         for stage in ROUND_TRIP_STAGES {
             let t = tallies.entry(stage).or_default();
             t.exact_measured = true;
-            // the corpus dumps, plus the runSkillFunc dumps the replay test probes (HYG3: in the
-            // shared probe cache)
-            let extra: Vec<PathBuf> = rsf_cached(xml).into_iter().collect();
-            let dump = testkit::load_dump(stem, Some(xml), stage).or_else(|| {
+            // the corpus dumps, plus the runSkillFunc dumps of the replay test's selection
+            let dump = testkit::load_dump(&dirs, stage).or_else(|| {
                 testkit::find_dump(&extra, stage).and_then(|p| StateDump::load(&p).ok())
             });
             let Some(dump) = dump else {
@@ -268,15 +309,14 @@ fn orcx_identity_round_trip_all57() {
         ok &= t.clean == t.dumps && t.failed.is_empty();
     }
     let total: usize = tallies.values().map(|t| t.dumps).sum();
-    assert!(total > 0, "no dumps found under .parity/probe");
+    assert!(total > 0, "no dumps found (probe failures above)");
     assert!(
         ok,
         "identity round trip: some dumps do not export back to themselves"
     );
-    // coverage (HYG2/V2): every build has its gate-stage dumps (`.parity/probe`, filled by
-    // `scripts/port/oracle.sh corpus`) except the listed ones. A runSkillFunc dump may only be
-    // missing for a build the replay test has not probed yet (test order is not fixed) or one
-    // whose main env runs no skill hook (ORCX_RSF_MISSING).
+    // coverage (HYG2/V2): every build has its gate-stage dumps ([`corpus_dumps`]) except the
+    // listed ones. A runSkillFunc dump may only be missing for a build whose runSkillFunc probe
+    // failed (reported above) or whose main env runs no skill hook (ORCX_RSF_MISSING).
     if !filtered() {
         assert_eq!(builds.len(), CORPUS_BUILDS, ".parity/builds/*.xml count");
     }
@@ -287,10 +327,7 @@ fn orcx_identity_round_trip_all57() {
             .filter(|m| {
                 let stem = m.split(' ').next().unwrap_or("");
                 if stage.starts_with("runSkillFunc:") {
-                    let probed = builds
-                        .iter()
-                        .find(|x| self::stem(x) == stem)
-                        .is_some_and(|x| rsf_cached(x).is_some());
+                    let probed = rsf_probed.contains(stem);
                     probed && !ORCX_RSF_MISSING.contains(&stem)
                 } else {
                     !ORCX_GATE_MISSING.contains(&m.as_str())
@@ -306,8 +343,8 @@ fn orcx_identity_round_trip_all57() {
 
 /// The corpus size (`.parity/builds/*.xml`).
 const CORPUS_BUILDS: usize = 57;
-/// `<stem> <stage>` gate-stage dumps (initEnv:out, perform:in, offence:in) absent from
-/// `.parity/probe`; measured by HYG2 on rust-port 746b103.
+/// `<stem> <stage>` gate-stage dumps (initEnv:out, perform:in, offence:in) a probe run does not
+/// write (the build's main env has no main skill); measured by HYG2 on rust-port 746b103.
 const ORCX_GATE_MISSING: &[&str] = &["upstream_Dual_Savior offence:in"];
 /// Builds whose main env runs no skill hook through runSkillFunc (no `runSkillFunc:in/out`
 /// dump); measured by HYG2 on rust-port 746b103.
@@ -411,9 +448,10 @@ fn orcx_inject_is_typed_and_export_sensitive() {
     ) else {
         return; // POB_ALLOW_SKIP=1
     };
+    let held = corpus_dumps(&xml);
     let Some(dump) = pob_testpaths::require(
-        testkit::load_dump(stem(&xml), Some(&xml), "perform:in"),
-        "no perform:in dump under .parity/probe",
+        testkit::load_dump(&dirs_of(held.as_ref()), "perform:in"),
+        "no perform:in dump (probe failure above)",
     ) else {
         return; // POB_ALLOW_SKIP=1
     };
@@ -670,9 +708,11 @@ fn orcx_replay_offence_all57() {
     let mut t = Tally::default();
     for xml in &builds {
         let stem = stem(xml);
+        let held = corpus_dumps(xml);
+        let dirs = dirs_of(held.as_ref());
         let (Some(din), Some(dout)) = (
-            testkit::load_dump(stem, Some(xml), "offence:in"),
-            testkit::load_dump(stem, Some(xml), "offence:out"),
+            testkit::load_dump(&dirs, "offence:in"),
+            testkit::load_dump(&dirs, "offence:out"),
         ) else {
             t.missing.push(format!("{stem} offence:in/out"));
             continue;
@@ -680,7 +720,7 @@ fn orcx_replay_offence_all57() {
         replay_both(&mut t, stem, &din, &dout, "offence");
     }
     t.report("replay offence");
-    assert!(t.dumps > 0, "no offence:in/out dumps under .parity/probe");
+    assert!(t.dumps > 0, "no offence:in/out dumps (probe failures above)");
     assert!(
         t.clean == t.dumps && t.perturbed_clean == t.perturbed && t.failed.is_empty(),
         "replaying offence does not apply exactly its in→out delta"
@@ -698,17 +738,17 @@ fn rsf_options() -> pob_oracle::runner::ProbeOptions {
     }
 }
 
-/// The `state/` dir of the build's runSkillFunc entry in the shared probe cache, if probed.
+/// The build's runSkillFunc dumps ([`run_skill_func_dumps`], probed when absent); `None`
+/// (printed) when the probe fails.
 #[cfg(feature = "luajit")]
-fn rsf_cached(xml: &Path) -> Option<PathBuf> {
-    testkit::selection_cache(xml, None, &rsf_options())
+fn rsf_dumps(xml: &Path) -> Option<pob_oracle::runner::ProbeDumps> {
+    run_skill_func_dumps(xml)
+        .map_err(|e| eprintln!("{}: probing runSkillFunc failed: {e}", stem(xml)))
         .ok()
-        .filter(pob_oracle::runner::SelectionCache::is_filled)
-        .map(|c| c.state_dir())
 }
 
 #[cfg(not(feature = "luajit"))]
-fn rsf_cached(_xml: &Path) -> Option<PathBuf> {
+fn rsf_dumps(_xml: &Path) -> Option<pob_oracle::runner::ProbeDumps> {
     None
 }
 
@@ -808,9 +848,10 @@ fn orcx_segment_runner_plumbing() {
         return; // POB_ALLOW_SKIP=1
     };
     let stem = stem(&xml);
+    let held = corpus_dumps(&xml);
     let Some(din) = pob_testpaths::require(
-        testkit::load_dump(stem, Some(&xml), "offence:in"),
-        "no offence:in dump under .parity/probe",
+        testkit::load_dump(&dirs_of(held.as_ref()), "offence:in"),
+        "no offence:in dump (probe failure above)",
     ) else {
         return; // POB_ALLOW_SKIP=1
     };

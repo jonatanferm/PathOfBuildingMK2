@@ -23,12 +23,20 @@
 //!
 //!   `DFA_N` sets the cases per function (default 100000), `DFA_ONLY=a,b` a subset.
 //! * `dfa_resistances_probe`: for every corpus build with `defence:in` and
-//!   `defence:recovery:in` dumps of the same hit, inject `defence:in`, run the Rust
+//!   `defence:1211` dumps of the same hit, inject `defence:in`, run the Rust
 //!   `calcs.resistances` on the dumped actor and compare every output key it writes, the
 //!   breakdown rows and the `<elem>Resist`/`<elem>ResistMax` mods it adds with the
-//!   `defence:recovery:in` state (CalcDefence 666-1210 writes none of those). The same
+//!   `defence:1211` state (CalcDefence 666-1210 writes none of those). The same
 //!   dumps also check `defenceForConditionals` (its `<X>On<slot>` outputs, written by
-//!   CalcPerform 3484 before `defence:in`).
+//!   CalcPerform 3484 before `defence:in`). The dumps are the main env's, from one
+//!   `pob_oracle probe` run per build selecting `defence:in@main,defence:1211@main` under
+//!   `docs/port/stages.toml` (`testkit::probe_dumps`: the shared probe cache, keyed by the patched
+//!   source, the build's bytes, the selection and the probe code; probed when absent). CK2
+//!   (CCR-0147 §3): this read the keyless `.parity/probe/<stem>/state/` of a 2026-10-09
+//!   `scripts/port/oracle.sh corpus` run, whose `defence:recovery:in` line probe (before
+//!   CalcDefence.lua:1211, P3's stages) is `defence:1211` in today's `docs/port/stages.toml`
+//!   (before 1212, the first statement after the `-- Recovery modifiers` comment: the same
+//!   state).
 //!
 //! A difference only in the sign of a formatted zero is a host artefact (the oracle host is a
 //! dual-number ARM64 LuaJIT; CCR-0002) and is counted apart, as is a `%d` of NaN, which the
@@ -1370,6 +1378,9 @@ fn stem(p: &Path) -> &str {
     p.file_stem().and_then(|s| s.to_str()).unwrap_or_default()
 }
 
+/// The line probe before CalcDefence.lua:1212 (`docs/port/stages.toml`; module docs).
+const RECOVERY_IN: &str = "defence:1211";
+
 fn hit_no(hit: &str) -> &str {
     hit.rsplit_once('#').map_or("", |(_, n)| n)
 }
@@ -1445,9 +1456,22 @@ fn dfa_resistances_probe() {
     let mut cond_bad: Vec<String> = Vec::new();
     for xml in &builds {
         let st = stem(xml);
+        let held = match testkit::probe_dumps(
+            Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+            xml,
+            Some(&testkit::default_stages()),
+            &testkit::selection(&["defence:in@main", &format!("{RECOVERY_IN}@main")]),
+        ) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("{st}: probe failed: {e}");
+                missing.push(st.to_owned());
+                continue;
+            }
+        };
         let (Some(din), Some(dout)) = (
-            testkit::load_dump(st, Some(xml), "defence:in"),
-            testkit::load_dump(st, Some(xml), "defence:recovery:in"),
+            testkit::load_dump(held.dirs(), "defence:in"),
+            testkit::load_dump(held.dirs(), RECOVERY_IN),
         ) else {
             missing.push(st.to_owned());
             continue;
@@ -1455,7 +1479,7 @@ fn dfa_resistances_probe() {
         assert_eq!(
             hit_no(&din.hit),
             hit_no(&dout.hit),
-            "{st}: defence:in / defence:recovery:in hits differ"
+            "{st}: defence:in / {RECOVERY_IN} hits differ"
         );
         let build = testkit::empty_build();
         let inj_out = pob_oracle::inject::inject(&dout, &build)
@@ -1554,7 +1578,7 @@ fn dfa_resistances_probe() {
         cond_bad.len()
     );
     if !missing.is_empty() {
-        eprintln!("  no defence:in/defence:recovery:in dump: {missing:?}");
+        eprintln!("  no defence:in/{RECOVERY_IN} dump: {missing:?}");
     }
     for b in bad.iter().chain(&cond_bad).take(30) {
         eprintln!("  {b}");
@@ -1562,7 +1586,7 @@ fn dfa_resistances_probe() {
     if compared == 0 {
         let _ = pob_testpaths::require(
             None::<()>,
-            "no defence:in / defence:recovery:in dumps (scripts/port/oracle.sh corpus)",
+            &format!("no defence:in / {RECOVERY_IN} dumps (probe failures above)"),
         );
         return; // POB_ALLOW_SKIP=1
     }
@@ -1573,7 +1597,7 @@ fn dfa_resistances_probe() {
     // coverage (HYG2/V2): every build has its defence dumps, and every one was compared
     assert!(
         missing.is_empty(),
-        "builds without defence:in / defence:recovery:in dumps (scripts/port/oracle.sh corpus): {missing:?}"
+        "builds without defence:in / {RECOVERY_IN} dumps: {missing:?}"
     );
     assert_eq!(compared, builds.len(), "actors compared");
     if !filtered {

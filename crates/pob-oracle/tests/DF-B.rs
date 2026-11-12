@@ -19,14 +19,18 @@
 //! * `calcs.hitChance` (pure): PoB's own source text (Common.lua `round`, CalcDefence.lua
 //!   58-64) evaluated by LuaJIT with the JIT off.
 //!
-//! Fill the cache (one LuaJIT PoB per build, `scripts/port/oracle.sh` holds the lock):
+//! Dumps: one `pob_oracle probe` run per build (a LuaJIT PoB in its own process, under the
+//! machine-wide oracle lock) of
 //!
 //! ```text
-//! for b in .parity/builds/*.xml crates/pob-oracle/corpus/DF-B/*.xml; do
-//!   scripts/port/oracle.sh run --build "$b" --stages crates/pob-oracle/corpus/DF-B/stages.toml \
-//!     --stage 'defence:659,defence:665,defence:666,defence:674,defence:675,defence:676,defence:1211'
-//! done
+//! --stages crates/pob-oracle/corpus/DF-B/stages.toml \
+//!     --select 'defence:659,defence:665,defence:666,defence:674,defence:675,defence:676,defence:1211'
 //! ```
+//!
+//! from the shared probe cache (`testkit::probe_dumps`, CK2: keyed by the patched source, the
+//! build's bytes, the selection and the probe code; probed here when absent). This read the
+//! pre-SelectionCache `.parity/probe-cache/<sha>/<build>/` of whichever patched-source sha held
+//! `defence:665` dumps most recently, i.e. dumps of any harness or PoB tree.
 //!
 //! Memory: each worker of the bounded pool (`$POB_TEST_PAR`, default 3; TP1) runs one build at a
 //! time and each call's dumps are parsed just before it runs and dropped after it (only the
@@ -72,33 +76,25 @@ struct Case {
     minion: Option<(StateDump, StateDump, StateDump)>,
 }
 
-/// The probe-cache directory of `xml` that holds this unit's dumps (`defence:665#*`), newest
-/// first when several patched shas have them.
-fn cache_dir(parity: &Path, xml: &Path) -> Option<PathBuf> {
-    let key = pob_oracle::runner::build_key(xml).ok()?;
-    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-    for sha in std::fs::read_dir(parity.join("probe-cache"))
-        .ok()?
-        .flatten()
-    {
-        let d = sha.path().join(&key);
-        let Ok(rd) = std::fs::read_dir(&d) else {
-            continue;
-        };
-        let has = rd
-            .flatten()
-            .any(|e| e.file_name().to_string_lossy().starts_with("defence:665#"));
-        if !has {
-            continue;
-        }
-        let t = std::fs::metadata(&d)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH);
-        if best.as_ref().map_or(true, |(b, _)| t > *b) {
-            best = Some((t, d));
-        }
-    }
-    best.map(|(_, d)| d)
+/// The probe selection (module docs).
+const SELECT: &[&str] = &[
+    "defence:659",
+    "defence:665",
+    "defence:666",
+    "defence:674",
+    "defence:675",
+    "defence:676",
+    "defence:1211",
+];
+
+/// This unit's dumps of `xml`: one probe run (module docs). Hold the result while reading them.
+fn build_dumps(xml: &Path) -> Result<testkit::BuildDumps, String> {
+    testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/DF-B/stages.toml")),
+        &testkit::selection(SELECT),
+    )
 }
 
 /// The dump files of `dir` by hit id (`defence:659#3` → path); nothing is parsed.
@@ -390,14 +386,15 @@ fn df_b_l4() {
         |hit_chance, _, xml| {
             let mut o = BuildOut::default();
             let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
-            let Some(dir) = cache_dir(&parity, xml) else {
-                o.missing.push(format!(
-                    "{stem}: no DF-B dumps (see the fill command in tests/DF-B.rs)"
-                ));
-                return o;
+            let held = match build_dumps(xml) {
+                Ok(d) => d,
+                Err(e) => {
+                    o.missing.push(format!("{stem}: no DF-B dumps (probe failed: {e})"));
+                    return o;
+                }
             };
             let is_unit = xml.starts_with(&unit_dir);
-            let files = dump_files(&dir);
+            let files = dump_files(held.path());
             let minion = minion_dumps(&files);
             let model = testkit::load_build(xml).unwrap_or_else(testkit::empty_build);
             for n in hits_of(&files, P_IN) {

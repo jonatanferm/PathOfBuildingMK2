@@ -4,10 +4,12 @@
 //!
 //! Owner: ORC-X.
 //!
-//! Dumps are looked up (in this order) in `$POB_PROBE_DIR/<stem>/state/`,
-//! `.parity/probe/<stem>/state/` (`scripts/port/oracle.sh corpus`) and the
-//! probe cache `.parity/probe-cache/<sha>/<build-key>/` of any patched-source
-//! sha (`scripts/port/oracle.sh run --build X.xml --stage <hit>` fills it).
+//! Dumps come from the shared content-addressed probe cache: [`probe_dumps`] (one
+//! `bin probe` run of a selection per build, [`crate::runner::SelectionCache`], probed when
+//! absent) or [`oracle_dir`] (a custom PoB run). `$POB_PROBE_DIR/<stem>/state/` is an explicit
+//! override that [`probe_dumps`] serves instead (CK2, CCR-0147 §3: the keyless
+//! `.parity/probe/<stem>/state/` and the pre-SelectionCache `.parity/probe-cache/<sha>/<build>/`
+//! of any sha are no longer read).
 //! A hit is named exactly (`offence:in#4`) or by probe id alone
 //! (`offence:in`, `perform:1943`), which takes the lowest-numbered dump of that
 //! probe present (the selection `@main` dumps one per probe: the main env's).
@@ -101,28 +103,104 @@ pub fn empty_build() -> BuildRef {
 
 // ---- finding dumps ----------------------------------------------------------------------------
 
-/// Directories that may hold a build's dumps, most specific first.
-pub fn dump_dirs(stem: &str, xml: Option<&Path>) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if let Some(d) = std::env::var_os("POB_PROBE_DIR").map(PathBuf::from) {
-        out.push(d.join(stem).join("state"));
+/// `$POB_PROBE_DIR/<stem>/state/` when that variable is set and the directory exists: an
+/// explicit, hand-made dump directory that [`probe_dumps`] serves instead of the cache.
+pub fn override_dir(stem: &str) -> Option<PathBuf> {
+    let d = std::env::var_os("POB_PROBE_DIR").map(PathBuf::from)?;
+    Some(d.join(stem).join("state")).filter(|d| d.is_dir())
+}
+
+/// The dumps of one build for one probe selection ([`probe_dumps`]): a single directory, so
+/// every `:in` / `:out` pair in it comes from one PoB process. Hold it while reading the dumps
+/// (under `POB_QUERY_CACHE=off` the directory is a private run deleted on drop).
+#[derive(Debug)]
+pub struct BuildDumps {
+    dirs: Vec<PathBuf>,
+    held: Option<crate::runner::ProbeDumps>,
+}
+
+impl BuildDumps {
+    /// The directory, as the one-element slice [`find_dump`] / [`find_pair`] take.
+    #[must_use]
+    pub fn dirs(&self) -> &[PathBuf] {
+        &self.dirs
     }
-    if let Some(parity) = find_parity_dir() {
-        out.push(parity.join("probe").join(stem).join("state"));
-        if let Some(xml) = xml {
-            if let Ok(key) = crate::runner::build_key(xml) {
-                if let Ok(rd) = std::fs::read_dir(parity.join("probe-cache")) {
-                    let mut shas: Vec<PathBuf> = rd.filter_map(Result::ok).map(|e| e.path()).collect();
-                    shas.sort();
-                    for s in shas {
-                        out.push(s.join(&key));
-                    }
-                }
-            }
-        }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.dirs[0]
     }
-    out.retain(|d| d.is_dir());
-    out
+
+    /// The run's directory (`state/`'s parent: `hits.json[.zst]`, `outputs.json[.zst]`).
+    #[must_use]
+    pub fn run_dir(&self) -> PathBuf {
+        self.dirs[0]
+            .parent()
+            .map_or_else(|| self.dirs[0].clone(), Path::to_path_buf)
+    }
+
+    /// Served from `$POB_PROBE_DIR` ([`override_dir`])?
+    #[must_use]
+    pub fn is_override(&self) -> bool {
+        self.held.is_none()
+    }
+
+    /// Did the dumps come from the shared cache (rather than a private run or the override)?
+    #[must_use]
+    pub fn is_cached(&self) -> bool {
+        self.held.as_ref().is_some_and(crate::runner::ProbeDumps::is_cached)
+    }
+}
+
+/// CK2 (CCR-0147 §3 item 1): the dumps of `xml` for the probe selection `opts` under the
+/// patched copy for `stages`, from the shared probe cache ([`probe_selection`]: keyed by the
+/// patched-source sha, the build's BLAKE3, the selection and the probe's Rust code; probed in a
+/// fresh `bin probe` process when absent; `POB_QUERY_CACHE` applies). `$POB_PROBE_DIR/<stem>/`
+/// ([`override_dir`]) is served instead when it exists. `bin` is the test's
+/// `env!("CARGO_BIN_EXE_pob_oracle")`.
+pub fn probe_dumps(
+    bin: &Path,
+    xml: &Path,
+    stages: Option<&Path>,
+    opts: &crate::runner::ProbeOptions,
+) -> Result<BuildDumps, String> {
+    let stem = xml.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+    if let Some(d) = override_dir(stem) {
+        return Ok(BuildDumps {
+            dirs: vec![d],
+            held: None,
+        });
+    }
+    #[cfg(feature = "luajit")]
+    {
+        let held = probe_selection(bin, xml, stages, opts)?;
+        Ok(BuildDumps {
+            dirs: vec![held.path().to_path_buf()],
+            held: Some(held),
+        })
+    }
+    #[cfg(not(feature = "luajit"))]
+    {
+        let _ = (bin, stages, opts);
+        Err("built without the luajit feature (no probe), and no $POB_PROBE_DIR".to_owned())
+    }
+}
+
+/// `docs/port/stages.toml` of this checkout: the stages file `scripts/port/oracle.sh run`
+/// patches with by default.
+#[must_use]
+pub fn default_stages() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/port/stages.toml")
+}
+
+/// A probe selection of `hits` (globs, `@main`, `#n`), `pob_oracle probe`'s defaults otherwise
+/// (`--max-dumps 200`, provenance on): what `scripts/port/oracle.sh run --stage <hits>` ran.
+#[must_use]
+pub fn selection(hits: &[&str]) -> crate::runner::ProbeOptions {
+    crate::runner::ProbeOptions {
+        select: hits.iter().map(|s| (*s).to_owned()).collect(),
+        ..crate::runner::ProbeOptions::default()
+    }
 }
 
 /// The dump file of `hit` (`id#n`, or `id` for the lowest `n`) in `dirs`.
@@ -379,9 +457,9 @@ pub fn find_pair(dirs: &[PathBuf], stage_in: &str, stage_out: &str) -> Option<(P
     })
 }
 
-/// Load the dump of `hit` for a build.
-pub fn load_dump(stem: &str, xml: Option<&Path>, hit: &str) -> Option<StateDump> {
-    let p = find_dump(&dump_dirs(stem, xml), hit)?;
+/// Load the dump of `hit` from `dirs` (e.g. [`BuildDumps::dirs`]).
+pub fn load_dump(dirs: &[PathBuf], hit: &str) -> Option<StateDump> {
+    let p = find_dump(dirs, hit)?;
     StateDump::load(&p).ok()
 }
 
@@ -431,8 +509,8 @@ pub fn export_after(env: Option<&EnvRef>, locals: &[(String, Val)]) -> J {
 /// L4: inject `<stage_in>`, run the Rust segment, diff against `<stage_out>`'s
 /// dump. Returns the mismatches as text (empty = pass). A missing dump or a
 /// stage without a segment is reported as one mismatch line. Both dumps come from
-/// one directory ([`find_pair`]).
-pub fn segment_diff(build: &Path, stage_in: &str, stage_out: &str) -> Vec<String> {
+/// one directory of `dirs` ([`find_pair`]; e.g. [`BuildDumps::dirs`]).
+pub fn segment_diff(build: &Path, dirs: &[PathBuf], stage_in: &str, stage_out: &str) -> Vec<String> {
     if !init_default_data() {
         return vec!["no data dump (data/dump)".to_owned()];
     }
@@ -441,8 +519,7 @@ pub fn segment_diff(build: &Path, stage_in: &str, stage_out: &str) -> Vec<String
         .and_then(|s| s.to_str())
         .unwrap_or_default()
         .to_owned();
-    let dirs = dump_dirs(&stem, Some(build));
-    let Some((pin, pout)) = find_pair(&dirs, stage_in, stage_out) else {
+    let Some((pin, pout)) = find_pair(dirs, stage_in, stage_out) else {
         return vec![format!(
             "missing dumps {stage_in} + {stage_out} in one directory for {stem} (fill with: scripts/port/oracle.sh run --build {} --stage {stage_in},{stage_out})",
             build.display()
