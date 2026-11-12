@@ -416,8 +416,8 @@ pub fn tree_hash(base: &Path, dirs: &[&str]) -> String {
 /// The workspace code a UI oracle run's Lua side executes or draws through, hashed by content:
 /// this crate (`src/`, `lua/`, `probe/`), pob-sg (the `Sg` the Lua side draws through, its fonts
 /// and trace recorder), pob-host (scripts, the headless image loader, key delivery), pob-lua
-/// (formatting used by the bridge), pob-oracle (the LuaJIT natives and prelude) and `Cargo.lock`
-/// (every third-party version, mlua/LuaJIT included). Conservative: any edit there retires the
+/// (formatting used by the bridge), pob-oracle (the LuaJIT natives and prelude), `Cargo.lock`
+/// (every third-party version, mlua/LuaJIT included) and `VERSION` (patch 9 draws it). Conservative: any edit there retires the
 /// UI entries. Memoised per process.
 #[must_use]
 pub fn lua_side_code_hash() -> &'static str {
@@ -439,6 +439,8 @@ pub fn lua_side_code_hash() -> &'static str {
                 "crates/pob-oracle/src",
                 "crates/pob-oracle/Cargo.toml",
                 "Cargo.lock",
+                // patch 9's `__portVersion` (pob_app::launch::PORT_VERSION)
+                "VERSION",
             ],
         )
     })

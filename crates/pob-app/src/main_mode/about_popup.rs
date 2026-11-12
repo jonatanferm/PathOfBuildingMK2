@@ -19,6 +19,11 @@
 //! ([`t_insert_at`]). The Contents rows always land right after the Contents header, so no help
 //! file reaches it. DIVERGENCE(lossy-utf8): see update_popup.rs.
 //!
+//! DIVERGENCE(branding): user decision 2026-11-12. The `version` label (L1466) reads
+//! `^7Path of Building Rust Port v<PORT_VERSION>` ([`about_version_text`]) instead of
+//! `^7Path of Building Community Fork v<launch.versionNumber>`; the UI oracle's patch 9 makes the
+//! Lua draw the same.
+//!
 //! Props with side effects (ui doc §7.3): none.
 
 use std::rc::Rc;
@@ -33,6 +38,12 @@ use pob_ui_core::wrap::wrap_string;
 use crate::app::CxApp;
 use crate::main_mode::update_popup::read_lines;
 use crate::main_mode::ModeArg;
+
+/// The About popup's `version` label (L1466). DIVERGENCE(branding): user decision 2026-11-12
+/// (PoB: `"^7Path of Building Community Fork v"..launch.versionNumber`).
+pub fn about_version_text() -> String {
+    format!("^7Path of Building Rust Port v{}", crate::launch::PORT_VERSION)
+}
 
 /// `helpSections[helpSectionIndex]` after L1451-1460.
 enum HelpIndex {
@@ -286,9 +297,6 @@ pub fn open_about_popup(cx: &mut Cx, help_section_index: ModeArg) {
         },
         HelpIndex::Total => lua_error!("attempt to index field '?' (a number value)"),
     });
-    let version_number = cx.app().launch.version_number.clone().unwrap_or_else(|| {
-        lua_error!("attempt to concatenate field 'versionNumber' (a nil value)")
-    });
     // L1462 local controls = { }
     // L1483
     open_popup(
@@ -318,7 +326,8 @@ pub fn open_about_popup(cx: &mut Cx, help_section_index: ModeArg) {
                 LabelControl::new(
                     Anchor::NONE,
                     rect(0, 18, 0, 18),
-                    format!("^7Path of Building Community Fork v{version_number}"),
+                    // DIVERGENCE(branding): user decision 2026-11-12
+                    about_version_text(),
                 ),
             );
             // L1467
@@ -426,4 +435,17 @@ pub fn open_about_popup(cx: &mut Cx, help_section_index: ModeArg) {
 /// `#helpSections` as a number.
 fn n_sections_f(help_sections: &[HelpSection]) -> f64 {
     help_sections.len() as f64
+}
+
+#[cfg(test)]
+mod tests {
+    /// DIVERGENCE(branding): the About popup's version line (Main.lua L1466) on the port.
+    #[test]
+    fn about_version_line() {
+        assert_eq!(
+            super::about_version_text(),
+            format!("^7Path of Building Rust Port v{}", crate::launch::PORT_VERSION)
+        );
+        assert!(!super::about_version_text().contains("Community"));
+    }
 }

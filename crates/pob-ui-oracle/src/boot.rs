@@ -391,6 +391,10 @@ pub fn boot_with(
         .set_name("prelude")
         .exec()
         .map_err(lerr)?;
+    // Patch 9 (patches.rs): the port's version, drawn by the patched branding labels.
+    lua.globals()
+        .set("__portVersion", pob_app::launch::PORT_VERSION)
+        .map_err(lerr)?;
     let patched = crate::patches::patched_files();
     let hook_root = root_s.clone();
     lua.globals()
