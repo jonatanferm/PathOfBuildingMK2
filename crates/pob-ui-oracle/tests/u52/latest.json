@@ -1,0 +1,6 @@
+{"builds":[
+ {"build_info":{"title":"Latest Hierophant","author":"Totem Guy","mainSkill":"Ancestral Warchief","ascendancy":"hierophant","class":"Templar","short_uuid":"lh1","build_link":"https://pobb.in/u52Code"},
+  "stats":{"TotalEHP":30000,"LifeUnreserved":3500,"EnergyShield":0},"fullDPS":450000,"tree":{"version":"3_25"}},
+ {"build_info":{"title":"No link build","author":"Nobody","mainSkill":"Fireball","short_uuid":"nl2"},
+  "stats":{"TotalEHP":1,"LifeUnreserved":2,"EnergyShield":3},"fullDPS":4,"tree":{"version":"3_10"}}
+]}

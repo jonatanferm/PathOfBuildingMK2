@@ -1,0 +1,6 @@
+[
+ {"url": "https://pobarchives.com/api/builds?q=trending", "body_file": "trending.json", "headers": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"},
+ {"url": "https://pobarchives.com/api/builds?q=latest", "body_file": "latest.json", "headers": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"},
+ {"url": "https://pobarchives.com/api/recommendations", "body_file": "similar.json", "headers": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"},
+ {"url": "https://pobb.in/pob/u52Code", "body_file": "../u43/code_048.txt", "headers": "HTTP/1.1 200 OK\r\n\r\n"}
+]

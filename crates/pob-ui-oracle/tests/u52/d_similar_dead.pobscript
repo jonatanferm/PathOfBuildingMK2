@@ -1,0 +1,19 @@
+# U52: the Similar Builds popup as PoB 2.67.2 has it (the list's Draw returns at L249): the popup
+# frame, its title and the Close button are drawn, the list is not. Init still POSTs the build
+# code and parses the response; the invisible dropdown is still clickable (Init again, a second
+# POST).
+#! u52-setup similar
+#! expect-text Similar Builds
+#! expect-no-text Similar Necromancer
+#! expect-no-text Loading..
+#! u52-expect-post https://pobarchives.com/api/recommendations importCode=eN
+#! u52-expect-mode LIST
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 3
+move 840 116
+click LEFTBUTTON
+frames 1
+move 840 134
+click LEFTBUTTON
+frames 3

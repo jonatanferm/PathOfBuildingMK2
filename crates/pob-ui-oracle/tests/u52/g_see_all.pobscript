@@ -1,0 +1,20 @@
+# U52: "See All" (ExtBuildListControl.lua:125-136) at the bottom of the list beside the build list
+# opens the active list's page (GetPageUrl): Trending first, Latest after switching tabs. Its
+# position depends on the screen height, so this script runs at 1280x800 only. The draw body is
+# off (PoB's behaviour): the buttons work although nothing of the list is drawn.
+#! u52-setup list
+#! u52-expect-effect open-url https://pobarchives.com/builds/7U8QXU8m?sort=popularity
+#! u52-expect-effect open-url https://pobarchives.com/builds/yenTGNDb
+screen 1280 800
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 3
+move 1200 790
+click LEFTBUTTON
+frames 1
+move 1206 69
+click LEFTBUTTON
+frames 2
+move 1200 790
+click LEFTBUTTON
+frames 2
