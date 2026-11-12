@@ -36,7 +36,10 @@
 //!   the Type dropdown's tooltip lists and compares (L359, L365): in PoB those tooltip lines
 //!   depend on the process's hash seed whenever a group has several mods (a group's base,
 //!   Unique and Pinnacle presence tiers). Resolution (b) for that tooltip; not covered by the u36
-//!   scenarios, which hover the Modifier dropdown of an Eldritch source instead.
+//!   scenarios, which hover the Modifier dropdown of an Eldritch source instead. (Observed: a
+//!   draft of u36's f_add_implicit left the mouse on the Type box; PoB's tooltip listed the
+//!   "While a Unique Enemy is in your Presence" tier of the spell physical damage group, the
+//!   port's the base tier; the dropdown entries themselves agreed.)
 //! * L122 `pairs(data.vestigialModMappings)`: the list is sorted by mod id at L145-152 (a total
 //!   order: the ids are distinct), so the order is unobservable (c).
 //! * L87 `pairs(modList)`, L118 `pairs(modGroups)`: per-entry work, order unobservable (c).

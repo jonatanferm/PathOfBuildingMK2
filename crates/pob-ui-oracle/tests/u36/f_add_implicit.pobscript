@@ -65,7 +65,7 @@ frames 3
 move 460 364
 click LEFTBUTTON
 frames 2
-move 460 380
+move 460 376
 click LEFTBUTTON
 frames 3
 move 1100 600
