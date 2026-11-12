@@ -25,9 +25,10 @@
 //!   `powerBuilderCallback` once; progress values are monotone. With a clock that passes 1 ms per
 //!   read plus 150 ms between frames, each resume does 101 nodes (L660 restarts `start` after the
 //!   yield returns, so the frame gap is not counted).
-//! * `pwr_l6_report` (end to end, reported, not gated: the calc itself is not at parity): the
-//!   real Rust calculator on one build (Offence/Defence, all nodes), against PoB;
-//!   plus parallel mode (D12) against the Rust sequential run, whose divergences are reported.
+//! * `pwr_l6_report` (end to end; gated exact since FUP2): the real Rust calculator on one build
+//!   (Offence/Defence, all nodes), against PoB: every power value exact, none missing or extra,
+//!   and the default build's count pinned (`L6_OCCVORTEX_KEYS`); plus parallel mode (D12)
+//!   against the Rust sequential run, whose divergences are reported only.
 //! * `pwr_stat_fns` (Rust only): GetFromOutput / CalculatePowerStat / CalculateCombinedOffDefStat
 //!   / the transforms on hand-made outputs, and the transform closures' identity (dump hashes).
 //!
@@ -349,7 +350,8 @@ fn rust_build(xml: &Path) -> Result<BuildRef, String> {
 }
 
 /// A modKey with closure identities normalised: PoB's `tostring(func)` is an address
-/// (`function: 0x…`, per process), the port's `function: builtin` (see FOLLOWUPS "PWR").
+/// (`function: 0x…`, per process), the port's a hash of the closure's spec in the same shape
+/// (`mod_tools::function_text`, FUP2; FOLLOWUPS "PWR" item 2).
 fn norm_modKey(k: &str) -> String {
     let mut out = String::with_capacity(k.len());
     let mut rest = k;
@@ -925,7 +927,7 @@ fn pwr_coroutine_steps() {
     let _ = PowerState::default();
 }
 
-// ---- L6 report (not gated) + parallel divergences -----------------------------------------------
+// ---- L6 (gated exact, FUP2) + parallel divergences (reported) ----------------------------------
 
 #[cfg(feature = "luajit")]
 #[test]
@@ -986,10 +988,26 @@ fn pwr_l6_report() {
     for s in d.samples.iter().take(6) {
         eprintln!("    divergence: {s}");
     }
-    // not gated (the calc is not at parity; parallel divergences are reported, D12), except that
-    // neither run raises
+    // FUP2 (FOLLOWUPS "PWR" item 3): the sequential run is gated exact against PoB (CA's L6 is
+    // exact on all57); parallel divergences stay reported only (D12). Neither run raises.
     assert!(r.is_ok() && r2.is_ok(), "{r:?} {r2:?}");
+    assert!(
+        c.exact == c.keys && c.missing == 0 && c.extra == 0,
+        "PWR L6 {name}: {} of {} power values differ ({} missing, {} Rust-only): {:#?}",
+        c.keys - c.exact,
+        c.keys,
+        c.missing,
+        c.extra,
+        c.samples
+    );
+    if name == "upstream_OccVortex" && depth.is_none() {
+        assert_eq!(c.keys, L6_OCCVORTEX_KEYS, "PWR L6 {name}: compared power values");
+    }
 }
+
+/// Power values `pwr_l6_report` compares on its default build (upstream_OccVortex, Offence/Defence,
+/// all nodes, no depth limit); measured by FUP2.
+const L6_OCCVORTEX_KEYS: usize = 7672;
 
 // ---- the stat functions (Rust only) -------------------------------------------------------------
 

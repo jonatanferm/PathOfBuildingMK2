@@ -7,15 +7,15 @@
 //! table: [`lua_pairs_of_tag`] / [`lua_pairs_of_value`] list the non-nil keys
 //! of the Lua table a [`Tag`] / [`Value`] stands for. Every Lua call sorts the
 //! keys before printing, so the order of `pairs` itself is never observable
-//! here. Two values have no Rust counterpart and print as fixed text:
-//! a jewel closure's `func` prints `function: builtin` (Lua prints the
-//! closure's address, `function: 0x…`, which differs per process).
+//! here. A jewel closure's `func` has no Rust counterpart: it prints as
+//! `function: 0x` and a hash of the closure's spec ([`function_text`]), where
+//! Lua prints the closure's address (which differs per process).
 #![allow(non_snake_case)]
 
 use std::sync::Arc;
 
 use crate::generated::global::{KeywordFlag, ModFlag};
-use crate::modifier::{for_each_tag_field, Mod, ModType, Tag, TagType};
+use crate::modifier::{for_each_tag_field, JewelFuncSpec, Mod, ModType, Tag, TagType};
 use crate::value::{AStr, Value, ValueTable};
 use crate::Name;
 use pob_lua::{lfmt, lua_error, tostring_num};
@@ -314,8 +314,32 @@ impl LuaKey {
     }
 }
 
-/// The text a jewel closure prints as (Lua: `function: 0x…`, the address).
-pub const FUNCTION_TEXT: &str = "function: builtin";
+/// The prefix every jewel closure's text starts with ([`function_text`]); Lua's
+/// `tostring(func)` of a closure is `function: 0x` and its address.
+pub const FUNCTION_TEXT_PREFIX: &str = "function: 0x";
+
+/// The text a jewel closure prints as (`tostring(func)` in `formatValue`, ModTools.lua:198).
+///
+/// Lua prints the closure's address, so two closures print differently and one closure prints
+/// the same wherever it is formatted (PoB's parse cache, ModParser.lua:6994-7018, gives every
+/// parse of a line the same closure). `node.modKey` (PassiveTree.lua:848) is built from this
+/// text and keys the power report's cache (CalcsTab.lua:613), so it must tell closures apart
+/// (CCR-0141; FUP2, FOLLOWUPS "PWR" item 2; the port used to print one `function: builtin` for all).
+/// The port's closure is its spec: the jewelFuncList key (or defining closure) and the
+/// captured arguments (`kind` follows the key). The text keeps Lua's shape, `function: 0x` and
+/// 16 hex digits, with a hash of the spec (FNV-1a 64) standing in for the address: equal for
+/// equal specs, which run the same code on the same captures, and the same in every process
+/// (an address is not). Readers that compare with PoB normalise the hex part as for PoB's
+/// address (`function: 0x%x+`).
+pub fn function_text(j: &JewelFuncSpec) -> String {
+    let spec = format!("{}\0{:?}\0{:?}", j.key.as_str(), j.kind, &j.args[..]);
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in spec.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{FUNCTION_TEXT_PREFIX}{h:016x}")
+}
 
 /// Every non-nil key of the Lua table `tag` stands for, with its value
 /// (`type` first, then the typed fields, then `extra`, where a later entry
@@ -384,7 +408,10 @@ pub fn lua_pairs_of_value(v: &Value) -> Option<Vec<(LuaKey, Value)>> {
             if let Some(r) = j.radius {
                 out.push((LuaKey::Str(pob_lua::n!("radius")), Value::from(r)));
             }
-            out.push((LuaKey::Str(pob_lua::n!("func")), Value::from(FUNCTION_TEXT)));
+            out.push((
+                LuaKey::Str(pob_lua::n!("func")),
+                Value::from(function_text(j).as_str()),
+            ));
             Some(out)
         }
         _ => None,
@@ -715,4 +742,47 @@ pub fn setSource(m: &Mod, source: &str) -> Mod {
     }
     // L244
     r#mod
+}
+
+#[cfg(test)]
+mod fup2_function_text_tests {
+    use super::*;
+    use crate::modifier::JewelFuncKind;
+
+    fn jewel_func(key: &str, args: &[Value]) -> Value {
+        Value::JewelFunc(Arc::new(JewelFuncSpec {
+            key: Name::from(key),
+            kind: JewelFuncKind::Other,
+            args: args.iter().cloned().collect(),
+            r#type: Some(Name::from("Other")),
+            radius: Some(Name::from("Large")),
+        }))
+    }
+
+    /// FOLLOWUPS "PWR" item 2: two different closures print differently (Lua: two addresses),
+    /// one closure the same each time, in Lua's `function: 0x%x+` shape.
+    #[test]
+    fn distinct_closures_format_distinctly() {
+        let fire = jewel_func("modparser:2630-2634", &[Value::from("fire")]);
+        let cold = jewel_func("modparser:2630-2634", &[Value::from("cold")]);
+        let other = jewel_func("$default", &[Value::from("fire")]);
+        let (f, c, o) = (formatValue(&fire), formatValue(&cold), formatValue(&other));
+        assert_ne!(
+            f, c,
+            "the same function with other captures is another closure"
+        );
+        assert_ne!(f, o);
+        assert_eq!(f, formatValue(&fire.clone()));
+        assert_eq!(
+            f,
+            formatValue(&jewel_func("modparser:2630-2634", &[Value::from("fire")]))
+        );
+        // `{type=Other/func=function: 0x…/radius=Large}`
+        let head = "{type=Other/func=function: 0x";
+        let tail = "/radius=Large}";
+        assert!(f.starts_with(head) && f.ends_with(tail), "{f}");
+        let hex = &f[head.len()..f.len() - tail.len()];
+        assert_eq!(hex.len(), 16, "{f}");
+        assert!(hex.bytes().all(|b| b.is_ascii_hexdigit()), "{f}");
+    }
 }

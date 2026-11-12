@@ -16,8 +16,8 @@
 //!   dumps inject.
 //! * `ca_l6_corpus` (L6, end to end): the Rust build model from the XML, then `CalcsTab:
 //!   BuildOutput` as PoB's load runs it (once for `Build:Init`, plus once per `Build:OnFrame`
-//!   rebuild PoB made, CalcsTab.lua 441-472 / Build.lua 1258-1273; PWR owns that function, the
-//!   test carries a scaffold copy), against PoB's `calcsTab.mainOutput`, `calcsOutput`, the main
+//!   rebuild PoB made, CalcsTab.lua 441-472 / Build.lua 1258-1273; PWR's `power::BuildOutput`,
+//!   an error aborting the call as in PoB), against PoB's `calcsTab.mainOutput`, `calcsOutput`, the main
 //!   env's used-tracking and the misc calculator. Reported per build (headline keys) and in total.
 //!   Gate (INT-1): every compared value exact and no Rust error, on any corpus subset; on the
 //!   full corpus (all57, or the whole fresh corpus) the compared totals are pinned as well
@@ -383,39 +383,17 @@ fn leaves_diff(name: &str, ours: &BTreeMap<String, Leaf>, pob: &BTreeMap<String,
     }
 }
 
-// ---- CalcsTab:BuildOutput scaffold (PWR owns CalcsTab.lua 441-472) -----------------------------
+// ---- CalcsTab:BuildOutput (PWR's power::BuildOutput, CalcsTab.lua 441-472) ---------------------
 
-/// `CalcsTab:BuildOutput()` (CalcsTab.lua 441-472), test scaffold until PWR lands. In PoB a
-/// Lua error aborts the call; here each of its three calcs is caught on its own so that a
-/// CALCS-mode error (an upstream stub gap) still leaves the MAIN output to compare.
-/// → the errors as `"<stage>: <error>"`.
+/// `CalcsTab:BuildOutput()`: PWR's `power::BuildOutput` (CalcsTab.lua 441-472; FUP2 replaced the
+/// test's scaffold copy, which caught each of the three calcs on its own). As in PoB, a Lua
+/// error aborts the call (a CALCS error leaves `mainEnv` set and no CALCS output or misc
+/// calculator). → the error as `"BuildOutput: <error>"`.
 fn calcsTab_BuildOutput(build: &BuildRef) -> Vec<String> {
-    let mut errors = Vec::new();
-    build.calcsTab.powerBuildFlag.set(true);
-    // Set default final mod list for all nodes; some may not be set during the main pass
-    let spec = build.spec.get();
-    for (_, node) in spec.nodes.with(|n| n.pairs()) {
-        node.finalModList.set(Some(node.modList.get()));
+    match catch(|| pob_calc::modules::power::BuildOutput(build)) {
+        Ok(()) => Vec::new(),
+        Err(e) => vec![format!("BuildOutput: {e}")],
     }
-    match catch(|| buildOutput(build, Mode::MAIN)) {
-        Ok(mainEnv) => {
-            build.calcsTab.mainOutput.set(Some(mainEnv.player.output.get()));
-            build.calcsTab.mainEnv.set(Some(mainEnv));
-        }
-        Err(e) => errors.push(format!("MAIN: {e}")),
-    }
-    match catch(|| buildOutput(build, Mode::CALCS)) {
-        Ok(calcsEnv) => {
-            build.calcsTab.calcsOutput.set(Some(calcsEnv.player.output.get()));
-            build.calcsTab.calcsEnv.set(Some(calcsEnv));
-        }
-        Err(e) => errors.push(format!("CALCS: {e}")),
-    }
-    match catch(|| getMiscCalculator(build)) {
-        Ok((f, _base)) => build.calcsTab.miscCalculator.set(Some(f)),
-        Err(e) => errors.push(format!("getMiscCalculator: {e}")),
-    }
-    errors
 }
 
 /// The XML's build model with PoB's load-time calc passes: `Build:Init`'s BuildOutput, then
@@ -553,6 +531,76 @@ fn ca_level_cost_cleared() {
     assert!(!levelCostCleared(vuln, 1.0));
     let (_, again) = main_cost(LEVEL_COST_GEM_XML);
     assert_eq!(again, gem_cost);
+}
+
+/// A level 90 Witch whose only skill is a helmet's triggered Fireball (level 20, "Trigger Level 20
+/// Fireball when you Kill an Enemy", ModParser.lua:3328 `triggerExtraSkill`), supported by the
+/// same helmet's High-Impact Mine ("Skills socketed in your Helmet …", ModParser.lua:3419,
+/// `appliesToGrantedSkills`): the mine gives `HasReservation` and `ManaCostGainAsReservation`
+/// (`remote_mined_by_support`, SkillStatMap.lua:1837-1840).
+const LEVEL_COST_MINED_ITEM_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Build className="Witch" ascendClassName="None" level="90" mainSocketGroup="1" targetVersion="3_0"/>
+	<Tree activeSpec="1">
+		<Spec ascendClassId="0" classId="3" nodes="" treeVersion="3_28"/>
+	</Tree>
+	<Items activeItemSet="1">
+		<Item id="1">
+			Rarity: RARE
+Doom Crown
+Iron Hat
+Implicits: 0
+Trigger Level 20 Fireball when you Kill an Enemy
+Skills socketed in your Helmet are Supported by Level 20 High-Impact Mine
+</Item>
+		<ItemSet id="1">
+			<Slot itemId="1" name="Helmet"/>
+		</ItemSet>
+	</Items>
+	<Skills activeSkillSet="1">
+		<SkillSet id="1"/>
+	</Skills>
+	<Config activeConfigSet="1">
+		<ConfigSet id="1"/>
+	</Config>
+</PathOfBuilding>
+"#;
+
+/// FUP2 (FOLLOWUPS "INT-1F-A" item 2): CalcPerform.lua:1985-1991 reads
+/// `grantedEffectLevel.cost` too. For the item-granted triggered Fireball, SkillsTab.lua:1190 has
+/// emptied that level's cost, so `ManaCostGainAsReservation` takes the branch (`{ }` is truthy)
+/// and adds `cost.Mana or 0` = 0: nothing is reserved. Before FUP2 the port added the level's
+/// data cost (`pools_charges.rs` `has_cost` / `cost_of` ignored `levelCostCleared`).
+#[test]
+fn ca_level_cost_cleared_reservation() {
+    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !init_data() {
+        return skip("data/dump/data.bin not found");
+    }
+    quiet_lua_errors();
+    use pob_calc::model::skills_tab::{levelCostCleared, reset_level_cost_cleared};
+    reset_level_cost_cleared();
+    pob_calc::global_cache::clear_all();
+    let (build, errors) = rust_load(LEVEL_COST_MINED_ITEM_XML, 2).unwrap_or_else(|e| panic!("{e}"));
+    assert!(errors.is_empty(), "{errors:?}");
+    let env = build.calcsTab.mainEnv.get().expect("main env");
+    let skill = env.player.mainSkill.get().expect("main skill");
+    let effect = skill.activeEffect.get();
+    assert_eq!((effect.grantedEffect.get().id.as_str(), effect.level.get()), ("Fireball", 20.0));
+    // the data level has a mana cost; PoB's process data no longer does
+    let level = effect.grantedEffectLevel.get().expect("level");
+    assert!(level.cost.iter().any(|(k, c)| k.as_str() == "Mana" && *c > 0.0), "{:?}", level.cost);
+    assert!(levelCostCleared(n!("Fireball"), 20.0));
+    assert!(skill.skillModList.get().Flag(Some(&*skill.skillCfg.get()), &[n!("ManaCostGainAsReservation")]));
+    let out = env.player.output.get();
+    // PoB's values (pob_headless, POB_ENGINE=jit, PoB v2.67.2, this XML: mainSkill Fireball level
+    // 20, ManaCostGainAsReservation true, cost table 0 entries)
+    assert_eq!(out.num(n!("ManaReserved")), 0.0, "ManaReserved");
+    assert_eq!(out.num(n!("ManaUnreserved")), 590.0, "ManaUnreserved");
+    assert_eq!(out.num(n!("ManaCost")), 0.0, "ManaCost");
+    lut::clear_timeless_jewel_luts(None);
+    pob_calc::global_cache::clear_all();
+    reset_level_cost_cleared();
 }
 
 // ---- D13 fixed point (Rust only) ---------------------------------------------------------------

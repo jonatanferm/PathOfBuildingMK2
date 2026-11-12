@@ -29,6 +29,8 @@ so the suite cannot silently get worse; lowering the bound is part of closing th
   slice5: `CalcSetup.lua:800-1450` (CS2), `CalcPerform.lua:636-1272` (PF-B) and
   `CalcsTab.lua:441-472` (PWR, called by `loadBuildFromXML`). u0_smoke now also registers the
   timeless-jewel LUT file system (slice5_allflame_exp_030 failed to load without it since PS-B).
+  **Closed by FUP2** (port/FUP2 on rust-port 4c24bc2, 2026-11-12): 0 of the 15 runs raise and no
+  orchestrator stub is hit (0 distinct unported sites); `MAX_STUB_ERRORS` is 0.
 
 ### Pre-existing failures seen during the HYG2 runs (not caused by HYG2's assertions)
 
@@ -122,6 +124,15 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    (CalcsTab.lua:441-472) is still a stub, so `loadBuildFromXML` computes nothing; CA.rs carries
    a scaffold copy (`calcsTab_BuildOutput`, `rust_load`: Init's pass plus PoB's `OnFrame`
    rebuilds, as many as PoB made per the probe counts). PWR replaces it with the real function.
+   **Closed by FUP2** (port/FUP2, 2026-11-12): CA.rs's `calcsTab_BuildOutput` now calls
+   `power::BuildOutput` (an error aborts the call, as in PoB). The CALCS-stage catch is no longer
+   needed: no corpus build raises in any stage. With it, `POB_FULL_SUITE=1`: `ca_l6_corpus` all57
+   headline 741/741, all keys 45,954/45,954, CALCS lists 171/171, used-tracking 513/513, misc
+   1,248/1,248, 0 Rust errors; `ca_d13_fixed_point` 62/62 fixed points; `ca_l5_post` clean.
+   `CA_CORPUS_DIR=.parity/fresh`: D13 100/100 fixed points, L6 0 Rust errors, headline
+   1,300/1,300, CALCS lists 300/300, used-tracking 900/900, misc 2,200/2,200, but all keys
+   85,602/85,603 and `ca_l5_post` 4 builds failing; both are the same on rust-port 4c24bc2
+   without FUP2 (see "FUP2" below), so they are not caused by the switch.
 3. **Injected items carry no mod lines** (owner: ORC-X). `pob-state/1` item dumps hold
    modList/slotModList/…, not the `*ModLines` that `Item:FindModifierSubstring` reads, so an
    `ItemCondition` tag with `searchCond` evaluates differently on an injected env. Seen in
@@ -318,6 +329,11 @@ Found while running the touched units' acceptance tests on port/FUP1 (rust-port 
    `guard_item`). Its one known case, `rare#195`'s Craft raising "non-integral number keys are
    not supported by Table (929.1)", is fixed: `Table` takes float keys (CCR-0102 §1) and IT-B's
    Craft is 207/207. Remove the guard (and the console line) once nothing else needs it.
+   **Closed by FUP2** (port/FUP2, 2026-11-12): `guard_item` and its console line are gone; the
+   item DB loaders call `add_unique` / `add_rare` directly, so an item that raises aborts the
+   items coroutine as in PoB. Evidence: IT-B `item_core_vs_pob` (all 1,333 uniques and 205 rares
+   built, Craft 207/207, 0 failed); pob-ui-oracle `u16_main` (3 tests, `u16_scenarios` included)
+   and `u22_notes` (`u22_scenarios`, 8 runs) pass with the guard removed.
 4. **Patched-src prune can pull a copy from under a long run** (owner: whoever next touches
    `crates/pob-oracle/src/patcher.rs` `prune`). A `<.parity>/patched-src/<sha>` copy whose
    `.last-used` is older than 24 h (`POB_PATCHED_SRC_MAX_AGE_HOURS`) is renamed away even while
@@ -348,6 +364,19 @@ Found while running the touched units' acceptance tests on port/FUP1 (rust-port 
    `init_env_skills.rs`, `item_mods.rs` and `passive_tree.rs` build the read key with
    `Key::from(f64)`, which raises on NaN, where Lua's `t[0/0]` reads nil. FUP1 switched only
    item.rs / item_parse.rs to `try_num`; the others should read through it too.
+   **Closed by FUP2** (port/FUP2, 2026-11-12). Each of the four files has a read helper next to
+   its store helper (`read_at` in passive_tree.rs, item_mods.rs and calc_active_skill.rs,
+   `read_key` in init_env_skills.rs): a nil or NaN key reads nil, any other key as before; stores
+   keep `val_key` / `key_of`, so a store at NaN still raises "table index is NaN". Read sites
+   switched: PassiveTree.lua 142, 554, 560/565, 589, 612; Item.lua 2261 (`groupCounts`, the read
+   half), 2508 (`clusterJewel.skills[…]`); CalcActiveSkill.lua 59 (`stats[stat.key] or 0`, so a nil
+   `stat.value` now raises the arithmetic error first, as Lua does); CalcSetup.lua 1532. Also
+   fixed there: `explode_key` (CalcSetup.lua 1526/1532, `explodeSource.modSource or
+   explodeSource.id`) gave a passive node's typed `id`, NaN for a node with a string id
+   (CCR-0024 §1), where Lua keys by that string; it now uses `node_id_val`. Tests
+   (`fup2_key_tests` in each file; the explode-key one fails on the old code): 5/5 pass. Neither
+   corpus has such a key, so there is no oracle comparison; the Lua semantics are LuaJIT's
+   `lj_tab_get` (nil) and `lj_tab_newkey` (`LJ_ERR_NANIDX`).
 
 ## PF-B
 
@@ -380,6 +409,7 @@ CCR-0101).
    (CalcsTab.lua:441-472) is ported, so `loadBuildFromXML` now runs MAIN, CALCS and the misc
    calculator. The scaffold catches the CALCS stage on its own, which the real function does not
    (an error there aborts the call, as in PoB); CA can switch when it no longer needs that.
+   **Closed by FUP2**: see "CA" item 2.
 2. **Jewel-closure modKeys collide in the port** (owner: CT, `mod_tools.rs` `FUNCTION_TEXT`;
    information). `ModTools.formatValue` prints a jewel `func` as `function: builtin`; PoB prints
    the closure address. The power report keys its cache by `node.modKey` (CalcsTab.lua:613), so
@@ -387,11 +417,26 @@ CCR-0101).
    entry in Rust and not in PoB. Not seen in the PWR builds (PWR.rs normalises the address when it
    matches PoB's calls; node 50692 is the one such node there); would show as a power difference
    and a call-count difference in `pwr_l5_replay`.
+   **Closed by FUP2** (port/FUP2, 2026-11-12; CCR-0141). `formatValue` prints a jewel closure
+   as `function: 0x` and 16 hex digits, an FNV-1a hash of the closure's spec (jewelFuncList key
+   or defining closure, and the captures; `mod_tools::function_text`), in place of the fixed
+   `function: builtin` (`FUNCTION_TEXT` is now `FUNCTION_TEXT_PREFIX`). Distinct closures get
+   distinct texts and modKeys; one closure gets the same text in every process. Readers that
+   compare with PoB: PT.rs `fn_text` now applies Lua's `function: 0x%x+` → `table` to the Rust
+   text too; PWR.rs `norm_modKey` and u26_power.rs `norm_mod_key` (`function: %w+`) needed no
+   change; CT.rs compares no closure (no ModCache entry holds one). Test:
+   `mod_tools::fup2_function_text_tests` (fails on the old text).
 3. **End-to-end node power is not at parity** (owners: CS2 and the calc units behind CA's L6
    floors). `pwr_l6_report`: upstream_OccVortex Offence/Defence, all nodes, real Rust calculator
    vs PoB 6452/7676 power values exact (Rust defence 0 where PoB has item-dependent defence);
    PWR itself is exact on PoB's calc results (`pwr_l5_replay`, 108,820/108,820). Gate it once
    CA's L6 headline is exact.
+   **Closed by FUP2** (port/FUP2, 2026-11-12, `POB_FULL_SUITE=1`): upstream_OccVortex
+   Offence/Defence, all nodes, 7,672/7,672 power values exact, 0 missing, 0 Rust-only (the 7,676
+   above counted Rust-only values too); parallel vs sequential 7,672/7,672, 0 divergences.
+   `pwr_l6_report` now asserts every value exact with none missing or extra, and pins the
+   default build's count (`L6_OCCVORTEX_KEYS = 7672`); parallel divergences stay reported only
+   (D12).
 4. **U26 drives the report** (owner: U26). `power::BuildPower` is the per-frame resume
    (PassiveTreeView.lua:785); TreeTab state goes through the CCR-0101 accessors
    (`set_powerStat`, `set_nodePowerMaxDepth`, `set_powerBuilderCallback`,
@@ -412,6 +457,13 @@ CCR-0101).
    would add the level's cost to `pool.<res>.baseFlat`, where PoB adds 0 (the emptied table is
    still truthy, so PoB takes the branch with `cost.Mana or 0`). Not seen in either corpus.
    INT-1F-A fixed only the OF-C reader (CalcOffence.lua:1720).
+   **Closed by FUP2** (port/FUP2, 2026-11-12). `has_cost` / `cost_of` take the active skill and
+   check `skills_tab::levelCostCleared(activeEffect.grantedEffect.id, activeEffect.level)` as
+   costs_passes.rs does (CCR-0019 §8, CCR-0133 §2): a cleared level's cost is truthy and has no
+   entries. Test: `CA.rs` `ca_level_cost_cleared_reservation`, a helmet's triggered level-20
+   Fireball supported by the helmet's High-Impact Mine ("Skills socketed in your Helmet …",
+   `appliesToGrantedSkills`): ManaReserved 0, ManaUnreserved 590, ManaCost 0, PoB's values
+   (pob_headless, POB_ENGINE=jit). The old code gives ManaReserved 13.
 
 ## OF-A
 
@@ -421,3 +473,42 @@ CCR-0101).
    L6 output is exact on both builds, so this is probably an injected-state (harness) gap rather than
    a calc bug, but that is not verified. The full-corpus gate (98 %) passes; the quick corpus has a
    97 % floor for it. Closing it: root-cause it, then restore one 98 % (or 100 %) gate.
+
+## FUP2
+
+Found while running FUP2's acceptance tests (port/FUP2 on rust-port 4c24bc2, 2026-11-12).
+
+1. **The fresh corpus is not exact at L6 or in `ca_l5_post`, on rust-port 4c24bc2 already**
+   (owner: CA / INT-1F; information). `CA_CORPUS_DIR=.parity/fresh POB_FULL_SUITE=1` on
+   port/FUP2: `ca_l6_corpus` all keys 85,602/85,603 (fresh_076 `ManaCostRaw`: Rust
+   45.75809523809523, PoB 45.76), `ca_l5_post` CALCS lists 96/100 clean (fresh_031, _038, _040,
+   _089: one `player.breakdown.SkillBuffs` row each). The same three-build subset fails the same
+   way on rust-port 4c24bc2 with FUP2's code reverted, and no calc file changed between 840bac2
+   (the INT-1F-A pin) and 4c24bc2. Evidence for the two causes:
+   - fresh_076: PoB under LuaJIT is not deterministic on this key between processes, and
+     nothing here shows a warm process state or a stale cache. Measured on 2026-11-12 with
+     `POB_ENGINE=jit pob_headless` and `HEADLESS_EXEC='return string.format("%.17g",
+     build.calcsTab.mainOutput.ManaCostRaw)'`, one process per line. The first load in a process
+     printed 45.759999999999998 in 7 of 10 processes and 45.75809523809523 in the other 3. The second
+     load in the same process printed 45.759999999999998 in all 8 processes that did one. With
+     `HEADLESS_RECALC=1` (a second `BuildOutput` after each load), one process printed 45.758...,
+     45.76, 45.76 for three loads and another printed 45.76 for both of its loads. The embedded
+     interpreter (no `POB_ENGINE`) printed 45.75809523809523 for both loads. A fresh PoB process
+     (the CCR-0133 oracle setup, one process per build) can therefore give either value, and both
+     are real PoB outputs. The cached oracle value 45.76 is one valid fresh result, and Rust's
+     45.758... is the other. The likely cause is D8: LuaJIT seeds the string hash per process, so a
+     `pairs()` over a string-keyed table somewhere on the cost path (Will of the Lords, base Mana
+     cost 24) iterates in a different order. Rust uses insertion order. That site is not found yet.
+     An earlier version of this bullet said that the first load always gave 45.758, the second
+     always gave 45.76, and Rust matched the first load. A review then reported 45.76 first and
+     45.758 second. Repeated runs showed neither sequence as a fixed pattern, and a second load
+     never gave 45.758. Closing it: find the order-dependent
+     `pairs` site. Then either show that Rust's insertion order is one of PoB's orders and record
+     fresh_076 as a §9.5 nondeterministic key (`scripts/port/oracle.sh nondet` covers
+     `.parity/builds` by default, not `.parity/fresh`, and CA.rs's L6 compare reads no nondet
+     record), or fix Rust if the order PoB uses is deterministic after all.
+   - the 4 `SkillBuffs` rows: the representation gap INT-3 recorded as H3
+     (docs/port/parity/INT-3-triage.md §5: PoB dumps an inner mod's empty `tags` as `[]`, the
+     Rust export leaves it out); INT-3 fixed it in its own harness's `norm`, CA.rs's L5 compare
+     does not have that normalisation yet.
+
