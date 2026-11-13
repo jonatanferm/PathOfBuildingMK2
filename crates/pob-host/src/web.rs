@@ -250,9 +250,12 @@ impl<A: App> WebHost<A> {
         let proxy = self.proxy.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let r = async {
-                let instance = wgpu::Instance::new(
+                // Fall back to WebGL2 when the browser exposes `navigator.gpu` but has no WebGPU
+                // adapter (e.g. Chrome on Linux): `Instance::new` alone would pick WebGPU and fail.
+                let instance = wgpu::util::new_instance_with_webgpu_detection(
                     wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
-                );
+                )
+                .await;
                 let surface = instance
                     .create_surface(window.clone())
                     .map_err(|e| e.to_string())?;
