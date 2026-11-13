@@ -8,10 +8,14 @@ use pob_sg::{AssetSource, Font, FontSet, ImageFlags, ImageRegistry, Quad, QuadSi
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-/// File-system AssetSource over a PoB checkout (pob-sg itself has no std::fs).
+/// File-system AssetSource over a PoB checkout, or over the repo's asset bundle (pob-sg itself
+/// has no std::fs).
 pub struct DirSource {
     pub src: PathBuf,
     pub runtime: PathBuf,
+    /// `runtime` is the asset bundle (`assets/`), whose font directory is `fonts/`, not
+    /// SimpleGraphic's `Fonts/` (assets/README.md; the files are identical).
+    pub bundle: bool,
 }
 
 impl AssetSource for DirSource {
@@ -19,11 +23,16 @@ impl AssetSource for DirSource {
         std::fs::read(self.src.join(path))
     }
     fn read_runtime(&self, path: &str) -> std::io::Result<Vec<u8>> {
-        std::fs::read(self.runtime.join(path))
+        match path.strip_prefix("Fonts/") {
+            Some(rest) if self.bundle => std::fs::read(self.runtime.join("fonts").join(rest)),
+            _ => std::fs::read(self.runtime.join(path)),
+        }
     }
 }
 
-/// `.PathOfBuilding` of the main checkout (or `$POB_ROOT`), found from this crate's directory.
+/// `.PathOfBuilding` of the main checkout (or `$POB_ROOT`), found from this crate's directory;
+/// else the repo's asset bundle, which vendors the same fonts (so CI, which has no PoB
+/// checkout, runs these tests too).
 pub fn locate() -> Option<DirSource> {
     let mut starts = Vec::new();
     if let Some(p) = std::env::var_os("POB_ROOT") {
@@ -40,12 +49,21 @@ pub fn locate() -> Option<DirSource> {
                     return Some(DirSource {
                         src: root.join("src"),
                         runtime: root.join("runtime/SimpleGraphic"),
+                        bundle: false,
                     });
                 }
             }
         }
     }
-    None
+    let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+    assets
+        .join("fonts/Liberation Sans.tgf")
+        .is_file()
+        .then(|| DirSource {
+            src: assets.clone(),
+            runtime: assets,
+            bundle: true,
+        })
 }
 
 /// The font atlases are registered with `insert_ready`; nothing goes through a loader.
@@ -64,11 +82,11 @@ impl ImageLoader for NoLoader {
     }
 }
 
-/// The 7 faces and the registry holding their 112 atlases. The PoB runtime assets are required:
-/// a missing checkout fails the test (set `POB_ROOT`).
+/// The 7 faces and the registry holding their 112 atlases, from a PoB checkout or the asset
+/// bundle ([`locate`]).
 pub fn fonts_and_images() -> (FontSet, ImageRegistry) {
     let src =
-        locate().expect("PoB runtime fonts not found: set POB_ROOT to a PathOfBuilding checkout");
+        locate().expect("fonts not found: neither a PoB checkout ($POB_ROOT) nor assets/fonts");
     let mut images = ImageRegistry::new(Box::new(NoLoader));
     let fs = FontSet::load(&src, &mut images).expect("load fonts");
     (fs, images)

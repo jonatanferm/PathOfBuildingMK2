@@ -340,8 +340,11 @@ fn lj_bit() {
 
 /// Does lib_math.c `random_seed`'s `d = d * 3.14159265358979323846 + 2.7182818284590452354`
 /// (four rounds) give other bits when the C compiler fuses it into one FMA? GCC contracts it
-/// on aarch64 (`-ffp-contract=fast` is its default there), so the oracle's vendored LuaJIT
-/// seeds differently from PoB's x64 build, which the port follows (CCR-0001).
+/// whenever the target has FMA (`-ffp-contract=fast` is its default): always on aarch64, and on
+/// x86-64 when the C toolchain targets an FMA-capable level such as x86-64-v3 (CI's ubuntu-latest
+/// runners do since 2026-11: 1706 of 12800 draws differed, all FMA-seeded). The oracle's
+/// vendored LuaJIT then seeds differently from PoB's x64 build, which
+/// the port follows (CCR-0001); [`oracle_fuses`] detects it.
 fn seed_fma_differs(mut d: f64) -> bool {
     let mut f = d;
     for _ in 0..4 {
@@ -355,7 +358,7 @@ fn seed_fma_differs(mut d: f64) -> bool {
 }
 
 /// The draws of a state seeded with the FMA-contracted `random_seed` (lib_math.c, lj_prng.c),
-/// to show that a contraction-sensitive seed's mismatch on an aarch64 oracle is only that.
+/// to show that a contraction-sensitive seed's mismatch on a fusing oracle is only that.
 fn fma_seeded_draws(mut d: f64, draws: &[(f64, f64, f64)]) -> Vec<f64> {
     fn step(u: &mut [u64; 4]) -> u64 {
         let mut r = 0u64;
@@ -404,11 +407,26 @@ fn fma_seeded_draws(mut d: f64, draws: &[(f64, f64, f64)]) -> Vec<f64> {
         .collect()
 }
 
+/// Was the oracle's LuaJIT compiled with FMA contraction in `random_seed`? Seed 12.5 is
+/// contraction-sensitive ([`seed_fma_differs`]): compare the oracle's first draw with the
+/// FMA-seeded one. Probing the oracle, not `cfg!(target_arch)`, because it depends on the C
+/// toolchain's target level, not only the architecture.
+fn oracle_fuses(lua: &mlua::Lua) -> bool {
+    const SEED: f64 = 12.5;
+    debug_assert!(seed_fma_differs(SEED));
+    let first: f64 = lua
+        .load(format!("math.randomseed({SEED}) return math.random()"))
+        .eval()
+        .unwrap();
+    same_num(first, fma_seeded_draws(SEED, &[(0.0, 0.0, 0.0)])[0])
+}
+
 /// `math.randomseed` / `math.random` (FUP7: the one port, `m_randomseed` / `m_random`): 64 seeds
 /// (integers, fractions, negatives, PoB's `os.time()` range), each followed by 200 draws mixing
-/// `random()`, `random(m)` and `random(m, n)`. On an aarch64 host, a seed whose four seeding
-/// rounds round differently under FMA ([`seed_fma_differs`]) is compared against the
-/// FMA-seeded stream instead (counted as tolerated); every other seed is bit-exact.
+/// `random()`, `random(m)` and `random(m, n)`. When the oracle's LuaJIT was built with FMA
+/// contraction ([`oracle_fuses`]), a seed whose four seeding rounds round differently under FMA
+/// ([`seed_fma_differs`]) is compared against the FMA-seeded stream instead (counted as
+/// tolerated); every other seed is bit-exact.
 #[test]
 fn lj_math_random() {
     let mut r = Rng(4242);
@@ -429,9 +447,9 @@ fn lj_math_random() {
             (k, m, n)
         })
         .collect();
-    let oracle_fuses = cfg!(target_arch = "aarch64");
     for mode in modes() {
         let lua = lua(mode);
+        let oracle_fuses = oracle_fuses(&lua);
         let f = func(
             &lua,
             &format!(

@@ -1427,7 +1427,7 @@ mod tests {
 
         // an unknown provider: only the dropdown is left
         ExtBuildListControl::init(cx, list, Some("C"));
-        assert!(int_keys(cx, list).is_empty());
+        assert_eq!(int_keys(cx, list).len(), 0);
         assert!(cx.child(list, "sort").is_some());
         assert!(cx.child(list, "scrollBarV").is_none());
         assert!(cx

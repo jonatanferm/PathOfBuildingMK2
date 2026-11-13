@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(split_lines("a\nb\n"), vec!["a", "b"]);
         assert_eq!(split_lines("a\n\nb"), vec!["a", "", "b"]);
         assert_eq!(split_lines("a\r\nb"), vec!["a\r", "b"]);
-        assert!(split_lines("").is_empty());
+        assert_eq!(split_lines("").len(), 0);
         assert_eq!(split_lines("\n"), vec![""]);
     }
 }

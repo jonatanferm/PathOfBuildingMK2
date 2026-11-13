@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(hs[1].glyphs.len(), 1);
         // "HEIGHT 14 99;": one conversion, then ';' fails to match: still a height.
         assert_eq!(hs[2].height, 14);
-        assert!(hs[2].glyphs.is_empty());
+        assert_eq!(hs[2].glyphs.len(), 0);
     }
 
     #[test]

@@ -24,8 +24,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain (with wasm32 target)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          # Keep in step with rust-toolchain.toml (pinned).
+          toolchain: "1.100"
           targets: wasm32-unknown-unknown
 
       - name: Cache Cargo registry + target

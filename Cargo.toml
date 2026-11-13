@@ -153,7 +153,6 @@ implicit_hasher = "allow"
 too_many_arguments = "allow"
 cast_possible_wrap = "allow"
 default_trait_access = "allow"
-from_iter_instead_of_collect = "allow"
 # Issue #49 (slice 3): final wave to clear clippy. These are all
 # stylistic preferences; the value of `-D warnings` is catching
 # real errors before they ship, not bikeshedding on

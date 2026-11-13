@@ -1282,16 +1282,16 @@ mod tests {
         // "Names" only
         DropDownControl::set_sel(&mut cx, mode, 2, false);
         step(&mut cx, me);
-        assert!(names(&cx, me).is_empty());
+        assert_eq!(names(&cx, me).len(), 0);
         // a malformed pattern matches nothing (PCall); the escape list leaves `(` alone
         DropDownControl::set_sel(&mut cx, mode, 1, false);
         EditControl::set_text(&mut cx, search, "(", true);
         step(&mut cx, me);
-        assert!(names(&cx, me).is_empty());
+        assert_eq!(names(&cx, me).len(), 0);
         // `%`, `.`, `-` are escaped (L59): "cold heart." matches nothing, "cold heart" does
         EditControl::set_text(&mut cx, search, "cold heart.", true);
         step(&mut cx, me);
-        assert!(names(&cx, me).is_empty());
+        assert_eq!(names(&cx, me).len(), 0);
         EditControl::set_text(&mut cx, search, "   ", true);
         step(&mut cx, me);
         assert_eq!(names(&cx, me).len(), 6, "blank search: no filter (L60)");

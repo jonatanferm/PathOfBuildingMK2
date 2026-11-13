@@ -11,37 +11,22 @@ use mlua::{Function, Lua};
 use pob_sg::Key;
 use pob_ui_core::input::{EventKind, InputEvent, InputEvents};
 
-fn pob_src() -> PathBuf {
+/// PoB's `src/` (`$POB_DIR/src`, else the shared lookup of HYG1's `pob-testpaths`).
+fn find_pob_src() -> Option<PathBuf> {
     if let Ok(d) = std::env::var("POB_DIR") {
-        return PathBuf::from(d).join("src");
+        return Some(PathBuf::from(d).join("src"));
     }
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    loop {
-        let src = p.join(".PathOfBuilding/src");
-        if src.join("Classes/Control.lua").exists() {
-            return src;
-        }
-        if !p.pop() {
-            break;
-        }
-    }
-    // Git worktrees lack the gitignored checkout: fall back to the main checkout, like
-    // scripts/port/pobpaths.py main_checkout().
-    let out = std::process::Command::new("git")
-        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("PathOfBuilding checkout not found (set POB_DIR)");
-    let common = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
-    let src = common
-        .parent()
-        .expect("git common dir has a parent")
-        .join(".PathOfBuilding/src");
-    assert!(
-        src.join("Classes/Control.lua").exists(),
-        "PathOfBuilding checkout not found (set POB_DIR)"
-    );
-    src
+    pob_testpaths::pob_src()
+}
+
+/// HYG1's skip policy for the tests that run PoB's Lua: `false` (the test returns) only under
+/// `POB_ALLOW_SKIP=1`; a missing checkout fails otherwise.
+fn have_pob() -> bool {
+    pob_testpaths::require(find_pob_src(), "PoB checkout (.PathOfBuilding/src)").is_some()
+}
+
+fn pob_src() -> PathBuf {
+    find_pob_src().expect("PoB checkout (.PathOfBuilding/src)")
 }
 
 /// Lines `a..=b` of a PoB source file, verbatim.
@@ -159,6 +144,9 @@ fn compare(l: &LuaSide, r: &InputEvents, ctx: &str) -> usize {
 
 #[test]
 fn lua_len_property_vs_luajit() {
+    if !have_pob() {
+        return; // POB_ALLOW_SKIP=1
+    }
     let (_lua, l) = boot();
     let mut rng = Rng(0x5eed_0004);
     let mut bad = 0;
@@ -207,6 +195,9 @@ fn lua_len_property_vs_luajit() {
 /// ProcessControlsInput (holes), `#inputEvents` read (Build.lua:1216), then wiped (Main.lua:487).
 #[test]
 fn frame_pattern_borders() {
+    if !have_pob() {
+        return; // POB_ALLOW_SKIP=1
+    }
     let (_lua, l) = boot();
     let mut r = InputEvents::default();
     let mut rng = Rng(42);

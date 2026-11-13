@@ -553,7 +553,7 @@ pub(crate) mod tests {
             100,
             100,
         );
-        assert!(out.quads.is_empty());
+        assert_eq!(out.quads.len(), 0);
         assert_eq!(col, [0.0, 1.0, 0.0, 1.0]);
     }
 

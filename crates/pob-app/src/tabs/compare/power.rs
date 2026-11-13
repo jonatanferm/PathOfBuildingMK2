@@ -751,7 +751,7 @@ impl CompareTab {
                         &displayStat,
                         baseStatValue,
                         &mut results,
-                    )
+                    );
                 });
                 // L2805-2810
                 step(me, &mut processed, total, &mut start).await;

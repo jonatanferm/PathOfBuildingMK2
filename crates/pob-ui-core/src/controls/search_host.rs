@@ -388,8 +388,8 @@ mod tests {
 
     #[test]
     fn empty_term_gives_no_infos() {
-        assert!(match_term("", Some(&["a".to_owned()]), false).is_empty());
-        assert!(match_term("a", None, false).is_empty());
+        assert_eq!(match_term("", Some(&["a".to_owned()]), false).len(), 0);
+        assert_eq!(match_term("a", None, false).len(), 0);
         // only whitespace: no words, every entry matches with no ranges
         assert_eq!(
             info(" ", "abc", false),
@@ -460,7 +460,7 @@ mod tests {
             Key::Escape
         ));
         assert!(!get(&mut cx, me).is_search_active());
-        assert!(get(&mut cx, me).search_infos.is_empty());
+        assert_eq!(get(&mut cx, me).search_infos.len(), 0);
         // inactive: ESCAPE and BACK are not consumed
         assert!(!SearchHost::on_search_key_down(
             &mut cx,

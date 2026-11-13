@@ -68,9 +68,8 @@ fn comp_error(a: &Val, b: &Val) -> ! {
     let (t1, t2) = (a.lua_type(), b.lua_type());
     if t1 == t2 {
         lua_error!("attempt to compare two {t1} values")
-    } else {
-        lua_error!("attempt to compare {t1} with {t2}")
     }
+    lua_error!("attempt to compare {t1} with {t2}")
 }
 
 /// Lua `a > b` (LuaJIT compiles it as `b < a`).

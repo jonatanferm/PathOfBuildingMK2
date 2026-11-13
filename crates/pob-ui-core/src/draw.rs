@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(collect(3.0, 1.0, -1.0), vec![3.0, 2.0, 1.0]);
         // `-0` step counts as negative (sign bit, vm_*.dasc `tbnz CARG3, #63`)
         assert_eq!(collect(0.0, 1.0, -0.0), Vec::<f64>::new());
-        assert!(collect(0.0, f64::NAN, 1.0).is_empty());
+        assert_eq!(collect(0.0, f64::NAN, 1.0).len(), 0);
         // an infinite step runs once
         assert_eq!(collect(0.0, 10.0, f64::INFINITY), vec![0.0]);
         // accumulation: 0.1 added ten times is below 1.0 by an ulp, so 1.0 is not reached exactly

@@ -28,37 +28,12 @@ use mlua::{Function, Lua, Table};
 use pob_ui_core::layout::{rect, Base};
 use pob_ui_core::prelude::*;
 
-fn pob_src() -> PathBuf {
+/// PoB's `src/` (`$POB_DIR/src`, else the shared lookup of HYG1's `pob-testpaths`).
+fn pob_src() -> Option<PathBuf> {
     if let Ok(d) = std::env::var("POB_DIR") {
-        return PathBuf::from(d).join("src");
+        return Some(PathBuf::from(d).join("src"));
     }
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    loop {
-        let src = p.join(".PathOfBuilding/src");
-        if src.join("Classes/Control.lua").exists() {
-            return src;
-        }
-        if !p.pop() {
-            break;
-        }
-    }
-    // Git worktrees lack the gitignored checkout: fall back to the main checkout, like
-    // scripts/port/pobpaths.py main_checkout().
-    let out = std::process::Command::new("git")
-        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("PathOfBuilding checkout not found (set POB_DIR)");
-    let common = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
-    let src = common
-        .parent()
-        .expect("git common dir has a parent")
-        .join(".PathOfBuilding/src");
-    assert!(
-        src.join("Classes/Control.lua").exists(),
-        "PathOfBuilding checkout not found (set POB_DIR)"
-    );
-    src
+    pob_testpaths::pob_src()
 }
 
 struct Rng(u64);
@@ -759,6 +734,9 @@ fn rust_step(cx: &mut Cx, w: &World, st: &Step, ev: &mut InputEvents, nev: &mut 
 
 #[test]
 fn dispatch_sequences_vs_control_host_lua() {
+    let Some(src) = pob_testpaths::require(pob_src(), "PoB checkout (.PathOfBuilding/src)") else {
+        return; // POB_ALLOW_SKIP=1
+    };
     // Lua errors raised on purpose (nil OnKeyDown) are compared, not printed.
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -773,17 +751,17 @@ fn dispatch_sequences_vs_control_host_lua() {
         .set_name("@tests/lua/shim.lua")
         .exec()
         .unwrap();
-    let common = std::fs::read_to_string(pob_src().join("Modules/Common.lua")).unwrap();
+    let common = std::fs::read_to_string(src.join("Modules/Common.lua")).unwrap();
     let region: Vec<&str> = common.lines().skip(412).take(4).collect(); // Common.lua:413-416
     assert!(region[0].starts_with("function isMouseInRegion"));
     lua.load(region.join("\n")).exec().unwrap();
-    let control = std::fs::read_to_string(pob_src().join("Classes/Control.lua")).unwrap();
+    let control = std::fs::read_to_string(src.join("Classes/Control.lua")).unwrap();
     lua.load(control)
         .set_name("@Classes/Control.lua")
         .exec()
         .unwrap();
     // Oracle patch 6 (ui doc §11.2): canonical child order at ControlHost.lua:32 and :110.
-    let host_src = std::fs::read_to_string(pob_src().join("Classes/ControlHost.lua")).unwrap();
+    let host_src = std::fs::read_to_string(src.join("Classes/ControlHost.lua")).unwrap();
     assert_eq!(host_src.matches("pairs(self.controls)").count(), 2);
     let host_src = host_src.replace("pairs(self.controls)", "__canonPairs(self.controls)");
     lua.load(host_src)

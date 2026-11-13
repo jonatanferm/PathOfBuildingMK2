@@ -1,3 +1,7 @@
 [toolchain]
-channel = "stable"
+# Pinned: CI and the Pages build otherwise pick up each new stable, whose new clippy lints
+# fail `-D warnings` on unchanged code (2026-11: clippy::assert_is_empty in 1.100). Bump on
+# purpose, together with the lint and rustfmt fixes it needs.
+channel = "1.100"
 components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

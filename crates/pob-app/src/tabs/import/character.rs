@@ -3527,7 +3527,7 @@ mod tests {
         // `{(%w+)}` turns `[5]` into `{[0]=5}`: not a sequence
         let v = process_site_json("[5]").unwrap();
         assert!(matches!(v, Json::Object(_)));
-        assert!(json_list(&v).is_empty());
+        assert_eq!(json_list(&v).len(), 0);
         assert_eq!(process_site_json("{}").unwrap(), Json::Array(Vec::new()));
         assert!(process_site_json("\"str\"").is_err());
         assert!(process_site_json("{\"a\":").is_err());

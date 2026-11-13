@@ -147,7 +147,7 @@ pub fn skills_tab_ui_hooks() -> SkillsTabUiHooks {
 pub fn set_skills_tab_ui_hooks(f: impl FnOnce(&mut SkillsTabUiHooks)) {
     SKILLS_TAB_UI_HOOKS.with(|h| {
         f(h.borrow_mut()
-            .get_or_insert_with(default_skills_tab_ui_hooks))
+            .get_or_insert_with(default_skills_tab_ui_hooks));
     });
 }
 

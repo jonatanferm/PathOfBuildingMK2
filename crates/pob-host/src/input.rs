@@ -782,7 +782,7 @@ mod tests {
             down,
             double_click: dbl,
         };
-        assert!(w.translate(&ev_move(10.7, -0.5), 0.0, 1.0).is_empty());
+        assert_eq!(w.translate(&ev_move(10.7, -0.5), 0.0, 1.0).len(), 0);
         assert_eq!(w.cursor_phys(), (10, -1)); // floor
         assert_eq!(w.translate(&ev_mouse(true), 0.0, 1.0), vec![k(true, false)]);
         assert_eq!(
@@ -827,13 +827,13 @@ mod tests {
             w.translate(&wheel(-0.1), 0.0, 1.0),
             vec![Input::Wheel { up: false }]
         );
-        assert!(w.translate(&wheel(0.0), 0.0, 1.0).is_empty());
+        assert_eq!(w.translate(&wheel(0.0), 0.0, 1.0).len(), 0);
         let px = |dy: f64| WindowEvent::MouseWheel {
             device_id: winit::event::DeviceId::dummy(),
             delta: MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition::new(0.0, dy)),
             phase: winit::event::TouchPhase::Moved,
         };
-        assert!(w.translate(&px(50.0), 0.0, 1.5).is_empty()); // 50 < 60
+        assert_eq!(w.translate(&px(50.0), 0.0, 1.5).len(), 0); // 50 < 60
         assert_eq!(
             w.translate(&px(70.0), 0.0, 1.5),
             vec![Input::Wheel { up: true }, Input::Wheel { up: true }]

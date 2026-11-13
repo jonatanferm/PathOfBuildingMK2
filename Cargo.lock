@@ -2227,6 +2227,7 @@ dependencies = [
  "pob-calc",
  "pob-lua",
  "pob-sg",
+ "pob-testpaths",
  "scoped-tls-hkt",
  "slotmap",
  "smallvec",

@@ -1427,6 +1427,6 @@ mod tests {
         let v: Json = serde_json::from_str(r#"[{"a":1}, null, {"b":2}]"#).unwrap();
         assert_eq!(json_list(&v).len(), 1);
         let o: Json = serde_json::from_str(r#"{"a":1}"#).unwrap();
-        assert!(json_list(&o).is_empty());
+        assert_eq!(json_list(&o).len(), 0);
     }
 }

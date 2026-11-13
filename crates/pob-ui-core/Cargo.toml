@@ -22,6 +22,8 @@ pob-calc.workspace = true
 # oracle; dev-only, `cargo tree -p pob-ui-core -e normal` has no mlua).
 # T0 (ui doc §11.1): the real Control.lua/ControlHost.lua/UndoHandler.lua under LuaJIT (U4).
 mlua.workspace = true
+# Test inputs (the PoB checkout) and the skip policy (HYG1).
+pob-testpaths.workspace = true
 
 [lints]
 workspace = true

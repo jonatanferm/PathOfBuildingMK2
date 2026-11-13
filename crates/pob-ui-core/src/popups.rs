@@ -855,7 +855,7 @@ mod tests {
         close_popup(&mut cx);
         // an empty stack: no-op
         close_popup(&mut cx);
-        assert!(cx.main.popups.is_empty());
+        assert_eq!(cx.main.popups.len(), 0);
     }
 
     #[test]
@@ -864,11 +864,11 @@ mod tests {
         // RETURN clicks the enter control ("close" closes the message popup)
         open_message_popup(&mut cx, "M", "msg");
         frame(&mut cx, &[Key::Return]);
-        assert!(cx.main.popups.is_empty());
+        assert_eq!(cx.main.popups.len(), 0);
         // ESCAPE without an escape control closes
         open_message_popup(&mut cx, "M", "msg");
         frame(&mut cx, &[Key::Escape]);
-        assert!(cx.main.popups.is_empty());
+        assert_eq!(cx.main.popups.len(), 0);
         // ESCAPE with one clicks it; RETURN without an enter control does nothing
         let hits = Rc::new(Cell::new(0));
         let h = hits.clone();
@@ -912,7 +912,7 @@ mod tests {
                 // ClosePopup ran first; the popup is buried but alive until the end of frame
                 let p = s.borrow()[0];
                 assert!(cx.try_w::<PopupDialog>(p).is_some());
-                assert!(cx.main.popups.is_empty());
+                assert_eq!(cx.main.popups.len(), 0);
                 s.borrow_mut().push(p);
             },
             None,
@@ -944,7 +944,7 @@ mod tests {
             Some((
                 "Connect Path",
                 Rc::new(move |cx: &mut Cx| {
-                    assert!(cx.main.popups.is_empty());
+                    assert_eq!(cx.main.popups.len(), 0);
                     e.set(e.get() + 1);
                 }),
             )),
@@ -1028,7 +1028,7 @@ mod tests {
         assert_eq!(cx.w::<EditControl>(edit).buf, "x");
         assert!(cx.is_enabled(create));
         frame(&mut cx, &[Key::Return]);
-        assert!(cx.main.popups.is_empty());
+        assert_eq!(cx.main.popups.len(), 0);
         assert!(dirs.borrow().contains("/u/x"));
         assert_eq!(*closed.borrow(), vec![Some("x".to_owned())]);
         // an existing directory: MakeDir gives nil, "Success"; the error popup stacks on top
@@ -1049,7 +1049,7 @@ mod tests {
         // close the error, then ESCAPE (no focus) clicks Cancel: onClose() and ClosePopup
         frame(&mut cx, &[Key::Return]);
         frame(&mut cx, &[Key::Escape]);
-        assert!(cx.main.popups.is_empty());
+        assert_eq!(cx.main.popups.len(), 0);
         assert_eq!(*closed.borrow(), vec![Some("x".to_owned()), None]);
     }
 
@@ -1086,7 +1086,7 @@ mod tests {
         assert!(cx.child(p, 10_i64).is_none());
         assert_eq!(cx.prop::<PopupDialog, _>(p.id(), |w| &w.title), " ^1Error ");
         frame(&mut cx, &[Key::Return]);
-        assert!(cx.main.popups.is_empty());
+        assert_eq!(cx.main.popups.len(), 0);
     }
 
     #[test]

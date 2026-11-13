@@ -141,7 +141,7 @@ pub fn default_hooks() -> TreeViewHooks {
         // CCR-0115 A: U24's ports (tooltip.rs)
         add_node_tooltip: Rc::new(|cx, view, tt, node| view.add_node_tooltip(cx, tt, node, false)),
         add_compare_node_tooltip: Rc::new(|cx, view, tt, node| {
-            view.add_compare_node_tooltip(cx, tt, node)
+            view.add_compare_node_tooltip(cx, tt, node);
         }),
         open_mastery_popup: Rc::new(crate::tabs::tree::core::open_mastery_popup_hook),
         modify_node_popup: Rc::new(crate::tabs::tree::core::modify_node_popup_hook),

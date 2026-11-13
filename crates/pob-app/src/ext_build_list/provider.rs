@@ -147,9 +147,8 @@ impl LVal {
                 let (ta, tb) = (LVal::type_name(Some(a)), LVal::type_name(Some(b)));
                 if ta == tb {
                     lua_error!("attempt to compare two {ta} values")
-                } else {
-                    lua_error!("attempt to compare {ta} with {tb}")
                 }
+                lua_error!("attempt to compare {ta} with {tb}")
             }
         }
     }

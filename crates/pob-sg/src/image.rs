@@ -1263,8 +1263,8 @@ pub(crate) mod tests {
         // The texture stays registered (textures live until exit): reloading reuses it.
         images.load(&a, "x.png", ImageFlags::empty());
         assert_eq!(a.tex(), a2.tex());
-        assert!(images.take_uploads().is_empty());
-        assert!(images.take_releases().is_empty());
+        assert_eq!(images.take_uploads().len(), 0);
+        assert_eq!(images.take_releases().len(), 0);
     }
 
     #[test]

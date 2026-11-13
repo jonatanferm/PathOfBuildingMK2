@@ -486,11 +486,11 @@ pub fn default_items_ui_hooks() -> ItemsUiHooks {
         craft_item: Rc::new(super::craft_a::CraftItem),
         edit_display_item_text: Rc::new(super::craft_a::EditDisplayItemText),
         enchant_display_item: Rc::new(|cx, me, slot| {
-            super::craft_a::EnchantDisplayItem(cx, me, Some(slot))
+            super::craft_a::EnchantDisplayItem(cx, me, Some(slot));
         }),
         append_added_notable_tooltip: Rc::new(super::craft_a::AppendAddedNotableTooltip),
         anoint_display_item: Rc::new(|cx, me, slot| {
-            super::craft_a::AnointDisplayItem(cx, me, Some(slot))
+            super::craft_a::AnointDisplayItem(cx, me, Some(slot));
         }),
         add_implicit_to_display_item: Rc::new(super::add_implicit::AddImplicitToDisplayItem),
         // U37 (craft_b.rs)

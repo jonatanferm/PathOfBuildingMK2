@@ -291,7 +291,7 @@ impl ItemsTabSelf {
             ItemsTabSelf::Entry(e) => {
                 crate::tabs::compare::entry::CompareEntry::AddRequirementsToTooltip(
                     cx, e, tooltip, level, str, dex, int, strBase, dexBase, intBase,
-                )
+                );
             }
         }
     }
@@ -2205,7 +2205,7 @@ pub fn AddItemStatDifferences(
     let me: ItemsTabSelf = me.into();
     // `self.build` is the entry for an entry's ItemsTab (FUP6)
     me.clone().run(cx, |cx| {
-        AddItemStatDifferences_as(cx, &me, tooltip, item, base, slot)
+        AddItemStatDifferences_as(cx, &me, tooltip, item, base, slot);
     });
 }
 
