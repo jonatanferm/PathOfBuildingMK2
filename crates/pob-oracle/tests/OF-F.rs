@@ -25,6 +25,13 @@
 //! the shared probe cache (`testkit::probe_dumps`, CK2: keyed by the patched source, the build's
 //! bytes, the selection and the probe code; probed here when absent; OF-E shares the entry).
 //! Knobs: `OFF_BUILDS=stem1,stem2`, `OFF_VERBOSE=1` (print every mismatch).
+//!
+//! CK3 (CCR-0148): a probe that fails or dumps nothing for a build, and a hit without its next
+//! dump, fail the leg; so does a leg that compared no hit. The only skip is a missing input
+//! (`data/dump`, the PoB checkout, `.parity`: `pob_testpaths::require`, which also fails under
+//! `POB_ORACLE_REQUIRE=1`). Each leg reports how many hits it compared. The dumps are read one
+//! hit at a time (the run's `hits.json` gives each dump's stack and env), not a build at once
+//! (that peaked at 3.5 GB RSS on the full corpus).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -75,84 +82,117 @@ fn stem(p: &Path) -> &str {
 /// The probe selection (module docs).
 const SELECT: &[&str] = &["offence:2607*", "offence:3346*", "offence:3957*", "offence:4155*"];
 
-/// Every dump of the four OF-F probes for a build, keyed by (probe, n). All dumps come from one
-/// directory (one oracle process: hit numbers and PoB's per-process orders only agree within a
-/// run).
-fn dumps(xml: &Path) -> BTreeMap<(String, u64), StateDump> {
-    let mut best: BTreeMap<(String, u64), PathBuf> = BTreeMap::new();
-    let held = match testkit::probe_dumps(
+/// The OF-F dumps of one build (all from one directory, i.e. one oracle process: hit numbers
+/// and PoB's per-process orders only agree within a run), by (probe, n), with each dump's call
+/// stack and env from the run's `hits.json` (else from the dump itself), loaded on demand.
+struct Dumps {
+    /// Held while the dumps are read (a private run under `POB_QUERY_CACHE=off`).
+    _held: testkit::BuildDumps,
+    files: BTreeMap<(String, u64), PathBuf>,
+    meta: BTreeMap<(String, u64), (Vec<String>, Option<String>)>,
+}
+
+impl Dumps {
+    fn load(&self, key: &(String, u64)) -> Result<StateDump, String> {
+        let p = self
+            .files
+            .get(key)
+            .ok_or_else(|| format!("no dump {}#{}", key.0, key.1))?;
+        StateDump::load(p).map_err(|e| e.0)
+    }
+
+    /// The probe that follows `din` in the same `calcs.offence` call.
+    fn next(&self, din: &StateDump) -> Option<(String, u64)> {
+        let same = |k: &(String, u64)| {
+            self.meta
+                .get(k)
+                .is_some_and(|(stack, env)| *stack == din.stack && *env == din.env_id)
+        };
+        let first_of = |probe: &str| {
+            self.files
+                .keys()
+                .filter(|(p, _)| p == probe)
+                .find(|k| same(k))
+                .cloned()
+        };
+        match din.probe.as_str() {
+            "offence:3346" => Some(("offence:2607".to_owned(), din.n + 1))
+                .filter(|k| self.files.contains_key(k) && same(k))
+                .or_else(|| first_of("offence:3957")),
+            "offence:3957" => first_of("offence:4155"),
+            _ => None,
+        }
+    }
+}
+
+/// The OF-F dumps of `xml` ([`SELECT`], from the shared probe cache, probed when absent).
+/// `Err` when the probe fails or dumps none of the four probes.
+fn dumps(xml: &Path) -> Result<Dumps, String> {
+    let held = testkit::probe_dumps(
         Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
         xml,
         Some(&testkit::default_stages()),
         &testkit::selection(SELECT),
-    ) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("{}: probe failed: {e}", stem(xml));
-            return BTreeMap::new();
-        }
-    };
-    for d in held.dirs() {
-        let Ok(rd) = std::fs::read_dir(&d) else {
+    )
+    .map_err(|e| format!("probe failed: {e}"))?;
+    let mut files: BTreeMap<(String, u64), PathBuf> = BTreeMap::new();
+    let rd = std::fs::read_dir(held.path())
+        .map_err(|e| format!("probe dumps {}: {e}", held.path().display()))?;
+    for e in rd.filter_map(Result::ok) {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let base = name
+            .strip_suffix(".json.zst")
+            .or_else(|| name.strip_suffix(".json"))
+            .unwrap_or("");
+        let Some((probe, n)) = base.split_once('#') else {
             continue;
         };
-        let mut files: BTreeMap<(String, u64), PathBuf> = BTreeMap::new();
-        for e in rd.filter_map(Result::ok) {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let base = name
-                .strip_suffix(".json.zst")
-                .or_else(|| name.strip_suffix(".json"))
-                .unwrap_or("");
-            let Some((probe, n)) = base.split_once('#') else {
-                continue;
-            };
-            if !matches!(
-                probe,
-                "offence:2607" | "offence:3346" | "offence:3957" | "offence:4155"
-            ) {
-                continue;
+        if !matches!(
+            probe,
+            "offence:2607" | "offence:3346" | "offence:3957" | "offence:4155"
+        ) {
+            continue;
+        }
+        let Ok(n) = n.parse::<u64>() else {
+            continue;
+        };
+        files.insert((probe.to_owned(), n), e.path());
+    }
+    if files.is_empty() {
+        return Err(format!(
+            "empty probe: no dump of {SELECT:?} in {}",
+            held.path().display()
+        ));
+    }
+    // each dump's stack and env: from the run's index, else (an override directory without
+    // one) from the dump, loaded and dropped one at a time
+    let run = held.run_dir();
+    let index = ["hits.json.zst", "hits.json"]
+        .iter()
+        .map(|f| run.join(f))
+        .find(|p| p.is_file())
+        .and_then(|p| pob_oracle::schema::HitsIndex::load(&p).ok());
+    let mut meta = BTreeMap::new();
+    if let Some(index) = index {
+        for d in index.dumps {
+            if let Some((probe, n)) = d.hit.split_once('#') {
+                if let Ok(n) = n.parse::<u64>() {
+                    meta.insert((probe.to_owned(), n), (d.stack, d.env));
+                }
             }
-            let Ok(n) = n.parse::<u64>() else {
-                continue;
-            };
-            files.insert((probe.to_owned(), n), e.path());
-        }
-        if files.len() > best.len() {
-            best = files;
         }
     }
-    let mut out = BTreeMap::new();
-    for (key, path) in best {
-        if let Ok(s) = StateDump::load(&path) {
-            out.insert(key, s);
+    for (key, path) in &files {
+        if !meta.contains_key(key) {
+            let s = StateDump::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            meta.insert(key.clone(), (s.stack, s.env_id));
         }
     }
-    out
-}
-
-/// The probe that follows `din` in the same `calcs.offence` call.
-fn next_dump<'a>(
-    all: &'a BTreeMap<(String, u64), StateDump>,
-    din: &StateDump,
-) -> Option<&'a StateDump> {
-    let same = |d: &&StateDump| d.stack == din.stack && d.env_id == din.env_id;
-    match din.probe.as_str() {
-        "offence:3346" => all
-            .get(&("offence:2607".to_owned(), din.n + 1))
-            .filter(same)
-            .or_else(|| {
-                all.iter()
-                    .filter(|((p, _), _)| p == "offence:3957")
-                    .map(|(_, d)| d)
-                    .find(same)
-            }),
-        "offence:3957" => all
-            .iter()
-            .filter(|((p, _), _)| p == "offence:4155")
-            .map(|(_, d)| d)
-            .find(same),
-        _ => None,
-    }
+    Ok(Dumps {
+        _held: held,
+        files,
+        meta,
+    })
 }
 
 enum Outcome {
@@ -328,40 +368,89 @@ fn run_hit(din: &StateDump, dout: &StateDump, stem: &str) -> Outcome {
 
 #[derive(Default)]
 struct Tally {
+    builds: usize,
     pass: usize,
     fail: usize,
     blocked: usize,
     errors: usize,
     foreign: usize,
-    missing_out: usize,
+    /// CK3: `<stem> <hit>` whose next dump the run does not hold.
+    missing_out: Vec<String>,
+    /// CK3: `<stem>: <why>` of builds whose probe failed or dumped nothing.
+    probe_failed: Vec<String>,
     blocked_sites: BTreeMap<String, usize>,
+}
+
+impl Tally {
+    /// Hits injected, run and diffed (the non-vacuity count).
+    fn compared(&self) -> usize {
+        self.pass + self.fail + self.blocked + self.foreign + self.errors
+    }
 }
 
 /// The stub counters (`pob_calc::stub`) are process-wide: one leg at a time.
 static LEG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// `pob_testpaths::require` (fails, or skips with `POB_ALLOW_SKIP=1`), failing under
+/// `POB_ORACLE_REQUIRE=1` / `CI` even with `POB_ALLOW_SKIP=1` (CK3).
+#[track_caller]
+fn require<T>(v: Option<T>, what: &str) -> Option<T> {
+    assert!(
+        v.is_some() || !testkit::oracle_required(),
+        "required input missing (POB_ORACLE_REQUIRE): {what}"
+    );
+    pob_testpaths::require(v, what)
+}
+
 fn run_leg(probe_in: &str) -> Option<Tally> {
     let _guard = LEG_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    testkit::init_default_data()
-        .then_some(())
-        .or_else(|| pob_testpaths::require(None::<()>, "data dump (data/dump)"))?;
+    require(testkit::init_default_data().then_some(()), "data dump (data/dump)")?;
+    let why = testkit::probe_inputs().err();
+    require(why.is_none().then_some(()), why.as_deref().unwrap_or_default())?;
     let mut t = Tally::default();
     let verbose = std::env::var_os("OFF_VERBOSE").is_some();
     let mut failures = Vec::new();
     for xml in builds() {
         let stem = stem(&xml).to_owned();
-        let all = dumps(&xml);
-        for ((probe, _), din) in &all {
-            if probe != probe_in {
+        t.builds += 1;
+        let all = match dumps(&xml) {
+            Ok(d) => d,
+            Err(e) => {
+                t.probe_failed.push(format!("{stem}: {e}"));
                 continue;
             }
-            let Some(dout) = next_dump(&all, din) else {
-                t.missing_out += 1;
+        };
+        let ins: Vec<(String, u64)> = all
+            .files
+            .keys()
+            .filter(|(p, _)| p == probe_in)
+            .cloned()
+            .collect();
+        for key in ins {
+            // one hit's pair at a time (module docs)
+            let din = match all.load(&key) {
+                Ok(d) => d,
+                Err(e) => {
+                    t.errors += 1;
+                    failures.push(format!("{stem} {}#{}: {e}", key.0, key.1));
+                    continue;
+                }
+            };
+            let Some(out_key) = all.next(&din) else {
+                t.missing_out.push(format!("{stem} {}", din.hit));
                 continue;
             };
-            match run_hit(din, dout, &stem) {
+            let dout = match all.load(&out_key) {
+                Ok(d) => d,
+                Err(e) => {
+                    t.errors += 1;
+                    failures.push(format!("{stem} {}#{}: {e}", out_key.0, out_key.1));
+                    continue;
+                }
+            };
+            match run_hit(&din, &dout, &stem) {
                 Outcome::Pass => t.pass += 1,
                 Outcome::Fail(lines) => {
                     t.fail += 1;
@@ -393,11 +482,25 @@ fn run_leg(probe_in: &str) -> Option<Tally> {
         }
     }
     eprintln!(
-        "OF-F {probe_in}: pass {} / fail {} / stub-blocked {} / foreign-parent {} / errors {} / no next dump {}",
-        t.pass, t.fail, t.blocked, t.foreign, t.errors, t.missing_out
+        "OF-F {probe_in}: {} builds, {} hits compared: pass {} / fail {} / stub-blocked {} / foreign-parent {} / errors {}; no next dump {}, probe failed or empty {}",
+        t.builds,
+        t.compared(),
+        t.pass,
+        t.fail,
+        t.blocked,
+        t.foreign,
+        t.errors,
+        t.missing_out.len(),
+        t.probe_failed.len()
     );
     for (s, n) in &t.blocked_sites {
         eprintln!("  stub {s}: blocked {n} hits");
+    }
+    for f in &t.probe_failed {
+        eprintln!("  PROBE {f}");
+    }
+    for m in &t.missing_out {
+        eprintln!("  NO NEXT DUMP {m}");
     }
     for f in &failures {
         eprintln!("{f}");
@@ -406,14 +509,21 @@ fn run_leg(probe_in: &str) -> Option<Tally> {
 }
 
 fn gate(t: &Tally, leg: &str) {
-    let ran = t.pass + t.fail + t.blocked + t.foreign + t.errors;
-    if ran == 0 {
-        let _ = pob_testpaths::require(
-            None::<()>,
-            &format!("{leg} dumps (scripts/port/oracle.sh run --build X.xml --stage 'offence:2607*,offence:3346*,offence:3957*,offence:4155*')"),
-        );
-        return;
-    }
+    // CK3 (CCR-0148): a failed or empty probe, or a hit without its pair, fails; never a skip
+    assert!(
+        t.probe_failed.is_empty(),
+        "{leg}: {} builds' probes failed or dumped nothing (first: {:?})",
+        t.probe_failed.len(),
+        t.probe_failed.first()
+    );
+    assert!(
+        t.missing_out.is_empty(),
+        "{leg}: {} hits without their next dump (first: {:?})",
+        t.missing_out.len(),
+        t.missing_out.first()
+    );
+    let ran = t.compared();
+    assert!(ran > 0, "{leg}: no hit compared over {} builds", t.builds);
     assert_eq!(t.errors, 0, "{leg}: {} hits raised", t.errors);
     assert_eq!(t.fail, 0, "{leg}: {} stub-free hits mismatch", t.fail);
     assert!(t.pass > 0, "{leg}: no hit ran stub-free");
@@ -425,7 +535,7 @@ fn gate(t: &Tally, leg: &str) {
 #[test]
 fn off_pass_hit_l4() {
     let Some(t) = run_leg("offence:3346") else {
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     gate(&t, "offence:3346");
 }
@@ -434,7 +544,7 @@ fn off_pass_hit_l4() {
 #[test]
 fn off_combine_passes_l4() {
     let Some(t) = run_leg("offence:3957") else {
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     gate(&t, "offence:3957");
 }

@@ -24,7 +24,15 @@
 //! `scripts/port/oracle.sh corpus`), from the shared probe cache, probed when absent;
 //! `data/dump`. Knobs: `ORCX_BUILDS=stem1,stem2`, `ORCX_LIMIT=n`,
 //! `ORCX_VERBOSE=1` (print every mismatch). A missing input fails
-//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead, except under
+//! `POB_ORACLE_REQUIRE=1` / `CI`).
+//!
+//! CK3 (CCR-0148): a probe that fails (the corpus selection's or the `runSkillFunc` one) fails
+//! every test that reads it, never a skip and never an excused missing dump; each test asserts
+//! and reports how many dumps it compared. The four corpus-reading tests share one cache entry
+//! per build (and the round trip and the runSkillFunc replay another): under
+//! `POB_QUERY_CACHE=refresh` the first test re-probes it and the others read that run
+//! (`testkit::probe_selection`, once per process).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -33,6 +41,29 @@ use pob_oracle::diff::Mismatch;
 use pob_oracle::oracle::find_parity_dir;
 use pob_oracle::schema::StateDump;
 use pob_oracle::testkit;
+
+/// `pob_testpaths::require` (fails, or skips with `POB_ALLOW_SKIP=1`), failing under
+/// `POB_ORACLE_REQUIRE=1` / `CI` even with `POB_ALLOW_SKIP=1` (CK3).
+#[track_caller]
+fn require<T>(v: Option<T>, what: &str) -> Option<T> {
+    assert!(
+        v.is_some() || !testkit::oracle_required(),
+        "required input missing (POB_ORACLE_REQUIRE): {what}"
+    );
+    pob_testpaths::require(v, what)
+}
+
+/// The data dump and what probing needs (`testkit::probe_inputs`), through [`require`];
+/// `None` after a skip (`POB_ALLOW_SKIP=1`).
+#[track_caller]
+fn require_inputs() -> Option<()> {
+    require(
+        testkit::init_default_data().then_some(()),
+        "no data dump (data/dump)",
+    )?;
+    let why = testkit::probe_inputs().err();
+    require(why.is_none().then_some(()), why.as_deref().unwrap_or_default())
+}
 
 fn corpus(parity: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(parity.join("builds"))
@@ -211,21 +242,15 @@ const CORPUS_SELECT: &[&str] = &[
 /// The build's [`CORPUS_SELECT`] dumps: one `pob_oracle probe` run under
 /// `docs/port/stages.toml` (provenance on, as the corpus run), from the shared probe cache
 /// (`testkit::probe_dumps`: keyed by the patched source, the build's bytes, the selection and
-/// the probe code), probed when absent. `None` (printed) when the probe fails.
-fn corpus_dumps(xml: &Path) -> Option<testkit::BuildDumps> {
+/// the probe code), probed when absent. `Err` when the probe fails (CK3: a test failure).
+fn corpus_dumps(xml: &Path) -> Result<testkit::BuildDumps, String> {
     testkit::probe_dumps(
         Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
         xml,
         Some(&testkit::default_stages()),
         &testkit::selection(CORPUS_SELECT),
     )
-    .map_err(|e| eprintln!("{}: probe failed: {e}", stem(xml)))
-    .ok()
-}
-
-/// The dirs of [`corpus_dumps`] (empty when the probe failed).
-fn dirs_of(d: Option<&testkit::BuildDumps>) -> Vec<PathBuf> {
-    d.map(|d| d.dirs().to_vec()).unwrap_or_default()
+    .map_err(|e| format!("{}: probe failed: {e}", stem(xml)))
 }
 
 /// The gate's stages, then `runSkillFunc:in/out` (the dumps
@@ -240,35 +265,28 @@ const ROUND_TRIP_STAGES: &[&str] = &[
 
 #[test]
 fn orcx_identity_round_trip_all57() {
-    if pob_testpaths::require(
-        testkit::init_default_data().then_some(()),
-        "no data dump (data/dump)",
-    )
-    .is_none()
-    {
+    if require_inputs().is_none() {
         return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+    let Some(parity) = require(find_parity_dir(), "no .parity directory") else {
         return; // POB_ALLOW_SKIP=1
     };
     let builds = corpus(&parity);
     if builds.is_empty() {
-        let _ = pob_testpaths::require(None::<()>, "no .parity/builds/*.xml");
+        let _ = require(None::<()>, "no .parity/builds/*.xml");
         return; // POB_ALLOW_SKIP=1
     }
     let mut tallies: BTreeMap<&str, Tally> = BTreeMap::new();
-    let mut rsf_probed: std::collections::BTreeSet<String> = Default::default();
+    // CK3: probes that failed (either selection); each fails the test
+    let mut probe_failed: Vec<String> = Vec::new();
     for xml in &builds {
         let stem = stem(xml);
-        let held = corpus_dumps(xml);
-        let dirs = dirs_of(held.as_ref());
+        let held = corpus_dumps(xml).map_err(|e| probe_failed.push(e)).ok();
+        let dirs: Vec<PathBuf> = held.iter().flat_map(|d| d.dirs().to_vec()).collect();
         // CK2: the runSkillFunc dumps of the replay test's selection, probed here when absent
         // (the round trip used to read them only once that test had probed them, and not under
         // `POB_QUERY_CACHE=refresh`, so their coverage depended on test order and cache mode)
-        let rsf = rsf_dumps(xml);
-        if rsf.is_some() {
-            rsf_probed.insert(stem.to_owned());
-        }
+        let rsf = rsf_dumps(xml).map_err(|e| probe_failed.push(e)).ok();
         let extra: Vec<PathBuf> = rsf.iter().map(|d| d.path().to_path_buf()).collect();
         for stage in ROUND_TRIP_STAGES {
             let t = tallies.entry(stage).or_default();
@@ -309,14 +327,28 @@ fn orcx_identity_round_trip_all57() {
         ok &= t.clean == t.dumps && t.failed.is_empty();
     }
     let total: usize = tallies.values().map(|t| t.dumps).sum();
-    assert!(total > 0, "no dumps found (probe failures above)");
+    eprintln!(
+        "round trip: {total} dumps compared over {} builds, {} probes failed",
+        builds.len(),
+        probe_failed.len()
+    );
+    for f in &probe_failed {
+        eprintln!("  PROBE FAILED {f}");
+    }
+    assert!(
+        probe_failed.is_empty(),
+        "round trip: {} probes failed (first: {:?})",
+        probe_failed.len(),
+        probe_failed.first()
+    );
+    assert!(total > 0, "round trip: no dump compared");
     assert!(
         ok,
         "identity round trip: some dumps do not export back to themselves"
     );
     // coverage (HYG2/V2): every build has its gate-stage dumps ([`corpus_dumps`]) except the
-    // listed ones. A runSkillFunc dump may only be missing for a build whose runSkillFunc probe
-    // failed (reported above) or whose main env runs no skill hook (ORCX_RSF_MISSING).
+    // listed ones. A runSkillFunc dump may only be missing for a build whose main env runs no
+    // skill hook (ORCX_RSF_MISSING); a failed probe failed above (CK3).
     if !filtered() {
         assert_eq!(builds.len(), CORPUS_BUILDS, ".parity/builds/*.xml count");
     }
@@ -327,8 +359,7 @@ fn orcx_identity_round_trip_all57() {
             .filter(|m| {
                 let stem = m.split(' ').next().unwrap_or("");
                 if stage.starts_with("runSkillFunc:") {
-                    let probed = rsf_probed.contains(stem);
-                    probed && !ORCX_RSF_MISSING.contains(&stem)
+                    !ORCX_RSF_MISSING.contains(&stem)
                 } else {
                     !ORCX_GATE_MISSING.contains(&m.as_str())
                 }
@@ -388,7 +419,7 @@ fn assert_missing(what: &str, missing: &[String], allowed: &[&str]) {
 /// small hand-written document.
 #[test]
 fn orcx_round_trip_synthetic() {
-    if pob_testpaths::require(
+    if require(
         testkit::init_default_data().then_some(()),
         "no data dump (data/dump)",
     )
@@ -431,30 +462,23 @@ fn orcx_round_trip_synthetic() {
 #[test]
 fn orcx_inject_is_typed_and_export_sensitive() {
     use pob_calc::prelude::*;
-    if pob_testpaths::require(
-        testkit::init_default_data().then_some(()),
-        "no data dump (data/dump)",
-    )
-    .is_none()
-    {
+    if require_inputs().is_none() {
         return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+    let Some(parity) = require(find_parity_dir(), "no .parity directory") else {
         return; // POB_ALLOW_SKIP=1
     };
-    let Some(xml) = pob_testpaths::require(
+    let Some(xml) = require(
         corpus(&parity).into_iter().next(),
         "no .parity/builds/*.xml",
     ) else {
         return; // POB_ALLOW_SKIP=1
     };
-    let held = corpus_dumps(&xml);
-    let Some(dump) = pob_testpaths::require(
-        testkit::load_dump(&dirs_of(held.as_ref()), "perform:in"),
-        "no perform:in dump (probe failure above)",
-    ) else {
-        return; // POB_ALLOW_SKIP=1
-    };
+    // CK3: the probe ran (inputs checked above), so a failed or empty probe fails here
+    let held = corpus_dumps(&xml).unwrap_or_else(|e| panic!("{e}"));
+    let dump = testkit::load_dump(held.dirs(), "perform:in")
+        .unwrap_or_else(|| panic!("{}: the probe dumped no perform:in", stem(&xml)));
+    eprintln!("inject typed: 1 dump compared ({} {})", stem(&xml), dump.hit);
     let build = testkit::empty_build();
     let (env, locals) = pob_oracle::inject::state(&dump, &build).expect("inject");
     let jenv = &dump.root["env"];
@@ -693,26 +717,27 @@ fn replay_both(
 
 #[test]
 fn orcx_replay_offence_all57() {
-    if pob_testpaths::require(
-        testkit::init_default_data().then_some(()),
-        "no data dump (data/dump)",
-    )
-    .is_none()
-    {
+    if require_inputs().is_none() {
         return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+    let Some(parity) = require(find_parity_dir(), "no .parity directory") else {
         return; // POB_ALLOW_SKIP=1
     };
     let builds = corpus(&parity);
     let mut t = Tally::default();
     for xml in &builds {
         let stem = stem(xml);
-        let held = corpus_dumps(xml);
-        let dirs = dirs_of(held.as_ref());
+        let held = match corpus_dumps(xml) {
+            Ok(d) => d,
+            Err(e) => {
+                t.failed.push(e); // CK3: fails the test
+                continue;
+            }
+        };
+        let dirs = held.dirs();
         let (Some(din), Some(dout)) = (
-            testkit::load_dump(&dirs, "offence:in"),
-            testkit::load_dump(&dirs, "offence:out"),
+            testkit::load_dump(dirs, "offence:in"),
+            testkit::load_dump(dirs, "offence:out"),
         ) else {
             t.missing.push(format!("{stem} offence:in/out"));
             continue;
@@ -720,7 +745,7 @@ fn orcx_replay_offence_all57() {
         replay_both(&mut t, stem, &din, &dout, "offence");
     }
     t.report("replay offence");
-    assert!(t.dumps > 0, "no offence:in/out dumps (probe failures above)");
+    assert!(t.dumps > 0, "replay offence: no dump pair compared");
     assert!(
         t.clean == t.dumps && t.perturbed_clean == t.perturbed && t.failed.is_empty(),
         "replaying offence does not apply exactly its in→out delta"
@@ -738,18 +763,16 @@ fn rsf_options() -> pob_oracle::runner::ProbeOptions {
     }
 }
 
-/// The build's runSkillFunc dumps ([`run_skill_func_dumps`], probed when absent); `None`
-/// (printed) when the probe fails.
+/// The build's runSkillFunc dumps ([`run_skill_func_dumps`], probed when absent); `Err` when
+/// the probe fails (CK3: a test failure).
 #[cfg(feature = "luajit")]
-fn rsf_dumps(xml: &Path) -> Option<pob_oracle::runner::ProbeDumps> {
-    run_skill_func_dumps(xml)
-        .map_err(|e| eprintln!("{}: probing runSkillFunc failed: {e}", stem(xml)))
-        .ok()
+fn rsf_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    run_skill_func_dumps(xml).map_err(|e| format!("{}: probing runSkillFunc failed: {e}", stem(xml)))
 }
 
 #[cfg(not(feature = "luajit"))]
-fn rsf_dumps(_xml: &Path) -> Option<pob_oracle::runner::ProbeDumps> {
-    None
+fn rsf_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    Err(format!("{}: built without the luajit feature", stem(xml)))
 }
 
 /// `runSkillFunc:in/out` dumps of the main env (the corpus run dumps only `:in`): the `state/`
@@ -770,19 +793,14 @@ fn run_skill_func_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, St
 #[cfg(feature = "luajit")]
 #[test]
 fn orcx_replay_run_skill_func_all57() {
-    if pob_testpaths::require(
-        testkit::init_default_data().then_some(()),
-        "no data dump (data/dump)",
-    )
-    .is_none()
-    {
+    if require_inputs().is_none() {
         return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+    let Some(parity) = require(find_parity_dir(), "no .parity directory") else {
         return; // POB_ALLOW_SKIP=1
     };
     if pob_oracle::oracle::find_pob_src().is_none() {
-        let _ = pob_testpaths::require(None::<()>, "no PoB checkout");
+        let _ = require(None::<()>, "no PoB checkout");
         return; // POB_ALLOW_SKIP=1
     }
     let builds = corpus(&parity);
@@ -814,7 +832,7 @@ fn orcx_replay_run_skill_func_all57() {
         replay_both(&mut t, stem, &din, &dout, "runSkillFunc");
     }
     t.report("replay runSkillFunc");
-    assert!(t.dumps > 0, "no runSkillFunc:in/out dumps");
+    assert!(t.dumps > 0, "replay runSkillFunc: no dump pair compared");
     assert!(
         t.clean == t.dumps && t.perturbed_clean == t.perturbed && t.failed.is_empty(),
         "replaying runSkillFunc does not apply exactly its in→out delta"
@@ -830,31 +848,24 @@ fn orcx_replay_run_skill_func_all57() {
 /// (the plumbing L4 tests stand on: inject → ctx → segment → export → diff).
 #[test]
 fn orcx_segment_runner_plumbing() {
-    if pob_testpaths::require(
-        testkit::init_default_data().then_some(()),
-        "no data dump (data/dump)",
-    )
-    .is_none()
-    {
+    if require_inputs().is_none() {
         return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+    let Some(parity) = require(find_parity_dir(), "no .parity directory") else {
         return; // POB_ALLOW_SKIP=1
     };
-    let Some(xml) = pob_testpaths::require(
+    let Some(xml) = require(
         corpus(&parity).into_iter().next(),
         "no .parity/builds/*.xml",
     ) else {
         return; // POB_ALLOW_SKIP=1
     };
     let stem = stem(&xml);
-    let held = corpus_dumps(&xml);
-    let Some(din) = pob_testpaths::require(
-        testkit::load_dump(&dirs_of(held.as_ref()), "offence:in"),
-        "no offence:in dump (probe failure above)",
-    ) else {
-        return; // POB_ALLOW_SKIP=1
-    };
+    // CK3: the probe ran (inputs checked above), so a failed or empty probe fails here
+    let held = corpus_dumps(&xml).unwrap_or_else(|e| panic!("{e}"));
+    let din = testkit::load_dump(held.dirs(), "offence:in")
+        .unwrap_or_else(|| panic!("{stem}: the probe dumped no offence:in"));
+    eprintln!("segment runner plumbing: 1 dump compared ({stem} {})", din.hit);
     let build = testkit::empty_build();
     let inj = pob_oracle::inject::inject(&din, &build).expect("inject");
     let locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();

@@ -150,14 +150,15 @@ per-binary pass/fail/ignore counts were identical in all three runs.
 
 PoB's side of a pob-oracle test (LuaJIT, `jit.off()`) depends only on fixed inputs: the PoB tree
 (and its patches), the oracle/probe scripts, the build XML and the call parameters. Every Lua
-invocation the converted tests make goes through one content-addressed cache, so a warm run pays
-only for the Rust side.
+invocation of a pob-oracle test, and every PoB dump one reads, goes through one
+content-addressed cache, so a warm run pays only for the Rust side. No test reads a dump
+directory that nothing keys (CK1/CK2/CK3, CCR-0147, CCR-0148).
 
 * **Where.** `<parity>/probe-cache/` of the main checkout (`.parity/probe-cache`;
   `.parity-quick/probe-cache` is a symlink to it). Worktrees find the main checkout's `.parity`
   (`oracle::find_parity_dir`), so every worktree, the quick and the full corpus and the full-suite
   worktree share one cache.
-* **Entries** (`crates/pob-oracle/src/runner.rs`):
+* **Entries** (`crates/pob-oracle/src/runner.rs`, `testkit.rs`):
   * `QueryCache` / `cached_query` / `cached_query_result`: the text an in-process PoB query
     returns, at `<source-key>/<blake3(input)>/query-<blake3(key texts)>/result.zst`. Tests call
     `testkit::oracle_query(src, input, key, run)`, which takes the machine-wide oracle lock only on
@@ -169,40 +170,72 @@ only for the Rust side.
     a per-test version tag). Put every Lua string the run executes into `key` (BM-A:
     `POB_RUN_CALLS`; CS1 hashes its whole test file); the version tag is only for what `key`
     cannot see (e.g. Rust code that post-processes the result before it is cached).
-  * `SelectionCache` / `testkit::probe_selection`: one `pob_oracle probe` run of a selection, at
-    `<patched sha>/<build key>/sel-<blake3(selection, max dumps, provenance, runner.rs,
-    bin/pob_oracle.rs, oracle runtime)>/state/<hit>.json.zst`. `<patched sha>`
-    (`patcher::plan_sha`) covers the stages file, the patched sources and the probe runtime Lua.
+  * `SelectionCache` / `testkit::probe_selection` / `testkit::probe_dumps`: one `pob_oracle
+    probe` run (a fresh process) of a selection, at `<patched sha>/<blake3(build XML)>/sel-<blake3(selection,
+    max dumps, provenance flag, runner.rs, bin/pob_oracle.rs, oracle runtime)>/` with
+    `hits.json.zst`, `outputs.json.zst`, `provenance.json.zst` and `state/<hit>.json.zst`.
+    `<patched sha>` (`patcher::plan_sha`) covers the stages file, the patched sources, the probe
+    runtime Lua (`state_dump.lua`, `provenance.lua`, `probe.lua`) and the Lua runtime versions.
+    One entry is one PoB process, so an `:in` / `:out` pair never mixes runs. `probe_dumps(bin,
+    xml, stages, opts)` returns a `BuildDumps` (`dirs()`, `path()`, `run_dir()`): the entry's
+    `state/`, or `$POB_PROBE_DIR/<stem>/state/` when that override exists (an explicit,
+    hand-made dump directory; e.g. `POB_PROBE_DIR=.parity/probe` serves what `oracle.sh corpus`
+    left there). Helpers: `testkit::selection(hits)` (the `probe` defaults: `--max-dumps 200`,
+    provenance on), `testkit::default_stages()` (`docs/port/stages.toml`). Readers accept
+    `<name>.json.zst` (an entry) and `<name>.json` (an uncached run or an override).
+  * `testkit::oracle_dir(src, input, key, fill)`: a whole directory a custom PoB run writes (CA,
+    CS1, CS3, INT-3, PF-B), keyed like `oracle_query` and published as a whole (a `.complete`
+    marker inside).
   * `Oracle::run` (`outputs` / `stages` dumps of the `pob_oracle` binary) goes through
     `cached_query_result` too (keyed by the dump, the build's stem and `bin/pob_oracle.rs`).
 * **Writes** are atomic: an entry is written under a private temp name (pid + sequence) and
   renamed into place, a directory entry as a whole; when concurrent writers (other tests, other
   worktrees) publish the same key, the first complete entry stands. A failed run is never cached.
-* **Converted tests** (TP1): BM-A, CO-C, CS0, PWR (`oracle_query`); CS2, OF-D, PF-G, SK-A
-  (`probe_selection`, replacing per-worktree `target/tmp/<unit>-probe/<stem>` directories keyed by
-  the stem alone); CS1 (`testkit::oracle_dir`: a whole run directory, same keys and atomic
-  publish); `oracle_harness` (`Oracle::run`). Already on it before TP1: BM-B, IT-A/B/C, MS-A/B
-  (`QueryCache`), DF-E, OF-C, ORC-X (`probe_selection`). Tests that read the `oracle.sh`-filled
-  probe cache (`testkit::dump_dirs`: DF-B, OF-B/E/F, PF-C/D/E/F, ...) run no Lua.
-  Not cached on purpose: `runner::run_nondet` / `pob_oracle nondet` (they measure PoB's
-  run-to-run differences, which a cache would hide). Not converted yet: see "Open" below.
+  Under `POB_QUERY_CACHE=refresh` (CK3, CCR-0148 §2) `probe_selection` and `oracle_dir` re-run
+  each entry **once per process**: the first test to ask for a key re-runs it, concurrent tests
+  of that key wait for it, later ones read that run (ORC-X's four tests share an entry per build,
+  DF-G's three, OF-F's two legs). The old entry leaves the cache in one rename right before the
+  new one is published, so a reader finds the complete old entry, none, or the complete new one,
+  never one half deleted. (A reader in *another* process that already resolved paths into the old
+  entry can still lose them mid-read; run `refresh` from one binary at a time.)
+* **Users.** `oracle_query`: BM-A, CO-C, CS0, PWR. `probe_selection` / `probe_dumps`: AS, CS2,
+  DF-A..DF-G, MI, OF-A..OF-I, ORC-X, P3 (corpus runs under `corpus/P3/stages.toml`), PF-A, PF-C..PF-G,
+  SK-A, SK-B, TR-A, TR-B. `oracle_dir`: CA, CS1, CS3, INT-3, PF-B. `QueryCache` directly: BM-B,
+  IT-A/B/C, MS-A/B. `oracle_harness`: `Oracle::run`. Not cached on purpose:
+  `runner::run_nondet` / `pob_oracle nondet` (they measure PoB's run-to-run differences, which a
+  cache would hide), and the self-checks that probe into a fresh per-process scratch directory
+  (P3's `probe_one_build` / `two_runs_agree…`, U0). `oracle.sh run` / `oracle.sh corpus` /
+  `bin probe --cache` still write the old `<sha>/<build-key>/` layout and `.parity/probe` for
+  manual use; no test reads them.
+* **No silent passes** (CK3, CCR-0148). A test skips only when an input is missing (`data/dump`,
+  the PoB checkout, `.parity`; `testkit::probe_inputs()` names what probing lacks), and that skip
+  fails under `POB_ORACLE_REQUIRE=1` / `CI` (`testkit::oracle_required()`; also with
+  `POB_ALLOW_SKIP=1`). With the inputs there, a probe that fails or dumps nothing for a build fails
+  the test, and every test asserts and prints how many cases it compared (> 0). Converted: OF-F,
+  DF-D, DF-F, DF-G, PF-F, ORC-X, P3; earlier: AS, ORC-X's replay.
 
 ### Environment
 
 | Variable | Effect |
 |---|---|
 | `POB_ORACLE_NOCACHE=1` | bypass: every query and probe runs PoB; nothing is read or written (same as `POB_QUERY_CACHE=off`) |
-| `POB_QUERY_CACHE=refresh` | run PoB again and overwrite the entries |
+| `POB_QUERY_CACHE=off` | as `POB_ORACLE_NOCACHE=1`; a probe runs into a private directory under `target/tmp/probe-off/` (an `oracle_dir` run under `target/tmp/oracle-dir-off/`), deleted when the returned handle (`BuildDumps`, `ProbeDumps`, `OracleDir`) is dropped: hold it while reading |
+| `POB_QUERY_CACHE=refresh` | run PoB again and overwrite the entries; probe and directory entries once per process (above) |
 | `POB_QUERY_CACHE=verify` or `POB_ORACLE_CACHE_VERIFY=1` | run PoB like `off`, compare each fresh result with the cached entry of its key (query text; a selection's list of dump files, since dumps carry a per-process run id), print every difference (`oracle cache verify: … differs …`), write nothing; `runner::query_cache_summary()` reports the counts |
+| `POB_PROBE_DIR=<dir>` | `probe_dumps` serves `<dir>/<stem>/state/` instead of the cache when it exists (test-specific overrides of the same kind: PF-C `$PFC_PROBE_DIR`, OF-B `$OFB_DUMP_DIR`) |
+| `POB_QUICK_CORPUS=1` | the quick corpus: `.parity-quick` (14 builds) when `$POB_PARITY_DIR` is not set (`oracle::find_parity_dir`, `pob_testpaths::parity_dir`; CCR-0147 §5.5), and the tests' quick-corpus policy (`pob_testpaths::quick_corpus`: corpus-size and exact-coverage checks are full-corpus only). `cargo.sh test` sets it (with `POB_PARITY_DIR`) in the main checkout; worktrees run the full corpus unless it is set |
+| `POB_FULL_SUITE=1` | `cargo.sh test` keeps the full corpus in the main checkout too |
+| `POB_ORACLE_REQUIRE=1` (or `CI`) | a missing input fails instead of skipping (above) |
 | `POB_TEST_PAR=N` | corpus pool workers (default 3; `1` = the serial loop on the test thread) |
 | `POB_ORACLE_SLOTS=N` | LuaJIT PoBs allowed at once machine-wide (default 1, calc doc D20; CCR-0127) |
 
 **Invalidate.** The keys cover the inputs, so editing PoB, a patch, a stages file, a probe or
-oracle script, the oracle runtime files or the LuaJIT version retires the affected entries by
-itself. To drop everything: bump `runner::ORACLE_CACHE_EPOCH`, or delete
-`.parity/probe-cache/*/*/query-*` and `sel-*` (nothing else depends on them). To check a cache
-against PoB: run the test once with `POB_QUERY_CACHE=verify` (or compare a run under
-`POB_ORACLE_NOCACHE=1` with a cached run: the reports must be the same).
+oracle script, the oracle runtime files, `runner.rs` / `bin/pob_oracle.rs` (selection entries) or
+the LuaJIT version retires the affected entries by itself. To drop everything: bump
+`runner::ORACLE_CACHE_EPOCH`, or delete `.parity/probe-cache/*/*/query-*`, `dir-*` and `sel-*`
+(nothing else depends on them). To check a cache against PoB: run the test once with
+`POB_QUERY_CACHE=verify` (or compare a run under `POB_ORACLE_NOCACHE=1` with a cached run: the
+reports must be the same).
 
 ### The corpus pool
 
@@ -281,10 +314,13 @@ Full corpus (57 builds; before = `.parity/fullsuite/20261111-1426/pob-oracle.log
 
 * Per-thread `unported!` counters (CCR-0128, rejected as not built) would let OF-B/D/E/F, CO-C and the other
   stub-reading L4 tests pool their Rust side.
-* Not on the shared cache yet: PF-B (three dependent probe runs, the second pruned in place),
-  CS3 (edits its patched copy after patching, so the patch sha does not describe it), MI,
-  OF-G/H/I, PF-A, SK-B, TR-A/B, P3, U0 (per-worktree probe directories); the OF-A fuzz and the
-  DF-A/CT/MP*/PS-*/LUT table queries run their LuaJIT side each time.
+* Every dump a test reads comes from the shared cache since CK1/CK2/CK3 (above). Still run
+  each time: the OF-A fuzz and the DF-A/CT/MP*/PS-*/LUT table queries (their LuaJIT side), and
+  the fresh-scratch self-checks (P3, U0).
+* `refresh` is once per process, not once per machine: two test binaries refreshing an entry
+  they share (OF-E and OF-F; DF-A..DF-G do not share) can still remove it under each other's
+  readers. Making the selection publish swap atomically across processes would change
+  `runner.rs`, which is part of every selection key (every entry would be re-probed).
 * `POB_QUERY_CACHE=verify` compares `cached_query` texts and selection dump lists; an
   `oracle_dir` entry (CS1) is only rerun (like `off`), not compared.
 
