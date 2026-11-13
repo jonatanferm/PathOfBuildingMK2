@@ -1,0 +1,55 @@
+# Compare allflame_exp_001 with a second build: open the Compare tab, import the comparison build from a build code (decode, load and recalc it), then the summary, tree, skills, items and calcs comparison views.
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 4
+wait-idle
+step open_tab
+move 116 98
+click LEFTBUTTON
+frames 3
+wait-idle
+expect-tab COMPARE
+step import_comparison
+move 717 48
+click LEFTBUTTON
+frames 2
+clipboard-build-code "Builds/upstream_Generals_Perforate_Zerker.xml"
+key-down CTRL
+press v
+key-up CTRL
+frames 1
+move 841 600
+click LEFTBUTTON
+frames 4
+expect-recalc
+step summary
+move 900 400
+frames 2
+wheel down 5
+frames 2
+wheel up 5
+frames 2
+step tree_view
+move 428 138
+click LEFTBUTTON
+frames 4
+move 1100 600
+frames 3
+step skills_view
+move 504 138
+click LEFTBUTTON
+frames 3
+step items_view
+move 580 138
+click LEFTBUTTON
+frames 3
+move 900 300
+frames 2
+step calcs_view
+move 655 138
+click LEFTBUTTON
+frames 3
+move 900 300
+frames 2

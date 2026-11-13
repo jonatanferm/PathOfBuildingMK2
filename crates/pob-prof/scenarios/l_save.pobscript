@@ -1,0 +1,45 @@
+# Open a DoT build (allflame_exp_016, Righteous Fire) from the build list with a double-click, change the character level (a recalc) and save with Ctrl+S (Build:SaveDB, the XML written to the user dir: in memory here), type a note in the Notes tab and save again with the Save button.
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 2
+wait-idle
+expect-mode LIST
+step open_from_list
+# double-click allflame_exp_016 in the build list: the build keeps its file name, so Save writes it
+move 700 131
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+wait-idle
+expect-mode BUILD
+expect-recalc
+snapshot loaded
+step edit_level
+move 945 14
+click LEFTBUTTON
+frames 2
+expect-recalc
+step save_ctrl_s
+key-down CTRL
+press s
+key-up CTRL
+frames 2
+expect-file-write
+snapshot saved
+expect-differs loaded saved
+step notes
+key-down CTRL
+press 6
+key-up CTRL
+frames 2
+expect-tab NOTES
+move 900 400
+click LEFTBUTTON
+frames 1
+type "Profiling note: level changed, saved twice."
+frames 2
+step save_button
+move 96 14
+click LEFTBUTTON
+frames 2
+expect-file-write

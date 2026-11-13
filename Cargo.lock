@@ -2168,6 +2168,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "pob-prof"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "dhat",
+ "image",
+ "pob-app",
+ "pob-calc",
+ "pob-gamedata",
+ "pob-host",
+ "pob-lua",
+ "pob-sg",
+ "pob-sg-wgpu",
+ "pollster",
+ "rustix 1.1.4",
+ "serde",
+ "serde_json",
+ "wgpu",
+]
+
+[[package]]
 name = "pob-sg"
 version = "0.0.1"
 dependencies = [

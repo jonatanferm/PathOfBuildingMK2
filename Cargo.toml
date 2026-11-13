@@ -28,6 +28,8 @@ members = [
     "app/pob-web",
     # Test-only input locator and skip policy (HYG1); dev-dependency only.
     "crates/pob-testpaths",
+    # The "regular use" profiling suite (PROF1): no PoB, no LuaJIT, no oracle crates.
+    "crates/pob-prof",
 ]
 
 [workspace.package]
@@ -192,3 +194,9 @@ opt-level = 1
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# The profiling suite (PROF1, docs/perf/PROFILING.md): the release profile plus line tables, so
+# perf/flamegraphs resolve symbols and source lines. Debug info does not change code generation.
+[profile.prof]
+inherits = "release"
+debug = "line-tables-only"

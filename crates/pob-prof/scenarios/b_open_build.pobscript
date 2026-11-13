@@ -1,0 +1,40 @@
+# Open builds of every archetype (load-build: main:SetMode("BUILD", false, name, xml), the build list's path without the file name; l_save opens one by double-click): the first open in the process is cold (the 3.29 tree's data and sprites, image decodes), the reopen of the same build is warm, then an attack build on an older tree (3.13: another tree loads), a minion build, a DoT build and a build with many items and two item sets.
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 3
+expect-mode LIST
+wait-idle
+step open_cold
+load-build "Builds/allflame_exp_001.xml"
+frames 4
+wait-idle
+expect-mode BUILD
+expect-recalc
+step open_warm
+load-build "Builds/allflame_exp_001.xml"
+frames 4
+wait-idle
+expect-recalc
+step open_attack_old_tree
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 4
+wait-idle
+expect-recalc
+step open_minion
+load-build "Builds/allflame_exp_032.xml"
+frames 4
+wait-idle
+expect-recalc
+step open_dot
+load-build "Builds/allflame_exp_016.xml"
+frames 4
+wait-idle
+expect-recalc
+step open_many_items
+load-build "Builds/allflame_exp_005.xml"
+frames 4
+wait-idle
+expect-recalc
+step idle_tree
+frames 20
+expect-no-recalc

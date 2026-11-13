@@ -1,0 +1,40 @@
+[package]
+name = "pob-prof"
+description = "Profiling suite of regular use (PROF1, docs/perf/PROFILING.md): replays .pobscript scenarios on the real PobApp with the Rust calc, headless (no raster, CPU raster or offscreen wgpu), and reports frame times, recalc latency, build load and startup time, allocations and peak RSS; compares runs against a baseline. No PoB, no LuaJIT, no oracle crates."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = []
+# dhat heap profiling of one `exec` run (writes dhat-heap.json; replaces the counting allocator).
+dhat-heap = ["dep:dhat"]
+
+[dependencies]
+pob-app.workspace = true
+pob-host.workspace = true
+# `raster`: the CPU reference rasteriser (render mode `cpu`, `inspect --png`).
+pob-sg = { workspace = true, features = ["raster"] }
+pob-sg-wgpu.workspace = true
+pob-gamedata.workspace = true
+pob-calc.workspace = true
+pob-lua.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+image.workspace = true
+pollster.workspace = true
+wgpu = { version = "=30.0.1", features = ["webgl"] }
+# Process CPU time (CLOCK_PROCESS_CPUTIME_ID), as pob-calc's INT-2 bench.
+rustix = { version = "1", features = ["time"] }
+dhat = { version = "0.3", optional = true }
+
+[[bin]]
+name = "pob-prof"
+path = "src/bin/pob-prof.rs"
+
+[lints]
+workspace = true

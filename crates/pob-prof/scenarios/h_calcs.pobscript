@@ -1,0 +1,63 @@
+# Calcs tab of an attack build (upstream_Generals_Perforate_Zerker, Perforate/General's Cry): hover cells (their breakdown popups), pin a breakdown by clicking, scroll the sections, and switch the shown socket group (a CALCS-mode recalc).
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 4
+wait-idle
+step open_tab
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+wait-idle
+expect-tab CALCS
+step hover_cells
+# Life total, Armour total, Strength, Fire Resist, Uses per second, Hit taken (physical)
+move 1210 322
+frames 2
+move 1450 286
+frames 2
+move 1210 92
+frames 2
+move 1430 92
+frames 2
+move 480 269
+frames 2
+move 600 592
+frames 2
+expect-no-recalc
+step pin_breakdown
+move 1210 322
+click LEFTBUTTON
+frames 3
+move 1100 800
+click LEFTBUTTON
+frames 2
+step scroll
+move 1100 600
+wheel down 5
+frames 2
+wheel down 5
+frames 2
+wheel up 10
+frames 2
+step switch_group
+move 600 92
+click LEFTBUTTON
+frames 2
+# Berserk
+move 520 145
+frames 1
+click LEFTBUTTON
+frames 3
+expect-recalc
+move 600 92
+click LEFTBUTTON
+frames 2
+# General's Cry, Perforate
+move 520 133
+frames 1
+click LEFTBUTTON
+frames 3
+expect-recalc 2

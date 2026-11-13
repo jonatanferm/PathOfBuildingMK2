@@ -1,0 +1,75 @@
+# Allocate and deallocate passive tree nodes one after another on a cluster-heavy spell build (allflame_exp_001, Ethereal Knives Elementalist, 27 cluster jewel lines); every click is a spec change and a full recalc, and the hover before it computes the tooltip's stat differences (misc calculator). Ends with undo/redo and a large deallocation (118 dependent nodes) and its undo.
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 4
+wait-idle
+# zoom in around the allocated path near the Witch start
+move 1290 250
+wheel up 3
+frames 3
+step alloc_adjacent
+# Intelligence, 1 point
+move 1245 313
+frames 2
+expect-misc
+click LEFTBUTTON
+frames 2
+expect-recalc
+step dealloc_adjacent
+click LEFTBUTTON
+frames 2
+expect-recalc
+step alloc_path
+# Intelligence, 2 points away
+move 1128 518
+frames 2
+click LEFTBUTTON
+frames 2
+expect-recalc
+step alloc_keystone
+# Solipsism (now 1 point away)
+move 1087 540
+frames 2
+expect-misc
+click LEFTBUTTON
+frames 2
+expect-recalc
+step dealloc_notable
+# Pain Attunement (allocated)
+move 1340 212
+frames 2
+expect-misc
+click LEFTBUTTON
+frames 2
+expect-recalc
+step undo_redo
+move 640 900
+frames 1
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+key-down CTRL
+press y
+key-up CTRL
+frames 2
+expect-recalc 3
+step dealloc_trunk
+# Dexterity next to the start: everything beyond it depends on it
+move 1213 195
+frames 2
+expect-misc
+click LEFTBUTTON
+frames 2
+expect-recalc
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+expect-recalc 2
