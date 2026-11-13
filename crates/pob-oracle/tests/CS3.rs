@@ -39,6 +39,11 @@
 //!   PoB's, our list is reordered to PoB's before the diff, pairing effects by granted-effect id,
 //!   and refs into it are rewritten; each effect is then diffed against its PoB counterpart.
 //!   Counted per reordered list);
+//! * `$keys order (object keys)` ([`object_key_order`], CS3FIX): a `$ref`-keyed table (e.g. an
+//!   effect's `isSupporting`) holding the same keys and values in another order. `$keys` are
+//!   written sorted by a content label of the key, and ours differs where the key's export does
+//!   (CCR-0145's `$enableGlobal2Nil` marker on the gems CS3 creates); the keys themselves are
+//!   compared where they are written in full;
 //! * `gem variant (CCR-0010)`: mods of a skill whose gem resolved to its `AltX`/`AltY` variant in
 //!   one of the two PoB processes (the oracle's, the data dump's);
 //! * `minion`: the minion's fresh `modDB` and the minion item set, which is not in the dump
@@ -992,6 +997,68 @@ fn prefix_through<'a>(path: &'a str, seg: &str) -> Option<&'a str> {
     Some(&path[..i + seg.len()])
 }
 
+/// `$keys order (object keys)`. A mismatch at or below the `[@i:key]` / `[@i]` entry of a
+/// table whose `$keys` entries are, on both sides, the same keys with the same values in another
+/// order, every key being a `$ref` to an object written in full elsewhere (CS3FIX).
+///
+/// Both dumpers write `$keys` sorted by a content label of the key (state_dump.lua `keyLabel` /
+/// `shallowLabel`; probe.rs `key_label` / `shallow_label`), not in `pairs` order. The labels
+/// differ where the export of a key object differs from PoB's: the CCR-0145 §4
+/// `$enableGlobal2Nil` marker on the gems CS3 creates for granted skills (CalcSetup.lua:1487-1503)
+/// sorts before every data member (allflame_exp_051: Aspect of Arakaali's label starts
+/// `$enableGlobal2Nil=true,…`, Lightning Arrow's `color=…`, so the two keys of the Arakaali
+/// support's `isSupporting` swap), and a typed nil-default (`noSupports=false`) could decide a
+/// label as well
+/// (PoB leaves it nil). Equal labels leave the order to `pairs` (address order; calc doc §3.4). Each
+/// key object is compared in full at the path its `$ref` names, so its label difference is
+/// reported (or explained) there; what this class accepts is only the entries' positions. No
+/// PoB code reads `isSupporting` in order: CalcActiveSkill.lua:150-151 writes it,
+/// GemSelectControl.lua:702-703 and CompareTab.lua:4179-4185 index it with one gem, and
+/// SkillsTab.lua:1380 only tests `next(...)`. Returns whether `path` is such an entry.
+fn object_key_order(path: &str, pob: &J, ours: &J) -> bool {
+    // `(key ref path, value)` of every `$keys` entry, or `None` when some key is not a `$ref`
+    fn entries(t: &J) -> Option<Vec<(&str, &J)>> {
+        let J::Array(keys) = t.as_object()?.get("$keys")? else {
+            return None;
+        };
+        keys.iter()
+            .map(|kv| match kv {
+                J::Array(kv) if kv.len() == 2 => Some((ref_path(&kv[0])?, &kv[1])),
+                _ => None,
+            })
+            .collect()
+    }
+    let strict = DiffOptions::strict();
+    // every `[@` step of the path, innermost first
+    let mut end = path.len();
+    while let Some(i) = path[..end].rfind("[@") {
+        end = i;
+        let t = &path[..i];
+        let (Some(a), Some(b)) = (lookup(pob, t), lookup(ours, t)) else {
+            continue;
+        };
+        let (Some(ea), Some(eb)) = (entries(a), entries(b)) else {
+            continue;
+        };
+        let distinct = |e: &[(&str, &J)]| {
+            e.iter()
+                .enumerate()
+                .all(|(i, (k, _))| e[..i].iter().all(|(k2, _)| k2 != k))
+        };
+        if ea.len() == eb.len()
+            && distinct(&ea)
+            && distinct(&eb)
+            && ea.iter().all(|(k, v)| {
+                eb.iter()
+                    .any(|(k2, v2)| k == k2 && diff_trees(v, v2, &strict).is_empty())
+            })
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// (unexplained, explained category counts).
 fn classify(
     mm: Vec<Mismatch>,
@@ -1089,6 +1156,11 @@ fn classify(
                     continue;
                 }
             }
+        }
+        // CCR-0149: our `$keys` labels carry the CCR-0145 markers
+        if object_key_order(&m.path, pob, ours) {
+            *why.entry("$keys order (object keys)").or_default() += 1;
+            continue;
         }
         let last = m.path.rsplit('.').next().unwrap_or("");
         // `$enableGlobal<n>Nil`: CCR-0145 §4's gem marker (calc gem literals with nil enableGlobal1/2)
@@ -1995,4 +2067,42 @@ fn cs3_l5_init_env() {
         fail, 0,
         "CS3 L5: {fail} stub-free runs mismatch (see stderr)"
     );
+}
+
+/// [`object_key_order`] accepts only a reordering of the same `$ref` keys with equal values
+/// (no data needed).
+#[test]
+fn cs3_object_key_order_class() {
+    use serde_json::json;
+    let tree = |keys: J| json!({ "env": { "a": { "isSupporting": { "$keys": keys } } } });
+    let (g1, g2) = (json!({ "$ref": "env.g1" }), json!({ "$ref": "env.g2" }));
+    // per mismatch of `ours` against `pob`: explained?
+    let run = |pob: &J, ours: &J| -> Vec<bool> {
+        diff_trees(pob, ours, &DiffOptions::strict())
+            .iter()
+            .map(|m| object_key_order(&m.path, pob, ours))
+            .collect()
+    };
+    let pob = tree(json!([[g1, true], [g2, true]]));
+    // the allflame_exp_051 shape: both keys reported, both explained
+    assert_eq!(
+        run(&pob, &tree(json!([[g2, true], [g1, true]]))),
+        vec![true, true]
+    );
+    // a value differs as well: nothing explained
+    let r = run(&pob, &tree(json!([[g2, true], [g1, false]])));
+    assert!(!r.is_empty() && r.iter().all(|x| !x), "{r:?}");
+    // another key set: nothing explained
+    let r = run(
+        &pob,
+        &tree(json!([[g2, true], [{ "$ref": "env.g3" }, true]])),
+    );
+    assert!(!r.is_empty() && r.iter().all(|x| !x), "{r:?}");
+    // a key written in full (not a `$ref`): nothing explained
+    let full = json!({ "nameSpec": "x" });
+    let r = run(
+        &tree(json!([[g1, true], [full, true]])),
+        &tree(json!([[full, true], [g1, true]])),
+    );
+    assert!(!r.is_empty() && r.iter().all(|x| !x), "{r:?}");
 }
