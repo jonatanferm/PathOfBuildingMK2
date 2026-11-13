@@ -1,0 +1,34 @@
+# Import/Export tab: generate this build's share code (XML, deflate, base64), paste a build code (validated as it is typed), and import it as a new build (decode, load, first recalc).
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 2
+load-build "Builds/allflame_exp_048.xml"
+frames 4
+wait-idle
+step open_tab
+move 70 46
+click LEFTBUTTON
+frames 3
+wait-idle
+expect-tab IMPORT
+step generate_code
+move 806 418
+click LEFTBUTTON
+frames 2
+# the generated code in its edit box (a zlib stream, base64: "eNr...")
+expect-text "eNr"
+step paste_code
+clipboard-build-code "Builds/allflame_exp_032.xml"
+move 480 528
+click LEFTBUTTON
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+expect-text "Code is valid"
+step import_new_build
+move 616 552
+click LEFTBUTTON
+frames 6
+expect-mode BUILD
+expect-recalc

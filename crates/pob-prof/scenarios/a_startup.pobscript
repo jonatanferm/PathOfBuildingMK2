@@ -1,0 +1,19 @@
+# App start to the build list: boot (data, fonts, Launch, Main:Init), the list of the 7 fixture builds, hover a few rows, idle.
+screen 1920 1080
+fixture userdir=../fixtures/user
+step first_frames
+frames 3
+expect-mode LIST
+step background_load
+wait-idle
+step list_hover
+move 700 91
+frames 3
+move 700 111
+frames 3
+move 700 131
+frames 3
+expect-mode LIST
+step list_idle
+frames 30
+expect-mode LIST

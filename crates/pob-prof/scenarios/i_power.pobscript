@@ -1,0 +1,36 @@
+# The node power heat map and the power report: turn on "Show Node Power" on allflame_exp_048 (Flicker Strike) and wait for the report (CalcsTab:BuildPower, resumed once per tree draw, yielding every 100 ms of work), open the power report list, change the character level with the heat map on (a recalc, then the whole report again), then the same heat map on a minion build (allflame_exp_032, Raise Spectre).
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 2
+load-build "Builds/allflame_exp_048.xml"
+frames 4
+wait-idle
+step heat_map
+move 1615 1066
+click LEFTBUTTON
+frames 1
+wait-power 3000
+expect-power
+step power_report_list
+move 1228 1066
+click LEFTBUTTON
+frames 3
+move 1100 500
+frames 3
+expect-text "Hide Power Report"
+step level_change_rebuild
+move 928 14
+click LEFTBUTTON
+frames 1
+expect-recalc
+wait-power 3000
+expect-power
+step heat_map_minion
+load-build "Builds/allflame_exp_032.xml"
+frames 4
+expect-recalc
+move 1615 1066
+click LEFTBUTTON
+frames 1
+wait-power 3000
+expect-power

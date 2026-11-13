@@ -1,0 +1,68 @@
+# Configuration tab of upstream_Dual_Wield_Cospris_CoC (Cyclone CoC): hover options (each tooltip runs the misc calculator with the option flipped), toggle player and enemy conditions, type a charge count, and scroll.
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 2
+load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
+frames 4
+wait-idle
+step open_tab
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+wait-idle
+expect-tab CONFIG
+step hover_options
+# each hover must compute its tooltip (cumulative misc calculator calls)
+# Power Charges, Onslaught, Arcane Surge, enemy Shocked, enemy Blinded
+move 573 332
+frames 2
+expect-misc 1
+move 573 442
+frames 2
+expect-misc 2
+move 573 464
+frames 2
+expect-misc 3
+move 1313 262
+frames 2
+expect-misc 4
+move 1313 130
+frames 2
+expect-misc 5
+expect-no-recalc
+step toggle_onslaught
+move 573 442
+click LEFTBUTTON
+frames 2
+click LEFTBUTTON
+frames 2
+expect-recalc 2
+step toggle_enemy_shocked
+move 1313 262
+click LEFTBUTTON
+frames 2
+click LEFTBUTTON
+frames 2
+expect-recalc 2
+step type_power_charges
+move 595 354
+click LEFTBUTTON
+frames 1
+type "2"
+frames 2
+press BACK
+frames 2
+# leave the box (click on the empty right side)
+move 1650 700
+click LEFTBUTTON
+frames 1
+expect-recalc
+step scroll
+# over the empty right side (a wheel over a number box would change it)
+move 1650 700
+wheel down 3
+frames 2
+wheel up 3
+frames 2
+expect-no-recalc

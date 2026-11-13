@@ -1,0 +1,71 @@
+# Skills tab of allflame_exp_001 (Ethereal Knives): select the main socket group, raise and lower a gem level, disable and re-enable a gem, add a support gem by typing its name (the gem list sorted by DPS: one misc calculation per candidate gem) and remove it again, then change the main skill in the sidebar and back.
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 4
+wait-idle
+step open_tab
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+wait-idle
+expect-tab SKILLS
+step select_group
+move 450 144
+click LEFTBUTTON
+frames 2
+# the selected group's gem slots (hovering the list only shows a tooltip)
+expect-text "Gem name:"
+step gem_level
+# Hypothermia level + then -
+move 1069 264
+click LEFTBUTTON
+frames 2
+move 1086 264
+click LEFTBUTTON
+frames 2
+expect-recalc 2
+step gem_toggle
+move 1186 264
+click LEFTBUTTON
+frames 2
+click LEFTBUTTON
+frames 2
+expect-recalc 2
+step add_support_type
+move 880 352
+click LEFTBUTTON
+frames 1
+type "con"
+frames 3
+expect-misc 20
+step add_support_pick
+press RETURN
+frames 3
+expect-recalc
+step remove_support
+move 721 352
+click LEFTBUTTON
+frames 3
+expect-recalc
+step main_skill
+move 150 142
+click LEFTBUTTON
+frames 2
+# Leap Slam, Arctic Armour, Righteous Fire
+move 150 216
+frames 1
+click LEFTBUTTON
+frames 3
+expect-recalc
+move 150 142
+click LEFTBUTTON
+frames 2
+# Ethereal Knives of the Massacre
+move 150 202
+frames 1
+click LEFTBUTTON
+frames 3
+expect-recalc 2

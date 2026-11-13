@@ -1,0 +1,80 @@
+# Items tab of a build with many items and two item sets (allflame_exp_005, Smite Luminary, 40 items): hover the equipped slots (item tooltips with stat differences), swap the helmet through its slot dropdown (hovering the candidate first) and back, switch the item set and back, and the weapon swap.
+screen 1920 1080
+fixture userdir=../fixtures/user
+frames 2
+load-build "Builds/allflame_exp_005.xml"
+frames 4
+wait-idle
+step open_tab
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+wait-idle
+expect-tab ITEMS
+step hover_slots
+# each hover must compute its tooltip (cumulative misc calculator calls)
+move 560 120
+frames 2
+expect-misc 1
+move 560 164
+frames 2
+expect-misc 2
+move 560 186
+frames 2
+expect-misc 3
+move 560 274
+frames 2
+expect-misc 4
+move 560 478
+frames 2
+expect-misc 5
+expect-no-recalc
+step swap_helmet
+move 560 164
+click LEFTBUTTON
+frames 2
+# The Broken Crown
+move 560 216
+frames 2
+click LEFTBUTTON
+frames 3
+expect-recalc
+step swap_helmet_back
+move 560 164
+click LEFTBUTTON
+frames 2
+# Death Star
+move 560 200
+frames 1
+click LEFTBUTTON
+frames 3
+expect-recalc
+step item_set
+move 510 50
+click LEFTBUTTON
+frames 2
+# Animate Guardian
+move 510 86
+frames 1
+click LEFTBUTTON
+frames 3
+expect-recalc
+step item_set_back
+move 510 50
+click LEFTBUTTON
+frames 2
+move 510 70
+frames 1
+click LEFTBUTTON
+frames 3
+expect-recalc
+step weapon_swap
+move 709 97
+click LEFTBUTTON
+frames 3
+expect-recalc
+move 689 97
+click LEFTBUTTON
+frames 3
+expect-recalc 2
