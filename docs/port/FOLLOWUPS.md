@@ -822,3 +822,29 @@ only for `POB_UI_CALC=lua` runs.
   `ambiguous_variant` does), or run a fresh Lua side twice on a mismatch and report an entry
   as stale only when the two fresh runs agree with each other and not with the entry. Until
   then, VERIFY failures in u20, u26, u29, u30, u38, u43 and u44 need triage against this list.
+
+## GOLD-PLAN
+
+1. docs/standalone/GOLDEN-PLAN.md §3.1 (lines 578-583, 599-605) and §4.2 (lines 846-853): the
+   recorder is told to reuse the probe cache (`QueryCache`, `cached_query`), and nothing says the
+   cache must be bypassed for runs 2..K or for `--verify`. The cache is content-addressed by query
+   (crates/pob-oracle/src/runner.rs:590-621, `$POB_QUERY_CACHE` with on/refresh/off/verify modes),
+   so all K runs of one build have the same key. An implementer who follows the plan as written
+   gets one cached PoB answer K times. That silently collapses the nondeterminism capture
+   (`$anyOf`, `$unordered`, the fuzz.defence `pairs` orders) to K=1. `--verify` then turns into a
+   cache read that trivially reproduces the committed files, so the 'determinism check' of §4.2
+   and the 'independent set of runs' claimed in §7 Risks are hollow. Fix: state that every
+   recording run after the first, and every `--verify` run, starts a fresh uncached PoB process
+   (`POB_QUERY_CACHE=off`, or a private cache dir per run), with the cache allowed only to resume
+   an interrupted run 1. Put the env setting in the §4.2 command as well.
+2. docs/standalone/GOLDEN-PLAN.md §1.6 (line 331) and §5 step 5 (line 1019):
+   `crates/pob-calc/tests/hyg1_len.rs` is deleted whole as a 'LUA-SEMANTICS test that calls real
+   LuaJIT', but one of its three tests needs no LuaJIT. `ctor_pairs_follow_field_order`
+   (hyg1_len.rs:412-455) is Rust against Rust: `Table::from_ctor`'s `pairs()` order against a
+   plain table that stores the fields in order. It guards the product's table iteration order,
+   the property many order-dependent goldens rely on. This is the same class of gap round 1 had
+   to close for the oracle crates: a PoB-free test lost with no disposition, while §5 step 5
+   claims 'nothing else'. Fix: move that test to its own file (e.g.
+   `crates/pob-calc/tests/ctor_pairs.rs`), name an owner (GOLD1 or GOLD13), and delete only the
+   two LuaJIT tests, `table_len_matches_luajit` and `table_len_with_string_keys`. Treat it the
+   way luastr's non-LuaJIT parts are already treated.
