@@ -18,8 +18,8 @@
 //! writes it into the item's untyped fields (`Item.extra`), as the calc doc's census does for
 //! other untyped item fields.
 //!
-//! `string.matchOrPattern` (Common.lua:1038-1079) has no port in a shared crate; [`match_or_pattern`]
-//! is a local one (CCR-0107 §3). `PCall` (L164-201) is `pob_lua::error::catch`.
+//! `string.matchOrPattern` (Common.lua:1038-1079) is the shared `pob_lua::string::matchOrPattern`
+//! (FUP7; CCR-0107 §3's local port is gone). `PCall` (L164-201) is `pob_lua::error::catch`.
 //!
 //! `self.itemsTab.build.calcsTab:GetMiscCalculator()` (L258) is the facade's `misc_calculator`
 //! (CalcsTab.lua:760-762 returns the calculator BuildOutput made), not U20's per-recalc
@@ -48,9 +48,9 @@
 
 use std::rc::Rc;
 
-use indexmap::IndexMap;
 use pob_calc::modules::power::{powerStat_table, GetFromOutput};
 use pob_lua::math::{m_floor, m_max};
+use pob_lua::string::matchOrPattern;
 use pob_lua::{n, pattern};
 use pob_ui_core::controls::drop_down::{DropDownControl, DropItem};
 use pob_ui_core::controls::list::{ListControl, ListData, ListHooks, ListValue};
@@ -143,90 +143,17 @@ fn lua_lt(a: &SortVal, b: &SortVal) -> bool {
     }
 }
 
-/// `string.matchOrPattern(self, pattern)` (Common.lua:1038-1079; CCR-0107 §3 local port).
-pub fn match_or_pattern(s: &str, pat: &str) -> bool {
-    // Common.lua:1039
-    fn generate_or_patterns(pat: &str) -> IndexMap<String, ()> {
-        // Common.lua:1040
-        let mut sub_groups: Vec<(usize, usize, IndexMap<String, ()>)> = Vec::new();
-        // Common.lua:1041 (`subGroups[index]` is always nil at the lookup: init 1)
-        // Common.lua:1043
-        let groups: Vec<String> = pattern::gmatch(pat, "%b()")
-            .map(|c| c[0].to_str().into_owned())
-            .collect();
-        for sub_group in groups {
-            // Common.lua:1044
-            let (open, close, _) = pattern::find(pat, &sub_group, Some(1), true)
-                .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on a nil value"));
-            // Common.lua:1045
-            let inner = pob_lua::string::sub(&sub_group, 2, Some(-2)).into_owned();
-            sub_groups.push((open, close, generate_or_patterns(&inner)));
-        }
-        // generate complete patterns from the subGroup patterns
-        // Common.lua:1050
-        let first_open = sub_groups.first().map_or(0, |g| g.0) as i64;
-        let mut generated: Vec<String> =
-            vec![pob_lua::string::sub(pat, 1, Some(first_open - 1)).into_owned()];
-        // Common.lua:1051
-        for (i, (_open, close, patterns)) in sub_groups.iter().enumerate() {
-            // Common.lua:1052
-            let next_open = sub_groups.get(i + 1).map_or(0, |g| g.0) as i64;
-            let regular_next_string =
-                pob_lua::string::sub(pat, *close as i64 + 1, Some(next_open - 1)).into_owned();
-            // Common.lua:1053
-            let mut temp: Vec<String> = Vec::new();
-            // Common.lua:1054
-            for sub_pattern in &generated {
-                // Common.lua:1055
-                for sub_group_pattern in patterns.keys() {
-                    // Common.lua:1056
-                    temp.push(format!(
-                        "{sub_pattern}{sub_group_pattern}{regular_next_string}"
-                    ));
-                }
-            }
-            // Common.lua:1059
-            generated = temp;
-        }
-        // apply | operators
-        // Common.lua:1063
-        let mut or_patterns: IndexMap<String, ()> = IndexMap::new();
-        // Common.lua:1064
-        for generated_pattern in &generated {
-            // Common.lua:1065
-            for c in pattern::gmatch(generated_pattern, "[^|]+") {
-                // Common.lua:1066
-                or_patterns.insert(c[0].to_str().into_owned(), ());
-            }
-        }
-        // Common.lua:1069
-        or_patterns
-    }
-    // Common.lua:1072
-    let or_patterns = generate_or_patterns(pat);
-    // Common.lua:1073
-    for or_pattern in or_patterns.keys() {
-        // Common.lua:1074
-        if pattern::r#match(s, or_pattern, None).is_some() {
-            // Common.lua:1075
-            return true;
-        }
-    }
-    // Common.lua:1078
-    false
-}
-
 /// `local err, match = PCall(string.matchOrPattern, s, p)`; `not err and match`.
 #[cfg(not(target_arch = "wasm32"))]
 fn pcall_match(s: &str, p: &str) -> bool {
-    pob_lua::error::catch(|| match_or_pattern(s, p)).unwrap_or(false)
+    pob_lua::error::catch(|| matchOrPattern(s, p)).unwrap_or(false)
 }
 
 /// DIVERGENCE(wasm-pcall): wasm32 is panic=abort (calc doc D15), so a malformed search pattern
 /// aborts there instead of matching nothing.
 #[cfg(target_arch = "wasm32")]
 fn pcall_match(s: &str, p: &str) -> bool {
-    match_or_pattern(s, p)
+    matchOrPattern(s, p)
 }
 
 /// `ItemDBControl`: the unique or rare template database list.

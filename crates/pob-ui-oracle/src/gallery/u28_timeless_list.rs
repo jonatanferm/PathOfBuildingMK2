@@ -7,9 +7,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use pob_app::model::{Item, ItemRef, LStr, NodeRef, Table, Val};
-use pob_app::tabs::tree::timeless_list::{
-    math_randomseed, ItemBaseRef, TimelessBuild, TimelessJewelListControl,
-};
+use pob_app::tabs::tree::timeless_list::{ItemBaseRef, TimelessBuild, TimelessJewelListControl};
+use pob_lua::math::m_randomseed;
 use pob_host::{App, PlatformParts};
 use pob_lua::format::tostring_num;
 use pob_ui_core::controls::{ButtonControl, LabelControl};
@@ -219,7 +218,7 @@ pub fn app(parts: PlatformParts) -> Box<dyn App> {
         parts,
         |cx, host| {
             // the oracle seeds LuaJIT's PRNG with 0 (determinism patch 2)
-            math_randomseed(0.0);
+            m_randomseed(0.0);
             let (build, shared) = fake_build();
             // the ListControl constructs the first Tooltip: Classes/Tooltip.lua loads
             module_load(cx);

@@ -32,7 +32,7 @@
 //! * `utf8.next` on the Lua side (as u22), `spec.modFlag` and `TreeTab:GetSpecList` (as u22);
 //!   the items, skills and config tabs' `modFlag` (UndoHandler.lua:37, set by U44's
 //!   `TabSeams` stand-ins through `ShellHooks::set_tab_flag`) on the Rust side, as `spec.modFlag`;
-//! * SimpleGraphic's `Deflate`/`Inflate` on the Lua side bound to the port's (as u43);
+//! * SimpleGraphic's `Deflate`/`Inflate` are `pob_gamedata::sg_zlib` on both sides (as u43);
 //! * `os.time()` on the Rust side is the oracle's virtual clock (determinism.lua);
 //! * Net completions on the Rust side are handed to `App::on_net` at the start of the next
 //!   `on_frame` (as u43, CCR-0109 §8).
@@ -315,29 +315,6 @@ fn directives(text: &str, name: &str) -> Vec<String> {
 
 // ---- the Lua side ----
 
-/// SimpleGraphic's `Deflate` / `Inflate` (`ui_api.cpp` `l_Deflate`: zlib, level 9; `l_Inflate`:
-/// a zlib stream or `nil, msg`), bound to the port's functions (see the module notes).
-fn install_sg_zlib(lua: &mlua::Lua) -> mlua::Result<()> {
-    use pob_app::tabs::import::core::{deflate, inflate};
-    let g = lua.globals();
-    g.set(
-        "Deflate",
-        lua.create_function(|lua, data: mlua::String| {
-            lua.create_string(deflate(&data.as_bytes()))
-        })?,
-    )?;
-    g.set(
-        "Inflate",
-        lua.create_function(|lua, data: mlua::String| {
-            Ok(match inflate(&data.as_bytes()) {
-                Some(out) => (Some(lua.create_string(out)?), None),
-                None => (None, Some("data error".to_owned())),
-            })
-        })?,
-    )?;
-    Ok(())
-}
-
 struct LuaSide {
     app: LuaApp,
 }
@@ -352,10 +329,7 @@ impl App for LuaSide {
     fn on_init(&mut self) {
         self.app.on_init();
         self.app
-            .with_vm(|pob| {
-                pob.eval::<()>(LUA_STUBS)?;
-                install_sg_zlib(&pob.lua)
-            })
+            .with_vm(|pob| pob.eval::<()>(LUA_STUBS))
             .unwrap_or_else(|e| panic!("Lua stubs: {e}"));
     }
     fn on_frame(&mut self) {

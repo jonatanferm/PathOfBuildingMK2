@@ -37,9 +37,9 @@
 //! * `ComparePowerReportListControl` (U48) draws nothing on both sides (the Lua instance's `Draw`
 //!   is replaced; the Rust side installs U46's placeholder control, which has an empty `Draw`,
 //!   instead of U48's control: CCR-0138 §4);
-//! * every other tab's `Draw` draws nothing (as u22), u22's `utf8.next`, and u43's
-//!   `Deflate`/`Inflate` rebinding of the Lua globals (the oracle's natives return "" for a
-//!   failed stream, so an invalid code would read as valid).
+//! * every other tab's `Draw` draws nothing (as u22) and u22's `utf8.next`. `Deflate`/`Inflate`
+//!   are `pob_gamedata::sg_zlib` on both sides (the oracle's natives since FUP7), so an invalid
+//!   code reads as invalid on both.
 
 #![allow(non_snake_case, clippy::too_many_lines)]
 
@@ -269,26 +269,6 @@ function b:Init(...)
 	end
 end
 "#;
-
-/// SimpleGraphic's `Deflate` / `Inflate` (`ui_api.cpp`), bound to the port's functions (u43).
-fn install_sg_zlib(lua: &mlua::Lua) -> mlua::Result<()> {
-    use pob_app::tabs::import::core::{deflate, inflate};
-    let g = lua.globals();
-    g.set(
-        "Deflate",
-        lua.create_function(|lua, data: mlua::String| lua.create_string(deflate(&data.as_bytes())))?,
-    )?;
-    g.set(
-        "Inflate",
-        lua.create_function(|lua, data: mlua::String| {
-            Ok(match inflate(&data.as_bytes()) {
-                Some(out) => (Some(lua.create_string(out)?), None),
-                None => (None, Some("data error".to_owned())),
-            })
-        })?,
-    )?;
-    Ok(())
-}
 
 // ---- the Rust stand-ins ----
 
@@ -599,10 +579,7 @@ impl App for LuaSide {
     fn on_init(&mut self) {
         self.app.on_init();
         self.app
-            .with_vm(|pob| {
-                pob.eval::<()>(LUA_STUBS)?;
-                install_sg_zlib(&pob.lua)
-            })
+            .with_vm(|pob| pob.eval::<()>(LUA_STUBS))
             .unwrap_or_else(|e| panic!("Lua stubs: {e}"));
     }
     fn on_frame(&mut self) {

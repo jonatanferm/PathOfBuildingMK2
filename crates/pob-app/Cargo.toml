@@ -20,12 +20,10 @@ pob-gamedata.workspace = true
 indexmap.workspace = true
 # The tree view's asset and sprite maps (U53 perf pass)
 ahash.workspace = true
-# SimpleGraphic's `Inflate` (PartyTab code import, U45; CCR-0114 §3)
-flate2.workspace = true
-# U43 (ImportTab): dkjson.decode, PoEAPI's sha2, SimpleGraphic's Deflate/Inflate (zlib streams).
+# U43 (ImportTab): dkjson.decode, PoEAPI's sha2. SimpleGraphic's Deflate/Inflate are
+# pob-gamedata's `sg_zlib` (FUP7).
 serde_json.workspace = true
 sha2 = "0.10"
-miniz_oxide = "0.8"
 
 # U54 (WorkerCalc, calc/worker_web.rs): the Web Worker, its message events, the data fetches and
 # the worker's panic hook (calc doc D15).

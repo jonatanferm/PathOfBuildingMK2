@@ -1,6 +1,6 @@
 //! Port of PathOfBuilding v2.67.2 (16de4b82d) src/Classes/NotableDBControl.lua 1-293
-//! (`newClass("NotableDBControl", "ListControl")`), plus `string:matchOrPattern`
-//! (Modules/Common.lua:1038-1079; ui doc §13 item 15: the first consuming unit ports it).
+//! (`newClass("NotableDBControl", "ListControl")`). `string:matchOrPattern` (Modules/Common.lua:
+//! 1038-1079) is the shared `pob_lua::string::matchOrPattern` (FUP7; U28 ported it first here).
 //! Owner: U28.
 //!
 //! @pob-file Classes/NotableDBControl.lua @16de4b82d
@@ -35,9 +35,9 @@
 //!   list is sorted afterwards (L166) by `dn`, after `measuredPower` in stat mode: a total order
 //!   unless two anointable notables share a name and a power, which no tree has (resolution (c)).
 //! - ORDER: `matchOrPattern` iterates string-keyed sets with `pairs` (Common.lua:1053, 1073);
-//!   Rust keeps their insertion order. The result is "does any alternative match", so the order
-//!   matters only when one alternative is a malformed pattern and another matches: PoB's answer
-//!   then depends on which `pairs` reaches first (resolution (c), documented here).
+//!   the shared port keeps their insertion order. The result is "does any alternative match", so
+//!   the order matters only when one alternative is a malformed pattern and another matches:
+//!   PoB's answer then depends on which `pairs` reaches first (resolution (c)).
 //! - L36-L37 `ListControl(anchor, rect, 16, "VERTICAL", false)`: `scroll` is the truthy string
 //!   "VERTICAL" (`scroll_h` false). L38's dropdown gets `self.sortDropList` as its list, which
 //!   BuildSortOrder later wipes and refills in place: the Rust dropdown owns its `Vec`, so
@@ -58,7 +58,8 @@ use std::task::Poll;
 
 use pob_lua::format::tostring_num;
 use pob_lua::math::{m_floor, m_max};
-use pob_lua::pattern::{self, Capture};
+use pob_lua::pattern;
+use pob_lua::string::matchOrPattern;
 use pob_ui_core::controls::drop_down::{DropDownControl, DropItem, SelFunc};
 use pob_ui_core::controls::edit::{EditArgs, EditControl};
 use pob_ui_core::controls::list::{ListControl, ListData, ListHooks, ListValue};
@@ -184,112 +185,6 @@ fn pcall<R>(f: impl FnOnce() -> R) -> Result<R, String> {
     {
         Ok(f())
     }
-}
-
-/// The whole match of a capture-less pattern (gmatch results).
-fn whole(c: &pattern::Captures<'_>) -> String {
-    match c.first() {
-        Some(Capture::Str(b)) => String::from_utf8_lossy(b).into_owned(),
-        Some(Capture::Pos(p)) => tostring_num(*p as f64),
-        None => String::new(),
-    }
-}
-
-/// lua: Common.lua:1038-1079 `string:matchOrPattern(pattern)`: `s` matches one of the
-/// alternatives (`a|b`, with `(..)` groups expanded) of `pattern`. Raises like `string.match`
-/// on a malformed alternative.
-/// @pob Modules/Common.lua:1038-1079 h=f7b8bae7
-pub fn matchOrPattern(s: &str, pattern: &str) -> bool {
-    struct SubGroup {
-        open: f64,
-        close: f64,
-        patterns: Vec<String>,
-    }
-    // L1039
-    fn generateOrPatterns(pattern: &str) -> Vec<String> {
-        // L1040
-        let mut subGroups: Vec<SubGroup> = Vec::new();
-        // L1041
-        let mut index = 1usize;
-        // find and call generate patterns on all subGroups
-        // L1043
-        let groups: Vec<String> = pattern::gmatch(pattern, "%b()").map(|c| whole(&c)).collect();
-        for subGroup in groups {
-            // L1044 (`subGroups[index]` is always nil here: index is #subGroups + 1)
-            let init = subGroups.get(index - 1).map_or(1.0, |g| g.close);
-            let (open, close) = match pattern::find(pattern, &subGroup, Some(init as i64), true) {
-                Some((a, b, _)) => (a as f64, b as f64),
-                None => lua_error!("attempt to perform arithmetic on local 'open' (a nil value)"),
-            };
-            // L1045
-            let inner = pob_lua::string::sub(&subGroup, 2, Some(-2)).into_owned();
-            subGroups.push(SubGroup {
-                open,
-                close,
-                patterns: generateOrPatterns(&inner),
-            });
-            // L1046
-            index += 1;
-        }
-
-        // generate complete patterns from the subGroup patterns
-        // L1050
-        let first_open = subGroups.first().map_or(0.0, |g| g.open);
-        let mut generatedPatterns: Vec<String> =
-            vec![pob_lua::string::sub(pattern, 1, Some(first_open as i64 - 1)).into_owned()];
-        // L1051
-        for (i, subGroup) in subGroups.iter().enumerate() {
-            // L1052
-            let next_open = subGroups.get(i + 1).map_or(0.0, |g| g.open);
-            let regularNextString = pob_lua::string::sub(
-                pattern,
-                subGroup.close as i64 + 1,
-                Some(next_open as i64 - 1),
-            )
-            .into_owned();
-            // L1053
-            let mut tempPatterns = Vec::new();
-            // L1054
-            for subPattern in &generatedPatterns {
-                // L1055 (ORDER: string keys, insertion order; module docs)
-                for subGroupPattern in &subGroup.patterns {
-                    // L1056
-                    tempPatterns.push(format!("{subPattern}{subGroupPattern}{regularNextString}"));
-                }
-            }
-            // L1059
-            generatedPatterns = tempPatterns;
-        }
-
-        // apply | operators
-        // L1063
-        let mut orPatterns: Vec<String> = Vec::new();
-        // L1064
-        for generatedPattern in &generatedPatterns {
-            // L1065
-            for orPattern in pattern::gmatch(generatedPattern, "[^|]+").map(|c| whole(&c)) {
-                // L1066 store string as key to avoid duplicates.
-                if !orPatterns.contains(&orPattern) {
-                    orPatterns.push(orPattern);
-                }
-            }
-        }
-        // L1069
-        orPatterns
-    }
-
-    // L1072
-    let orPatterns = generateOrPatterns(pattern);
-    // L1073 (ORDER: see the module docs)
-    for orPattern in &orPatterns {
-        // L1074
-        if pattern::r#match(s, orPattern, None).is_some() {
-            // L1075
-            return true;
-        }
-    }
-    // L1078
-    false
 }
 
 // ---- the control -------------------------------------------------------------------------------
@@ -1029,8 +924,8 @@ impl Widget for NotableDBControl {
 #[cfg(test)]
 mod tests {
     //! The sort coroutine (yield points, progress text, final order, infinite powers), the row
-    //! colours, the filters and `matchOrPattern` against LuaJIT. The draw path is the gallery's
-    //! (`pob-ui-oracle`, `u28_notable`).
+    //! colours and the filters (`matchOrPattern` has its L0 test in `pob-lua`, `l0_string.rs`). The
+    //! draw path is the gallery's (`pob-ui-oracle`, `u28_notable`).
     use std::cell::RefCell;
 
     use pob_host::headless::{services, Headless, HeadlessState};
@@ -1042,36 +937,6 @@ mod tests {
     impl Widget for Host {
         const NAME: &'static str = "ControlHost";
         const CAPS: Caps = Caps::empty();
-    }
-
-    /// (s, pattern, result) from LuaJIT 2.1 running Common.lua:1038-1079 verbatim.
-    const MATCH_OR_PATTERN: &[(&str, &str, bool)] = &[
-        ("fire damage", "fire|cold", true),
-        ("cold", "(fire|cold) res", false),
-        ("cold res", "(fire|cold) res", true),
-        ("abc", "a(b|x)c", true),
-        ("axc", "a(b|x)c", true),
-        ("ayc", "a(b|x)c", false),
-        ("abd", "(a(b|c))d", true),
-        ("acd", "(a(b|c))d", true),
-        ("ad", "(a(b|c))d", false),
-        ("x", "()", false),
-        ("life", "li%a+", true),
-        ("mana", "(x|y)(m|n)ana", false),
-        ("ymana", "(x|y)(m|n)ana", true),
-        // the second group is found at the first occurrence (Common.lua:1044 always starts at 1)
-        ("cold cold", "(cold) (cold)", false),
-        ("", "a|", false),
-        ("b", "|b", true),
-    ];
-
-    #[test]
-    fn match_or_pattern_matches_luajit() {
-        for &(s, p, want) in MATCH_OR_PATTERN {
-            assert_eq!(matchOrPattern(s, p), want, "{s:?} {p:?}");
-        }
-        let err = pcall(|| matchOrPattern("zz", "[a")).expect_err("malformed");
-        assert!(err.contains("malformed pattern (missing ']')"), "{err}");
     }
 
     #[test]

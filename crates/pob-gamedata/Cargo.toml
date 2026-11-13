@@ -17,7 +17,8 @@ indexmap.workspace = true
 ahash.workspace = true
 ustr = { workspace = true, features = ["serde"] }
 postcard = { version = "1", default-features = false, features = ["alloc"] }
-# SimpleGraphic `Inflate` for the timeless jewel LUT files (timeless_lut.rs, LUT; pure Rust, wasm-safe)
+# SimpleGraphic `Inflate`/`Deflate` (sg_zlib.rs, FUP7: the timeless jewel LUT files, the build codes,
+# the LuaJIT oracle's natives; pure Rust, wasm-safe)
 miniz_oxide = "0.8"
 
 [dev-dependencies]

@@ -34,9 +34,10 @@
 //!   for the Rust insertion sequence. A contiguous `1..n` set of indices always ends in the array
 //!   part (any insertion order), so the lines come out in index order on both sides; holes in
 //!   `desiredIdx` can differ (resolution (b): such tooltips are per-process random in PoB).
-//! - L133-134 `m_random(2, 17)`: LuaJIT's `math.random` (`lib_math.c`, TW223) is ported here as
-//!   [`math_random`] until pob-lua has it (CCR-0033 §3, A8 needs-code item 10). Its state starts
-//!   as after `math.randomseed(0)`, which is what the UI oracle's determinism patch 2 sets.
+//! - L133-134 `m_random(2, 17)`: LuaJIT's `math.random` (`lib_math.c`, TW223) is
+//!   `pob_lua::math::m_random` (FUP7; CCR-0033 §3, A8 needs-code item 10; U29's local copy is
+//!   gone). Its state starts as after `math.randomseed(0)`, which is what the UI oracle's
+//!   determinism patch 2 sets.
 //!   DIVERGENCE(prng-seed): an unpatched PoB on LuaJIT ≥ 2.1.0-beta3+prng starts from
 //!   `lj_prng_seed_fixed` instead, so the variant it picks first can differ.
 //! - Props with side effects (ui doc §7.3): none.
@@ -47,7 +48,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use pob_lua::format::tostring_num;
-use pob_lua::math::{lmod, m_max, m_min};
+use pob_lua::math::{lmod, m_max, m_min, m_random};
 use pob_ui_core::controls::list::{ListControl, ListData, ListHooks, ListSource, ListValue, ValKey};
 use pob_ui_core::controls::scroll_bar::ScrollBarControl;
 use pob_ui_core::prelude::*;
@@ -261,69 +262,6 @@ pub fn row_of(v: &ListValue) -> Table {
     v.get::<Table>()
         .cloned()
         .unwrap_or_else(|| lua_error!("TimelessJewelListControl: a row that is not a table"))
-}
-
-// ---- LuaJIT math.random (lib_math.c; CCR-0033 §3) --------------------------------------------
-
-thread_local! {
-    // CCR-0033 §3: until pob-lua ports `math.random`. State after `math.randomseed(0)`.
-    static PRNG: RefCell<Option<[u64; 4]>> = const { RefCell::new(None) };
-}
-
-/// lj_prng.c TW223_STEP: one step of the Tausworthe generator, the running xor of its states.
-fn tw223_step(u: &mut [u64; 4]) -> u64 {
-    let mut r = 0u64;
-    for (i, (k, q, s)) in [(63u32, 31u32, 18u32), (58, 19, 28), (55, 24, 7), (47, 21, 8)]
-        .into_iter()
-        .enumerate()
-    {
-        let mut z = u[i];
-        z = (((z << q) ^ z) >> (k - s)) ^ ((z & (u64::MAX << (64 - k))) << s);
-        r ^= z;
-        u[i] = z;
-    }
-    r
-}
-
-/// lib_math.c random_seed(rs, d)
-fn random_seed_state(mut d: f64) -> [u64; 4] {
-    let mut u = [0u64; 4];
-    // 64-k[i] as four 8 bit constants.
-    let mut r: u32 = 0x1109_0601;
-    for slot in &mut u {
-        let m = 1u64 << (r & 255);
-        r >>= 8;
-        // 3.14159265358979323846, 2.7182818284590452354 (the same doubles)
-        d = d * std::f64::consts::PI + std::f64::consts::E;
-        let mut bits = d.to_bits();
-        // Ensure k[i] MSB of u[i] are non-zero.
-        if bits < m {
-            bits += m;
-        }
-        *slot = bits;
-    }
-    for _ in 0..10 {
-        tw223_step(&mut u);
-    }
-    u
-}
-
-/// `math.randomseed(d)` for [`math_random`]'s state.
-pub fn math_randomseed(d: f64) {
-    PRNG.with(|p| *p.borrow_mut() = Some(random_seed_state(d)));
-}
-
-/// `math.random(r1, r2)` (lib_math.c math_random, two-argument form): an integer in `[r1, r2]`.
-pub fn math_random(r1: f64, r2: f64) -> f64 {
-    PRNG.with(|p| {
-        let mut p = p.borrow_mut();
-        let u = p.get_or_insert_with(|| random_seed_state(0.0));
-        // lj_prng_u64d: a double bit pattern in the range 1.0 <= d < 2.0
-        let r = tw223_step(u);
-        let d = f64::from_bits((r & 0x000f_ffff_ffff_ffff) | 0x3ff0_0000_0000_0000) - 1.0;
-        // d is an int in range [r1, r2]
-        (d * (r2 - r1 + 1.0)).floor() + r1
-    })
 }
 
 // ---- the control ------------------------------------------------------------------------------
@@ -549,14 +487,14 @@ Historic\n"
             let mut alt_variant = if !dv1.raw_eq(&Val::Num(1.0)) && dv1.truthy() {
                 dv1
             } else {
-                lor(data.get("altVariant"), || Val::Num(math_random(2.0, 17.0)))
+                lor(data.get("altVariant"), || Val::Num(m_random(Some(2.0), Some(17.0))))
             };
             // L134
             let dv2 = shared.get("devotionVariant2").get("id");
             let alt_variant2 = if !dv2.raw_eq(&Val::Num(1.0)) && dv2.truthy() {
                 dv2
             } else {
-                lor(data.get("altVariant2"), || Val::Num(math_random(2.0, 17.0)))
+                lor(data.get("altVariant2"), || Val::Num(m_random(Some(2.0), Some(17.0))))
             };
             // L135
             if alt_variant.raw_eq(&alt_variant2) {
@@ -1018,22 +956,6 @@ impl Widget for TimelessJewelListControl {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// `math.randomseed(s)` then `math.random(2, 17)` under LuaJIT 2.1.1788856981 (/usr/bin/luajit):
-    /// `luajit -e 'math.randomseed(0) for i=1,8 do io.write(math.random(2,17)," ") end'` prints
-    /// `14 13 11 14 3 12 7 13`; seed 12.5 gives `9 13 2 7`.
-    #[test]
-    fn prng_matches_luajit() {
-        math_randomseed(0.0);
-        let got: Vec<f64> = (0..8).map(|_| math_random(2.0, 17.0)).collect();
-        assert_eq!(got, vec![14.0, 13.0, 11.0, 14.0, 3.0, 12.0, 7.0, 13.0]);
-        math_randomseed(12.5);
-        let got: Vec<f64> = (0..4).map(|_| math_random(2.0, 17.0)).collect();
-        assert_eq!(got, vec![9.0, 13.0, 2.0, 7.0]);
-        // the state starts as after randomseed(0)
-        PRNG.with(|p| *p.borrow_mut() = None);
-        assert_eq!(math_random(2.0, 17.0), 14.0);
-    }
 
     #[test]
     fn t_concat_and_cat() {

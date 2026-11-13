@@ -1340,6 +1340,10 @@ mod imp {
         ModVec(Shared<Vec<ModRef>>),
         GemList(Shared<Vec<GemInstanceRef>>),
         NodeMap(Shared<LjIntMap<NodeRef>>),
+        /// A bare node-id map (`node.nodesInRadius[i]`, `env.radiusJewelList[i].nodes`; CCR-0024
+        /// §3 types it `Val::Obj(Rc<LjIntMap<NodeRef>>)`): exported like [`PObj::NodeMap`], with
+        /// its own identity (FUP7, CCR-0140 §1).
+        NodeIdMap(Rc<LjIntMap<NodeRef>>),
         BoolMap(Shared<LjIntMap<bool>>),
         ItemFlags(Shared<PtrMap<Item, bool>>),
         GemSet(Shared<PtrSet<GemInstance>>),
@@ -1401,6 +1405,7 @@ mod imp {
                 PObj::ExplodeList(s) => (33, sptr(s)),
                 PObj::FlaskSlots(s) => (34, sptr(s)),
                 PObj::ModSet(s) => (35, sptr(s)),
+                PObj::NodeIdMap(x) => (36, rc_ptr(x)),
             }
         }
 
@@ -1426,6 +1431,9 @@ mod imp {
                         SocketGroup => Group, Override => Override, CachedData => CacheEntry);
                     if let Ok(b) = o.clone().downcast::<Breakdown>() {
                         return Some(PObj::Breakdown((*b).clone()));
+                    }
+                    if let Ok(x) = o.clone().downcast::<LjIntMap<NodeRef>>() {
+                        return Some(PObj::NodeIdMap(x));
                     }
                     macro_rules! try_box {
                         ($($t:ty => $v:ident),*) => {$(
@@ -1482,6 +1490,7 @@ mod imp {
                 PObj::ExplodeList(s) => s.to_val(),
                 PObj::FlaskSlots(s) => s.to_val(),
                 PObj::ModSet(s) => s.to_val(),
+                PObj::NodeIdMap(x) => Val::Obj(x.clone()),
                 PObj::CacheEntry(e) => Val::Obj(e.clone()),
                 PObj::GlobalCache | PObj::CacheData | PObj::CacheMode(_) | PObj::Synth(_) => {
                     Val::Nil
@@ -1624,6 +1633,7 @@ mod imp {
                         PObj::ModVec(s) => s.is_empty(),
                         PObj::GemList(s) => s.is_empty(),
                         PObj::NodeMap(s) => s.with(|m| m.keys().is_empty()),
+                        PObj::NodeIdMap(x) => x.keys().is_empty(),
                         PObj::BoolMap(s) => s.with(|m| m.keys().is_empty()),
                         PObj::ItemFlags(s) => s.with(PtrMap::is_empty),
                         PObj::GemSet(s) => s.with(PtrSet::is_empty),
@@ -1788,6 +1798,11 @@ mod imp {
             PObj::GemList(s) => list_members(&mut m, &s.snapshot()),
             PObj::NodeMap(s) => {
                 for (k, v) in s.with(LjIntMap::pairs) {
+                    m.n(k as f64, v.to_val());
+                }
+            }
+            PObj::NodeIdMap(x) => {
+                for (k, v) in x.pairs() {
                     m.n(k as f64, v.to_val());
                 }
             }
@@ -2960,7 +2975,7 @@ mod imp {
             PObj::NameList(_) => Kind::NameList,
             PObj::ModVec(_) => Kind::ModVec,
             PObj::GemList(_) => Kind::GemList,
-            PObj::NodeMap(_) => Kind::NodeMap,
+            PObj::NodeMap(_) | PObj::NodeIdMap(_) => Kind::NodeMap,
             PObj::BoolMap(_) => Kind::BoolMap,
             PObj::ItemFlags(_) => Kind::ItemFlags,
             PObj::GemSet(_) => Kind::GemSet,

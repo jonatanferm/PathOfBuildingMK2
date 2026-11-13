@@ -29,24 +29,24 @@ use std::rc::Rc;
 use pob_lua::pattern;
 use pob_ui_core::controls::list::{ListControl, ListData, ListValue};
 use pob_ui_core::controls::{DropDownControl, DropItem, EditArgs, EditControl};
+use pob_lua::string::matchOrPattern;
 use pob_ui_core::prelude::*;
 
 use super::minion_list::{name_value, value_name, MinionListControl, HOOKS};
 use crate::model::{self, Name};
-use crate::tabs::items::item_db::match_or_pattern;
 
 // @pob-skip Classes/MinionSearchListControl.lua:1-13 reason="header comment, the table/string locals and newClass (the struct and Widget impl below)"
 
 /// `local err, match = PCall(string.matchOrPattern, s, p)`; `not err and match`.
 #[cfg(not(target_arch = "wasm32"))]
 fn pcall_match(s: &str, p: &str) -> bool {
-    pob_lua::error::catch(|| match_or_pattern(s, p)).unwrap_or(false)
+    pob_lua::error::catch(|| matchOrPattern(s, p)).unwrap_or(false)
 }
 
 /// DIVERGENCE(wasm-pcall): module notes.
 #[cfg(target_arch = "wasm32")]
 fn pcall_match(s: &str, p: &str) -> bool {
-    match_or_pattern(s, p)
+    matchOrPattern(s, p)
 }
 
 /// `MinionSearchListControl`: a [`MinionListControl`] with a search field and a filter mode.

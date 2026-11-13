@@ -28,11 +28,10 @@
 //!   after every `buildMode:Init`; the Rust side masks the Tree arm of `ShellHooks::draw_tab`,
 //!   the tab a build opens on);
 //! * `utf8.next` on the Lua side (as u22), `spec.modFlag` and `TreeTab:GetSpecList` (as u22);
-//! * SimpleGraphic's `Deflate`/`Inflate` on the Lua side: the oracle's natives (pob-oracle
-//!   `jit.rs`) use flate2's default level and fall back to raw deflate, returning `""` on
-//!   failure, where SG compresses at level 9 and returns nil (CCR-0109 §8). The test binds the
-//!   Lua globals to `pob_app::tabs::import::core::{deflate, inflate}` (SG's semantics), so both
-//!   sides produce the same code bytes and reject the same invalid input;
+//! * SimpleGraphic's `Deflate`/`Inflate`: both sides run `pob_gamedata::sg_zlib` (the oracle's
+//!   natives in pob-oracle `jit.rs` since FUP7: level 9, `nil, msg` for a failed stream), so
+//!   they produce the same code bytes and reject the same invalid input (the rebinding this
+//!   test did for CCR-0109 §8 is gone);
 //! * `os.time()` on the Rust side is the oracle's virtual clock (determinism.lua);
 //! * Net completions on the Rust side: the runner's `Driver::frame` drops `Net::poll` (its
 //!   pre-CCR-0026 placeholder, CCR-0109 §8), so the Rust side's Net is wrapped to hold them back
@@ -213,29 +212,6 @@ fn directives(text: &str, name: &str) -> Vec<String> {
 
 // ---- the Lua side ----
 
-/// SimpleGraphic's `Deflate` / `Inflate` (`ui_api.cpp` `l_Deflate`: zlib, level 9; `l_Inflate`:
-/// a zlib stream or `nil, msg`), bound to the port's functions (see the module notes).
-fn install_sg_zlib(lua: &mlua::Lua) -> mlua::Result<()> {
-    use pob_app::tabs::import::core::{deflate, inflate};
-    let g = lua.globals();
-    g.set(
-        "Deflate",
-        lua.create_function(|lua, data: mlua::String| {
-            lua.create_string(deflate(&data.as_bytes()))
-        })?,
-    )?;
-    g.set(
-        "Inflate",
-        lua.create_function(|lua, data: mlua::String| {
-            Ok(match inflate(&data.as_bytes()) {
-                Some(out) => (Some(lua.create_string(out)?), None),
-                None => (None, Some("data error".to_owned())),
-            })
-        })?,
-    )?;
-    Ok(())
-}
-
 struct LuaSide {
     app: LuaApp,
     /// `#! u43-arg LINK`: SimpleGraphic's `arg[1]` (the oracle sets `arg = {}`, pob-oracle
@@ -258,10 +234,7 @@ impl App for LuaSide {
         }
         self.app.on_init();
         self.app
-            .with_vm(|pob| {
-                pob.eval::<()>(LUA_STUBS)?;
-                install_sg_zlib(&pob.lua)
-            })
+            .with_vm(|pob| pob.eval::<()>(LUA_STUBS))
             .unwrap_or_else(|e| panic!("Lua stubs: {e}"));
     }
     fn on_frame(&mut self) {

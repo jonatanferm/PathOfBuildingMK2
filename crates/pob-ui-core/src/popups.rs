@@ -690,8 +690,8 @@ pub fn popup_process_input(cx: &mut Cx, popup: CtrlId, ev: &mut InputEvents, vp:
 }
 
 /// main:OnFrame's popup layer: the topmost popup over a 50 % black dim, at layer 10.
-/// lua: Main.lua:437-443
-/// @pob Modules/Main.lua:437-443 h=b0076251
+/// lua: Main.lua:437-443 (inside U16's `main_on_frame`, whose `@pob Modules/Main.lua:379-493`
+/// marker covers these lines; ui doc §10.5 "Provenance of split functions", FUP7)
 pub fn draw_popup_layer(cx: &mut Cx, vp: &ViewPort) {
     // L437
     if let Some(p) = cx.main.popups.first().copied() {

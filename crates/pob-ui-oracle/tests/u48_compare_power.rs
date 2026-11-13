@@ -42,7 +42,8 @@
 //! * the node and item tooltips of the list's `AddValueTooltip` (U24's AddNodeTooltip, U38's
 //!   AddItemTooltip) are two-line stand-ins on both sides (their own scenarios are u24/u38; the
 //!   real ones would ask the misc calculator for stat differences);
-//! * every other tab's `Draw` draws nothing (as u22), u22's `utf8.next`, u43's zlib rebinding.
+//! * every other tab's `Draw` draws nothing (as u22), u22's `utf8.next` (`Deflate`/`Inflate`
+//!   are `pob_gamedata::sg_zlib` on both sides, as u43).
 //!
 //! The virtual clock is constant within a frame, so neither side's builder yields on time
 //! (`GetTime() - start > 100` never holds): the report is built in the frame its metric is
@@ -297,26 +298,6 @@ function b:Init(...)
 	end
 end
 "#;
-
-/// SimpleGraphic's `Deflate` / `Inflate` (`ui_api.cpp`), bound to the port's functions (u43).
-fn install_sg_zlib(lua: &mlua::Lua) -> mlua::Result<()> {
-    use pob_app::tabs::import::core::{deflate, inflate};
-    let g = lua.globals();
-    g.set(
-        "Deflate",
-        lua.create_function(|lua, data: mlua::String| lua.create_string(deflate(&data.as_bytes())))?,
-    )?;
-    g.set(
-        "Inflate",
-        lua.create_function(|lua, data: mlua::String| {
-            Ok(match inflate(&data.as_bytes()) {
-                Some(out) => (Some(lua.create_string(out)?), None),
-                None => (None, Some("data error".to_owned())),
-            })
-        })?,
-    )?;
-    Ok(())
-}
 
 // ---- the Rust stand-ins ----
 
@@ -661,10 +642,7 @@ impl App for LuaSide {
     fn on_init(&mut self) {
         self.app.on_init();
         self.app
-            .with_vm(|pob| {
-                pob.eval::<()>(LUA_STUBS)?;
-                install_sg_zlib(&pob.lua)
-            })
+            .with_vm(|pob| pob.eval::<()>(LUA_STUBS))
             .unwrap_or_else(|e| panic!("Lua stubs: {e}"));
     }
     fn on_frame(&mut self) {

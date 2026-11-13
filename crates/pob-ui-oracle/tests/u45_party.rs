@@ -25,8 +25,10 @@
 //! clears the tab's `modFlag` at the next Draw); [`KeepPartyLastContent`] restores it around
 //! each bridge call (CCR-0114 §6), since PoB's calc never saves.
 //!
-//! Codes are pasted whole: the oracle's LuaJIT `Inflate` returns `""` (not nil) for a failed or
-//! truncated stream (CCR-0114 §3), so a partial code would read "Code is valid" on the Lua side.
+//! The oracle's LuaJIT `Inflate` is SimpleGraphic's (`pob_gamedata::sg_zlib`, FUP7): nil for a
+//! failed or truncated stream, so a partial code reads "Invalid input" on both sides
+//! (`e_partial_code`). Before FUP7 it returned `""` (CCR-0114 §3) and the scripts pasted whole
+//! codes only.
 //!
 //! Real on both sides: Launch, Main, the build list, Init, OnFrame, the stat box (U16-U21), the
 //! Notes tab (U22) and the Party tab (U45). Stand-ins as in u22 for the other tabs' `Draw`.

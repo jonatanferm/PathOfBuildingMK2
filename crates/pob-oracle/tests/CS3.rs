@@ -58,8 +58,8 @@
 //! timeless LUTs load from the PoB checkout. Gate: no run raises, every stub-free run has zero
 //! unexplained mismatches. L5 compares the env only: on top of L4's classes, [`classify_l5`]
 //! explains what the dump's scope and the export leave unequal (the cleared `cs3Model`, other
-//! envs' objects, the opaque `nodesInRadius` maps (compared from the env), jewel func values,
-//! node tags, item nil-defaults). FS1 made it run: it loaded the model with the pre-BM-A
+//! envs' objects, jewel func values, node tags, item nil-defaults; `radiusJewelList[i].nodes` is
+//! compared like any member since FUP7, which made the exporter write the bare node-id map). FS1 made it run: it loaded the model with the pre-BM-A
 //! `testkit::load_build` (no tree, every run raised) and compared CALCS / CALCULATOR against a
 //! model without the MAIN pass.
 //!
@@ -1568,20 +1568,11 @@ fn norm_jewel_funcs(v: &J) -> J {
     }
 }
 
-/// The encoded index of `path` right after `prefix` (`env.radiusJewelList[3].nodes[…]` → 3).
-fn index_after(path: &str, prefix: &str) -> Option<usize> {
-    let rest = path.strip_prefix(prefix)?.strip_prefix('[')?;
-    rest[..rest.find(']')?].parse().ok()
-}
-
 /// L5-only representation classes (FS1), on top of [`classify`]. Each is a difference of the
 /// export or of the dump's scope, checked against the Rust env where the export cannot show it:
 /// * `model (cleared cs3Model)`: PoB's value is a `$ref` into the dump's `cs3Model` local
 ///   (`?N`: the model's socket groups and gem instances, which L5 drops; L4 compares them),
 ///   while ours exports the same model object inline or by its first env path;
-/// * `nodesInRadius (opaque export)`: `radiusJewelList[i].nodes` is the tree's
-///   `Rc<LjIntMap<NodeRef>>` (CCR-0024 §3), exported as `{"$userdata": true}`; the node ids are
-///   compared with PoB's here, from the env;
 /// * `jewel func (Value::JewelFunc)`: `radiusJewelList[i].func` is PoB's closure (`$fn`) and
 ///   ours the `JewelFuncSpec` data value (`node_mods.rs`, CCR-0039 §4); the entry's `type` is
 ///   compared on its own path;
@@ -1614,38 +1605,6 @@ fn classify_l5(
             .and_then(ref_path)
             .is_some_and(|p| p.starts_with('?'))
     };
-    let radius_ok = |i: usize| -> bool {
-        let base = format!("env.radiusJewelList[{i}].nodes");
-        let Some(mut pn) = lookup(pob, &base) else {
-            return false;
-        };
-        // two entries of one jewel share the socket's map (`nodesInRadius[radiusIndex]`)
-        if let Some(p) = ref_path(pn) {
-            let Some(t) = lookup(pob, p) else {
-                return false;
-            };
-            pn = t;
-        }
-        let pob_ids: std::collections::BTreeSet<i64> = pn
-            .get("$num")
-            .and_then(J::as_object)
-            .map(|m| m.keys().filter_map(|k| k.parse().ok()).collect())
-            .unwrap_or_default();
-        let ours_ids = env.radiusJewelList.get().with(|v| {
-            v.get(i - 1).and_then(|e| match e.get(Name::from("nodes")) {
-                Val::Obj(o) => o
-                    .downcast_ref::<pob_lua::LjIntMap<pob_calc::classes::NodeRef>>()
-                    .map(|m| {
-                        m.keys()
-                            .into_iter()
-                            .collect::<std::collections::BTreeSet<i64>>()
-                    }),
-                _ => None,
-            })
-        });
-        ours_ids.is_some_and(|o| o == pob_ids)
-    };
-    let mut radius_checked: BTreeMap<usize, bool> = BTreeMap::new();
     let pairs: Vec<(String, MismatchKind, J)> = mm
         .iter()
         .filter(|m| matches!(m.kind, MismatchKind::ModMissing | MismatchKind::ModExtra))
@@ -1658,18 +1617,6 @@ fn classify_l5(
         if is_model_ref(&m.pob) && matches!(m.kind, MismatchKind::Value) {
             *why.entry("model (cleared cs3Model)").or_default() += 1;
             continue;
-        }
-        if let Some(i) = index_after(&m.path, "env.radiusJewelList") {
-            let nodes = format!("env.radiusJewelList[{i}].nodes");
-            let opaque = lookup(ours, &nodes)
-                .is_some_and(|v| v.get("$userdata").is_some_and(|b| b == &J::Bool(true)));
-            if opaque
-                && m.path.starts_with(&nodes)
-                && *radius_checked.entry(i).or_insert_with(|| radius_ok(i))
-            {
-                *why.entry("nodesInRadius (opaque export)").or_default() += 1;
-                continue;
-            }
         }
         if matches!(m.kind, MismatchKind::Value)
             && m.pob.as_ref().is_some_and(is_lua_fn)

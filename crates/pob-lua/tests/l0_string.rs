@@ -2,7 +2,7 @@
 //! LuaJIT: `string.find/match/gmatch/gsub` (string, function and table
 //! replacements, error paths) on random patterns, `string.lower/upper/sub/
 //! byte/rep`, and PoB's `sanitiseText`, `string:split`, `firstToUpper`,
-//! `StripEscapes` run from the real PoB sources.
+//! `StripEscapes` and `string:matchOrPattern` run from the real PoB sources.
 
 // Test-only pedantic lints: short binding names mirror the Lua under test.
 #![allow(clippy::many_single_char_names, clippy::inefficient_to_string)]
@@ -649,5 +649,133 @@ fn pob_string_helpers() {
         for c in checks {
             c.finish();
         }
+    }
+}
+
+/// A random `matchOrPattern` search: alternatives (`|`) of sequences of atoms, an atom a letter,
+/// a class or a `(..)` group of the same grammar. Every literal letter is drawn once per pattern,
+/// so no group's text repeats and no alternative is malformed: the result is then independent of
+/// `pairs` order (the port's ORDER note), and L0 compares it exactly.
+fn gen_or_expr(r: &mut Rng, depth: u32, letters: &mut Vec<u8>) -> String {
+    let alts = 1 + r.below(if depth > 0 { 2 } else { 3 }) as usize;
+    let mut out = String::new();
+    for a in 0..alts {
+        if a > 0 {
+            out.push('|');
+        }
+        for _ in 0..r.below(4) {
+            if depth < 2 && r.chance(0.25) {
+                out.push('(');
+                out.push_str(&gen_or_expr(r, depth + 1, letters));
+                out.push(')');
+            } else if r.chance(0.15) {
+                out.push_str(r.pick(&["%a", "%d", ".", " ", "%s+", "x?"]));
+            } else if let Some(c) = letters.pop() {
+                out.push(c as char);
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn pob_match_or_pattern() {
+    if pob_src().is_none() {
+        return; // POB_ALLOW_SKIP=1
+    }
+    quiet_lua_errors();
+    // (s, pattern): the hand cases U28 checked against LuaJIT (FUP7 moved them here with the
+    // shared port), groups found again at their first occurrence (Common.lua:1044 always starts
+    // at 1), and malformed single alternatives (errors on both sides).
+    let mut cases: Vec<(String, String)> = [
+        ("fire damage", "fire|cold"),
+        ("cold", "(fire|cold) res"),
+        ("cold res", "(fire|cold) res"),
+        ("abc", "a(b|x)c"),
+        ("axc", "a(b|x)c"),
+        ("ayc", "a(b|x)c"),
+        ("abd", "(a(b|c))d"),
+        ("acd", "(a(b|c))d"),
+        ("ad", "(a(b|c))d"),
+        ("x", "()"),
+        ("life", "li%a+"),
+        ("mana", "(x|y)(m|n)ana"),
+        ("ymana", "(x|y)(m|n)ana"),
+        ("cold cold", "(cold) (cold)"),
+        ("coldcold cold", "(cold) (cold)"),
+        ("aaa", "(a)(a)"),
+        ("", "a|"),
+        ("b", "|b"),
+        ("", ""),
+        ("zz", "[a"),
+        ("zz", "a%"),
+        ("zz", "(a"),
+        ("zz", "a)"),
+        ("abab)", "((a)b)(a)"),
+        ("abc", "((a)b)(a)"),
+    ]
+    .iter()
+    .map(|&(s, p)| (s.to_owned(), p.to_owned()))
+    .collect();
+    let mut r = Rng(1038);
+    let subjects = [
+        "", "a", "ab", "abc", "bca", "fire cold", "x1 y2", "lightning", "abcdefgh",
+    ];
+    for _ in 0..6000 {
+        let mut letters: Vec<u8> = b"abcdefghijklmnopqrstuvwxyz".to_vec();
+        for i in (1..letters.len()).rev() {
+            letters.swap(i, r.below(i as u64 + 1) as usize);
+        }
+        let p = gen_or_expr(&mut r, 0, &mut letters);
+        let s: String = if r.chance(0.5) {
+            // a subject built from the pattern's own letters, so matches are common
+            let mut s = String::new();
+            for b in p.bytes() {
+                if b.is_ascii_lowercase() && r.chance(0.7) {
+                    s.push(char::from(b));
+                }
+            }
+            s
+        } else {
+            r.pick(&subjects).to_string()
+        };
+        cases.push((s, p));
+    }
+    let n = cases.len();
+    let ss: Vec<Vec<u8>> = cases.iter().map(|c| c.0.as_bytes().to_vec()).collect();
+    let ps: Vec<Vec<u8>> = cases.iter().map(|c| c.1.as_bytes().to_vec()).collect();
+    for mode in modes() {
+        let lua = lua(mode);
+        let f = func(
+            &lua,
+            &format!(
+                "{}\n{}\n{LUA_SER} return function(S, P, n) local out = {{}} for i = 1, n do \
+                 out[i] = wrap(pcall(string.matchOrPattern, S[i], P[i])) end return out end",
+                pob_lines("Modules/Common.lua", 7, 21),
+                pob_lines("Modules/Common.lua", 1038, 1079),
+            ),
+        );
+        let out: Table = f
+            .call((seq_bytes(&lua, &ss), seq_bytes(&lua, &ps), n))
+            .unwrap();
+        let mut c = Check::new(format!("string:matchOrPattern [{mode}]"));
+        for (i, (s, p)) in cases.iter().enumerate() {
+            let want = bytes_of(&get(&out, i + 1)).unwrap_or_default();
+            let got = rs_wrap(|| {
+                if ls::matchOrPattern(s, p) {
+                    b"?true".to_vec()
+                } else {
+                    b"?false".to_vec()
+                }
+            });
+            c.ok(same_result(&want, &got), || {
+                format!(
+                    "matchOrPattern({s:?}, {p:?}): lua {} rust {}",
+                    show(&want),
+                    show(&got)
+                )
+            });
+        }
+        c.finish();
     }
 }

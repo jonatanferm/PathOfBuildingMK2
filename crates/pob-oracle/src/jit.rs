@@ -426,30 +426,22 @@ impl Engine for JitPob {
 /// [`PRELUDE`] (with `__mk2_root` set) and then this, before overriding the SimpleGraphic globals.
 pub fn install_natives(lua: &Lua) -> mlua::Result<()> {
     let g = lua.globals();
+    // SimpleGraphic's `l_Inflate` / `l_Deflate` (ui_api.cpp): the shared port
+    // `pob_gamedata::sg_zlib`, which the Rust side calls too (FUP7; CCR-0109 §8, CCR-0114 §3).
+    // `Inflate` returns `nil, zError(err)` unless the zlib stream ends; `Deflate` is level 9.
     g.set(
         "Inflate",
         lua.create_function(|lua, data: mlua::String| {
-            let data = data.as_bytes();
-            let mut out = Vec::new();
-            let ok = flate2::read::ZlibDecoder::new(&data[..])
-                .read_to_end(&mut out)
-                .is_ok()
-                || {
-                    out.clear();
-                    flate2::read::DeflateDecoder::new(&data[..])
-                        .read_to_end(&mut out)
-                        .is_ok()
-                };
-            lua.create_string(if ok { &out[..] } else { b"" })
+            Ok(match pob_gamedata::sg_zlib::Inflate(&data.as_bytes()) {
+                Ok(out) => (Some(lua.create_string(out)?), None),
+                Err(msg) => (None, Some(msg)),
+            })
         })?,
     )?;
     g.set(
         "Deflate",
         lua.create_function(|lua, data: mlua::String| {
-            let mut enc =
-                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-            let _ = enc.write_all(&data.as_bytes());
-            lua.create_string(enc.finish().unwrap_or_default())
+            lua.create_string(pob_gamedata::sg_zlib::Deflate(&data.as_bytes()))
         })?,
     )?;
     g.set(

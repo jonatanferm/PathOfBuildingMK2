@@ -5,6 +5,7 @@
 //! * [`modifier`] / [`value`]: `Mod`, `Tag`, `Value` (§4.3).
 //! * [`schema`], [`data`], [`loader`]: the typed `data` (§4.4) and how it is
 //!   loaded from the dump (`data.bin`, postcard; `pob-dump compile` writes it).
+//! * [`sg_zlib`]: SimpleGraphic's `Inflate` / `Deflate` (FUP7: the one port).
 //! * [`mod_tools`] (CT), [`skill_stat_map`] (CT), [`timeless_lut`] (LUT): unit
 //!   stubs.
 //!
@@ -33,6 +34,7 @@ pub mod loader;
 pub mod mod_tools;
 pub mod modifier;
 pub mod schema;
+pub mod sg_zlib;
 pub mod skill_stat_map;
 pub mod stub;
 pub mod timeless_lut;

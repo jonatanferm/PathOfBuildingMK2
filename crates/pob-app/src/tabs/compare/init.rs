@@ -475,8 +475,8 @@ pub struct State {
     pub comparePowerProgress: f64,
     /// `self.comparePowerDirty` (flag to restart calculation)
     pub comparePowerDirty: bool,
-    /// `self.comparePowerCompareId` (track which compare entry was calculated)
-    pub comparePowerCompareId: Option<usize>,
+    // `self.comparePowerCompareId` is U48's `power::State::comparePowerCompareId` (the entry
+    // itself, CCR-0138 §3; FUP7 removed this unused `Option<usize>` copy)
     /// `self.comparePowerListSynced` (nil until the metric selector clears it)
     pub comparePowerListSynced: bool,
     /// `self.configOptions` (`require("Modules.ConfigOptions")`)
@@ -537,7 +537,6 @@ impl Default for State {
             comparePowerCoroutine: None,
             comparePowerProgress: 0.0,
             comparePowerDirty: false,
-            comparePowerCompareId: None,
             comparePowerListSynced: false,
             configOptions: &[],
             treeVersionDropdownList: Vec::new(),
@@ -820,8 +819,8 @@ impl CompareTab {
                     comparePowerProgress: 0.0,
                     // L187 flag to restart calculation
                     comparePowerDirty: false,
-                    // L188 track which compare entry was calculated
-                    comparePowerCompareId: None,
+                    // L188 track which compare entry was calculated: `power::State`'s
+                    // `comparePowerCompareId` starts as nil (CCR-0138 §3)
                     comparePowerListSynced: false,
                     // L191 Pre-load static module data
                     configOptions: &model::data().configOptions,

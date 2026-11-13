@@ -84,7 +84,6 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::OnceLock;
 
 use pob_lua::math::{m_floor, m_max, m_min, round};
 use pob_lua::{n, pattern, tonumber, tostring, Name};
@@ -215,48 +214,8 @@ pub fn catalystQualityFormat(cx: &Cx) -> [String; 12] {
     ]
 }
 
-/// `flavourLookup[name][id] = text` (ItemsTab.lua:62-69; U38's tooltips), built once from
-/// `data.flavourText` (a dump root kept untyped, `Data::other`).
-/// ORDER: (c) the loop only fills a keyed map; `pairs` order cannot change it except for two
-/// entries with the same name and id, which the data does not have (the later one would win in
-/// PoB's random order; here the dump's order).
-/// @pob Classes/ItemsTab.lua:62-69 h=fff7175d
-pub fn flavourLookup() -> &'static indexmap::IndexMap<String, indexmap::IndexMap<String, String>> {
-    static LOOKUP: OnceLock<indexmap::IndexMap<String, indexmap::IndexMap<String, String>>> =
-        OnceLock::new();
-    LOOKUP.get_or_init(|| {
-        // L62
-        let mut flavourLookup: indexmap::IndexMap<String, indexmap::IndexMap<String, String>> =
-            indexmap::IndexMap::new();
-        let Some(gamedata::DataValue::Table(t)) = model::data().other.get("data.flavourText")
-        else {
-            return flavourLookup;
-        };
-        let text_of = |v: &gamedata::DataValue| match v {
-            gamedata::DataValue::Str(s) => Some(s.to_string()),
-            gamedata::DataValue::Num(x) => Some(tostring(*x)),
-            _ => None,
-        };
-        // L64 `for _, entry in pairs(data.flavourText)`
-        let entries = t.seq.iter().chain(t.fields.iter().map(|(_, v)| v));
-        for entry in entries {
-            let gamedata::DataValue::Table(entry) = entry else {
-                continue;
-            };
-            // L65
-            let (Some(name), Some(id), Some(text)) = (
-                text_of(entry.field("name")),
-                text_of(entry.field("id")),
-                text_of(entry.field("text")),
-            ) else {
-                continue;
-            };
-            // L66-67
-            flavourLookup.entry(name).or_default().insert(id, text);
-        }
-        flavourLookup
-    })
-}
+// ItemsTab.lua:62-69 `flavourLookup`: `tabs::items::tooltip::flavour_lookup` (FUP7: U33's copy,
+// which dropped every entry, is gone; CCR-0125 §1).
 
 /// `isAnointable(item)` (ItemsTab.lua:70-74; calc:BM-A's private copy has the marker).
 pub fn isAnointable(item: Option<&model::ItemRef>) -> bool {
