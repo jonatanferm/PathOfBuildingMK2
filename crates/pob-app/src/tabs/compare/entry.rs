@@ -55,9 +55,9 @@
 //! ModDB) is the model's PartyTab after its constructor's model half (`ctor_model`: the same
 //! empty lists, `modDB.actor`); the entry never loads a `Party` section (no saver), as in Lua.
 //!
-//! CCR-0137 §1: calc:BM-A keeps the constructor halves CompareEntry needs private
-//! (`build_xml::skillsTab_ctor_model`, `ImportCalcSettings`, `new_timelessData`); the bodies
-//! below repeat them (marked `// CCR-0137`).
+//! CCR-0137 §1: the constructor halves CompareEntry needs are calc:BM-A's
+//! (`build_xml::skillsTab_ctor_model`, `ImportCalcSettings`, `new_timelessData`, `pub` since
+//! FUP7, which removed this file's copies of them).
 //!
 //! # Lua semantics
 //!
@@ -369,19 +369,8 @@ impl CompareEntry {
 
         // L33
         m.spectreList.set(Shared::new(Vec::new()));
-        // L34-40 (CCR-0137 §1: build_xml::new_timelessData)
-        let timelessData = Table::new();
-        timelessData.set(n!("jewelType"), Table::new());
-        timelessData.set(n!("conquerorType"), Table::new());
-        timelessData.set(n!("devotionVariant1"), 1.0);
-        timelessData.set(n!("devotionVariant2"), 1.0);
-        timelessData.set(n!("jewelSocket"), Table::new());
-        timelessData.set(n!("fallbackWeightMode"), Table::new());
-        timelessData.set(n!("searchList"), "");
-        timelessData.set(n!("searchListFallback"), "");
-        timelessData.set(n!("searchResults"), Table::new());
-        timelessData.set(n!("sharedResults"), Table::new());
-        extra.set(n!("timelessData"), timelessData);
+        // L34-40 (CCR-0137 §1)
+        extra.set(n!("timelessData"), build_xml::new_timelessData());
 
         // Shared data (read-only references)
         // L43
@@ -517,25 +506,8 @@ impl CompareEntry {
         // window title, L556)
         m.treeTab.ctor_model(&m);
         set_title(cx, &m, &buildName);
-        // L115 (SkillsTab.lua:89, 95-96, 423-426; CCR-0137 §1: build_xml::skillsTab_ctor_model)
-        {
-            let st = &m.skillsTab;
-            // SkillsTab.lua:89
-            st.socketGroupList.set(Shared::new(Vec::new()));
-            // SkillsTab.lua:95
-            st.defaultGemLevel.set(Some(n!("normalMaximum")));
-            // SkillsTab.lua:96
-            st.defaultGemQuality.set(cx.app().main.default_gem_quality);
-            // SkillsTab.lua:423
-            st.skillSets.with_mut(|s| s.clear());
-            // SkillsTab.lua:424
-            st.skillSetOrderList.wipe();
-            st.skillSetOrderList.push(1);
-            // SkillsTab.lua:425
-            st.NewSkillSet(Some(1.0));
-            // SkillsTab.lua:426
-            st.SetActiveSkillSet(&m, 1.0);
-        }
+        // L115 (SkillsTab.lua:89, 95-96, 423-426; CCR-0137 §1)
+        build_xml::skillsTab_ctor_model(&m, cx.app().main.default_gem_quality);
         // L116
         m.calcsTab.ctor_model();
 
@@ -620,8 +592,9 @@ impl CompareEntry {
 
         // L174
         if m.configTab.input.pairs().next().is_none() {
-            // L175-176 (ConfigTab.lua:1205-1240; CCR-0137 §1: build_xml::ImportCalcSettings)
-            ImportCalcSettings(&m);
+            // L175-176 (ConfigTab.lua:1205-1240; CCR-0137 §1; the UI half of its `UpdateControls`
+            // has no entry controls)
+            build_xml::ImportCalcSettings(&m);
         }
 
         // L180
@@ -1537,60 +1510,6 @@ impl CompareEntry {
 }
 
 // ---- the entry's tabs (module notes) ----------------------------------------------------------
-
-/// `configTab:ImportCalcSettings()` of the entry's ConfigTab (ConfigTab.lua:1205-1240;
-/// CCR-0137 §1: calc:BM-A's `build_xml::ImportCalcSettings` is private). The UI half of its
-/// `UpdateControls` has no entry controls.
-fn ImportCalcSettings(build: &model::BuildRef) {
-    let configTab = &build.configTab;
-    // ConfigTab.lua:1206
-    let input = configTab
-        .activeConfigSet()
-        .table(n!("input"))
-        .unwrap_or_else(|| lua_error!("attempt to index field 'input' (a nil value)"));
-    // ConfigTab.lua:1207
-    let calcsInput = &build.calcsTab.input;
-    // ConfigTab.lua:1208-1211
-    let import = |old: &str, new: &str| {
-        input.set(Name::from(new), calcsInput.get(Name::from(old)));
-        calcsInput.set(Name::from(old), Val::Nil);
-    };
-    // ConfigTab.lua:1212-1237
-    for (old, new) in [
-        ("Cond_LowLife", "conditionLowLife"),
-        ("Cond_FullLife", "conditionFullLife"),
-        ("Cond_LowMana", "conditionLowMana"),
-        ("Cond_FullMana", "conditionFullMana"),
-        ("buff_power", "usePowerCharges"),
-        ("buff_frenzy", "useFrenzyCharges"),
-        ("buff_endurance", "useEnduranceCharges"),
-        ("CondBuff_Onslaught", "buffOnslaught"),
-        ("CondBuff_Phasing", "buffPhasing"),
-        ("CondBuff_Fortify", "buffFortify"),
-        ("CondBuff_UsingFlask", "conditionUsingFlask"),
-        ("buff_pendulum", "usePendulum"),
-        ("CondEff_EnemyCursed", "conditionEnemyCursed"),
-        ("CondEff_EnemyBleeding", "conditionEnemyBleeding"),
-        ("CondEff_EnemyPoisoned", "conditionEnemyPoisoned"),
-        ("CondEff_EnemyBurning", "conditionEnemyBurning"),
-        ("CondEff_EnemyIgnited", "conditionEnemyIgnited"),
-        ("CondEff_EnemyChilled", "conditionEnemyChilled"),
-        ("CondEff_EnemyFrozen", "conditionEnemyFrozen"),
-        ("CondEff_EnemyShocked", "conditionEnemyShocked"),
-        ("effective_physicalRed", "enemyPhysicalReduction"),
-        ("effective_fireResist", "enemyFireResist"),
-        ("effective_coldResist", "enemyColdResist"),
-        ("effective_lightningResist", "enemyLightningResist"),
-        ("effective_chaosResist", "enemyChaosResist"),
-        ("effective_enemyIsBoss", "enemyIsBoss"),
-    ] {
-        import(old, new);
-    }
-    // ConfigTab.lua:1238
-    configTab.BuildModList(build);
-    // ConfigTab.lua:1239 (model half)
-    configTab.UpdateControls(build);
-}
 
 /// `entry.treeTab:GetSpecList()` (TreeTab.lua:492-498 on the entry's tree tab; U25's
 /// `TreeTab::GetSpecList` reads the open build's).

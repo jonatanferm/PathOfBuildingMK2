@@ -84,9 +84,9 @@
 //! the port re-raises the message alone (a drop guard removes the temporary item first).
 //! DIVERGENCE(pending-calc): `GetMiscCalculator` / `calcFunc` returning `Pending` (wasm only)
 //! ends AddItemStatDifferences without stat lines.
-//! DIVERGENCE(flavour-lookup): U33's `ctor::flavourLookup` drops every entry (its `text` is a
-//! list of lines, which it reads as a string); this file builds its own lookup with the lines
-//! ([`flavour_lookup`], CCR-0125 §1) until U33's is fixed.
+//! `flavourLookup` (ItemsTab.lua:62-69) is [`flavour_lookup`] here, with `text` the list of lines
+//! (CCR-0125 §1; FUP7 removed U33's unused copy, which read `text` as a string and so dropped
+//! every entry, and moved its `@pob` marker here).
 //!
 //! Props with side effects (ui doc §7.3): none (no property closures in this range).
 #![allow(non_snake_case, non_upper_case_globals, clippy::too_many_lines)]
@@ -453,8 +453,13 @@ pub fn copy_item(src: &model::Item) -> model::Item {
     }
 }
 
-/// `flavourLookup[name][id] = text` (ItemsTab.lua:62-69, U33's marker) with `text` the list of
-/// lines (DIVERGENCE(flavour-lookup), CCR-0125 §1).
+/// `flavourLookup[name][id] = text` (ItemsTab.lua:62-69; U38's tooltips) with `text` the list of
+/// lines (CCR-0125 §1), built once from `data.flavourText` (a dump root kept untyped,
+/// `Data::other`).
+/// ORDER: (c) the loop only fills a keyed map; `pairs` order cannot change it except for two
+/// entries with the same name and id, which the data does not have (the later one would win in
+/// PoB's random order; here the dump's order).
+/// @pob Classes/ItemsTab.lua:62-69 h=fff7175d
 pub fn flavour_lookup() -> &'static indexmap::IndexMap<String, indexmap::IndexMap<String, Vec<String>>>
 {
     type Lookup = indexmap::IndexMap<String, indexmap::IndexMap<String, Vec<String>>>;
@@ -471,7 +476,7 @@ pub fn flavour_lookup() -> &'static indexmap::IndexMap<String, indexmap::IndexMa
             DataValue::Num(x) => Some(pob_lua::tostring_num(*x)),
             _ => None,
         };
-        // L64 `for _, entry in pairs(data.flavourText)` (ORDER: ctor.rs)
+        // L64 `for _, entry in pairs(data.flavourText)` (ORDER: above)
         for entry in t.seq.iter().chain(t.fields.iter().map(|(_, v)| v)) {
             let DataValue::Table(entry) = entry else {
                 continue;

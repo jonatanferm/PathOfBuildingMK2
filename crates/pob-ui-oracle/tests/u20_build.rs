@@ -28,7 +28,7 @@
 //!   L1274-1288 fire on every frame on both sides: the four extra RefreshStatList calls and the
 //!   per-frame window title above are a property of the stubs, not of PoB, where they only
 //!   happen after a display setting changes. The sides match because both run the same stubs;
-//!   once U21 lands, its FormatStat writes `on_frame::State.last_*` (CCR-0104 §2);
+//!   U21's FormatStat writes `stats::State.last*` (CCR-0104 §2, CCR-0106 §4);
 //! * the tabs' `Draw` (U22-U46) draw nothing; the Lua tabs are PoB's own otherwise (Init
 //!   constructs and loads them, and their modFlags count in `self.unsaved`). The Rust side reads
 //!   `spec.modFlag` from the stand-in of `spec:AddUndoState` (UndoHandler.lua:37 sets it; the

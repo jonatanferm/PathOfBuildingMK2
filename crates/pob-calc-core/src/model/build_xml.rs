@@ -212,8 +212,9 @@ fn next_and_tostring(t: Option<Table>, k: Name) -> Option<String> {
     Some(tostring_val(&t.get(k)))
 }
 
-/// The default `timelessData` of `Build:Init` (Build.lua:81).
-fn new_timelessData() -> Table {
+/// The default `timelessData` of `Build:Init` (Build.lua:81). `pub` for CompareEntry
+/// (CompareEntry.lua:34-40; CCR-0137 §1, FUP7).
+pub fn new_timelessData() -> Table {
     let t = Table::new();
     t.set(n!("jewelType"), Table::new());
     t.set(n!("conquerorType"), Table::new());
@@ -337,8 +338,8 @@ pub fn Init_model(
     build.itemsTab.ctor_model(build);
     // L613
     build.treeTab.ctor_model(build);
-    // L614 (SkillsTab.lua:89, 95-96, 423-426)
-    skillsTab_ctor_model(build);
+    // L614 (SkillsTab.lua:89, 95-96, 423-426; `main.defaultGemQuality` is nil headless)
+    skillsTab_ctor_model(build, None);
     // L615
     build.calcsTab.ctor_model();
     // L616-626 UI: breakdown control, compare tab, overlay panes
@@ -465,14 +466,16 @@ fn dbFileName_str(build: &Build) -> String {
 /// @pob Classes/SkillsTab.lua:95-96 h=4ba58857
 /// @pob Classes/SkillsTab.lua:423-426 h=4aab9e73
 /// The SkillsTab constructor's model half (SkillsTab.lua:89, 95-96, 423-426; CCR-0019 §10).
-fn skillsTab_ctor_model(build: &BuildRef) {
+/// `defaultGemQuality` is `main.defaultGemQuality` (L96). `pub` for CompareEntry
+/// (CompareEntry.lua:115; CCR-0137 §1, FUP7).
+pub fn skillsTab_ctor_model(build: &BuildRef, defaultGemQuality: Option<f64>) {
     let st = &build.skillsTab;
     // L89
     st.socketGroupList.set(Shared::new(Vec::new()));
     // L95
     st.defaultGemLevel.set(Some(n!("normalMaximum")));
-    // L96 self.defaultGemQuality = main.defaultGemQuality (nil headless)
-    st.defaultGemQuality.set(None);
+    // L96
+    st.defaultGemQuality.set(defaultGemQuality);
     // L423
     st.skillSets.with_mut(|m| m.clear());
     // L424
@@ -486,7 +489,9 @@ fn skillsTab_ctor_model(build: &BuildRef) {
 
 /// @pob Classes/ConfigTab.lua:1205-1240 h=66e7f9af
 /// `configTab:ImportCalcSettings()` (Build.lua:687 calls it; no calc unit owns it, CCR-0080 §6).
-fn ImportCalcSettings(build: &BuildRef) {
+/// `pub` for CompareEntry (CompareEntry.lua:175-176; CCR-0137 §1, FUP7); the UI half of
+/// `UpdateControls` (L1239) is the caller's.
+pub fn ImportCalcSettings(build: &BuildRef) {
     let configTab = &build.configTab;
     // L1206
     let input = configTab

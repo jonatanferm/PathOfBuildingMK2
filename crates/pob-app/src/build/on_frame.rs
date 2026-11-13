@@ -20,9 +20,9 @@
 //! `lastShowDecimalSeparator` and `lastShowTitlebarName` are written by `buildMode:FormatStat`
 //! (Build.lua:1749-1753, U21's range) on every formatted stat, so the five comparisons at
 //! L1274-1288 only fire after a display setting changes (or before the first stat is formatted).
-//! They live in [`State`] (`BuildMode::on_frame`, all `pub`); U21's FormatStat writes them
-//! (CCR-0104 §2). Until U21 lands nothing formats a stat, the fields stay nil and the comparisons
-//! fire every frame, on both sides of the oracle test (its Lua side stubs RefreshStatList too).
+//! They live in U21's `stats::State` (`BuildMode::stats`), which its FormatStat writes
+//! (CCR-0104 §2, CCR-0106 §4). Before the first stat is formatted the fields are nil and the
+//! comparisons fire, on both sides of the oracle test (u20's Lua side stubs RefreshStatList).
 //!
 //! Overlay panes (`self.overlayPanes`, Build.lua:626; CalcSectionControl's ToggleOverlay /
 //! RaiseOverlay, U39) are [`OverlayPane`] trait objects; the loops read `overlayPanes[i]` live,
@@ -99,8 +99,9 @@ pub trait OverlayPane {
 }
 
 /// The fields of a stat-box line (`hovered.line`) that SetDisplayStat reads: `breakdown`,
-/// `modNames`, `ignoredSections`, `actorName`, `breakdownColour`. The stat list (U21) stores
-/// one in each line's `TextListRow::extra` (CCR-0104 §2).
+/// `modNames`, `ignoredSections`, `actorName`, `breakdownColour`, taken from the
+/// `stats::StatLine` U21 stores in each line's `TextListRow::extra` (CCR-0104 §2, CCR-0106 §4),
+/// and passed to `ShellHooks::get_sidebar_breakdown`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StatLineInfo {
     /// `line.breakdown` (a breakdown key)
@@ -154,13 +155,8 @@ pub struct State {
     pub secondary_ascend_drop_alt_ascendancies: Option<model::Table>,
     /// `self.secondaryAscendDropLegacySelection`
     pub secondary_ascend_drop_legacy_selection: Option<String>,
-    /// `self.lastShowThousandsSeparators` &c.: written by U21's `FormatStat` (Build.lua:1749-1753;
-    /// CCR-0104 §2), compared by OnFrame (L1274-1288); see the module doc
-    pub last_show_thousands_separators: Option<bool>,
-    pub last_show_thousands_separator: Option<String>,
-    pub last_use_compact_values: Option<bool>,
-    pub last_show_decimal_separator: Option<String>,
-    pub last_show_titlebar_name: Option<bool>,
+    // `self.lastShowThousandsSeparators` &c. (Build.lua:1749-1753) live in U21's `stats::State`,
+    // which its `FormatStat` writes (CCR-0106 §4; FUP7 removed this unit's unwritten copies)
 }
 
 // ---- seams to the units U20's code calls (CCR-0104 §1) ---------------------------------------
@@ -629,23 +625,14 @@ pub fn on_frame(cx: &mut Cx, input_events: &mut InputEvents, _vp: &ViewPort) {
             }
         }
     }
-    // CCR-0106 §4: U21's FormatStat writes its own copy of the five fields (`stats::State`);
-    // a value there wins over this unit's (which only tests set)
-    let (st, st21) = {
-        let b = cx.w::<BuildMode>(me);
-        (&b.on_frame, &b.stats)
-    };
+    // CCR-0106 §4: the five fields are U21's (`stats::State`), which its FormatStat writes
+    let st21 = &cx.w::<BuildMode>(me).stats;
     let (l_sep, l_tsep, l_compact, l_dsep, l_title) = (
-        st21.lastShowThousandsSeparators
-            .or(st.last_show_thousands_separators),
-        st21.lastShowThousandsSeparator
-            .clone()
-            .or_else(|| st.last_show_thousands_separator.clone()),
-        st21.lastUseCompactValues.or(st.last_use_compact_values),
-        st21.lastShowDecimalSeparator
-            .clone()
-            .or_else(|| st.last_show_decimal_separator.clone()),
-        st21.lastShowTitlebarName.or(st.last_show_titlebar_name),
+        st21.lastShowThousandsSeparators,
+        st21.lastShowThousandsSeparator.clone(),
+        st21.lastUseCompactValues,
+        st21.lastShowDecimalSeparator.clone(),
+        st21.lastShowTitlebarName,
     );
     // L1274
     if Some(cx.main.show_thousands_separators) != l_sep {
@@ -813,19 +800,17 @@ pub fn set_display_stat(cx: &mut Cx, hovered: Option<HoveredLine>, pin: bool) {
         .extra
         .as_ref()
         .and_then(|e| {
-            e.downcast_ref::<StatLineInfo>().cloned().or_else(|| {
-                // CCR-0106 §4: U21's rows carry `stats::StatLine` (its own copy of these fields)
-                e.downcast_ref::<super::stats::StatLine>()
-                    .map(|l| StatLineInfo {
-                        breakdown: l.breakdown.clone(),
-                        mod_names: l
-                            .modNames
-                            .map(|v| v.iter().map(|s| (*s).to_owned()).collect()),
-                        ignored_sections: l.ignoredSections.as_ref().map(|v| (**v).clone()),
-                        actor_name: l.actorName.map(str::to_owned),
-                        breakdown_colour: l.breakdownColour,
-                    })
-            })
+            // CCR-0106 §4: U21's rows carry `stats::StatLine` (its own copy of these fields)
+            e.downcast_ref::<super::stats::StatLine>()
+                .map(|l| StatLineInfo {
+                    breakdown: l.breakdown.clone(),
+                    mod_names: l
+                        .modNames
+                        .map(|v| v.iter().map(|s| (*s).to_owned()).collect()),
+                    ignored_sections: l.ignoredSections.as_ref().map(|v| (**v).clone()),
+                    actor_name: l.actorName.map(str::to_owned),
+                    breakdown_colour: l.breakdownColour,
+                })
         })
         .unwrap_or_default();
     // L1361

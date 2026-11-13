@@ -337,3 +337,160 @@ fn lj_bit() {
         }
     }
 }
+
+/// Does lib_math.c `random_seed`'s `d = d * 3.14159265358979323846 + 2.7182818284590452354`
+/// (four rounds) give other bits when the C compiler fuses it into one FMA? GCC contracts it
+/// on aarch64 (`-ffp-contract=fast` is its default there), so the oracle's vendored LuaJIT
+/// seeds differently from PoB's x64 build, which the port follows (CCR-0001).
+fn seed_fma_differs(mut d: f64) -> bool {
+    let mut f = d;
+    for _ in 0..4 {
+        d = d * std::f64::consts::PI + std::f64::consts::E;
+        f = f.mul_add(std::f64::consts::PI, std::f64::consts::E);
+        if d.to_bits() != f.to_bits() {
+            return true;
+        }
+    }
+    false
+}
+
+/// The draws of a state seeded with the FMA-contracted `random_seed` (lib_math.c, lj_prng.c),
+/// to show that a contraction-sensitive seed's mismatch on an aarch64 oracle is only that.
+fn fma_seeded_draws(mut d: f64, draws: &[(f64, f64, f64)]) -> Vec<f64> {
+    fn step(u: &mut [u64; 4]) -> u64 {
+        let mut r = 0u64;
+        for (i, (k, q, s)) in [
+            (63u32, 31u32, 18u32),
+            (58, 19, 28),
+            (55, 24, 7),
+            (47, 21, 8),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut z = u[i];
+            z = (((z << q) ^ z) >> (k - s)) ^ ((z & (u64::MAX << (64 - k))) << s);
+            r ^= z;
+            u[i] = z;
+        }
+        r
+    }
+    let mut u = [0u64; 4];
+    let mut r: u32 = 0x1109_0601;
+    for slot in &mut u {
+        let m = 1u64 << (r & 255);
+        r >>= 8;
+        d = d.mul_add(std::f64::consts::PI, std::f64::consts::E);
+        let mut bits = d.to_bits();
+        if bits < m {
+            bits += m;
+        }
+        *slot = bits;
+    }
+    for _ in 0..10 {
+        step(&mut u);
+    }
+    draws
+        .iter()
+        .map(|&(k, m, n)| {
+            let x = f64::from_bits((step(&mut u) & 0x000f_ffff_ffff_ffff) | 0x3ff0_0000_0000_0000)
+                - 1.0;
+            match k as u8 {
+                0 => x,
+                1 => (x * m).floor() + 1.0,
+                _ => (x * (n - m + 1.0)).floor() + m,
+            }
+        })
+        .collect()
+}
+
+/// `math.randomseed` / `math.random` (FUP7: the one port, `m_randomseed` / `m_random`): 64 seeds
+/// (integers, fractions, negatives, PoB's `os.time()` range), each followed by 200 draws mixing
+/// `random()`, `random(m)` and `random(m, n)`. On an aarch64 host, a seed whose four seeding
+/// rounds round differently under FMA ([`seed_fma_differs`]) is compared against the
+/// FMA-seeded stream instead (counted as tolerated); every other seed is bit-exact.
+#[test]
+fn lj_math_random() {
+    let mut r = Rng(4242);
+    let mut seeds: Vec<f64> = vec![0.0, 1.0, -1.0, 12.5, 1_700_000_000.0, 1e300, -0.0, 0.5];
+    while seeds.len() < 64 {
+        seeds.push(match r.below(3) {
+            0 => r.range(-1_000_000, 2_000_000_000) as f64,
+            1 => r.unit() * 1e6 - 5e5,
+            _ => random_number(&mut r),
+        });
+    }
+    // (kind, m, n) per draw: 0 = random(), 1 = random(m), 2 = random(m, n)
+    let draws: Vec<(f64, f64, f64)> = (0..200)
+        .map(|_| {
+            let k = r.below(3) as f64;
+            let m = r.range(-20, 5000) as f64;
+            let n = m + r.range(0, 70_000) as f64;
+            (k, m, n)
+        })
+        .collect();
+    let oracle_fuses = cfg!(target_arch = "aarch64");
+    for mode in modes() {
+        let lua = lua(mode);
+        let f = func(
+            &lua,
+            &format!(
+                "{ENC} return function(seeds, K, M, N) local out, j = {{}}, 0 \
+                 for s = 1, #seeds do math.randomseed(seeds[s]) \
+                 for i = 1, #K do j = j + 1 local k = K[i] \
+                 local v if k == 0 then v = math.random() elseif k == 1 then v = math.random(M[i]) \
+                 else v = math.random(M[i], N[i]) end E(out, j, v) end end return out end"
+            ),
+        );
+        let ks: Vec<f64> = draws.iter().map(|d| d.0).collect();
+        let ms: Vec<f64> = draws.iter().map(|d| d.1).collect();
+        let ns: Vec<f64> = draws.iter().map(|d| d.2).collect();
+        let out: mlua::Table = f
+            .call((
+                seq_f64(&lua, &seeds),
+                seq_f64(&lua, &ks),
+                seq_f64(&lua, &ms),
+                seq_f64(&lua, &ns),
+            ))
+            .unwrap();
+        let mut c = Check::new(format!("math.random [{mode}]"));
+        let mut exact_seeds = 0;
+        let mut j = 0;
+        for &seed in &seeds {
+            m_randomseed(seed);
+            let fused =
+                (oracle_fuses && seed_fma_differs(seed)).then(|| fma_seeded_draws(seed, &draws));
+            if fused.is_none() {
+                exact_seeds += 1;
+            }
+            for (i, &(k, m, n)) in draws.iter().enumerate() {
+                j += 1;
+                let got = match k as u8 {
+                    0 => m_random(None, None),
+                    1 => m_random(Some(m), None),
+                    _ => m_random(Some(m), Some(n)),
+                };
+                let want = num_at(&out, j);
+                if let Some(fused) = &fused {
+                    c.total += 1;
+                    c.profile_tolerated += 1;
+                    if !same_num(want, fused[i]) {
+                        c.bad.push(format!(
+                            "seed {seed:e} draw {i}: lua {want:e} is not the FMA-seeded {:e}",
+                            fused[i]
+                        ));
+                    }
+                    continue;
+                }
+                c.num(mode, want, got, || {
+                    format!("seed {seed:e} draw {i} ({k}, {m}, {n}): lua {want:e} rust {got:e}")
+                });
+            }
+        }
+        assert!(
+            exact_seeds >= 8,
+            "only {exact_seeds} seeds compared exactly"
+        );
+        c.finish();
+    }
+}

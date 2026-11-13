@@ -52,7 +52,8 @@
 //!   only (`Item.corrupted = false`, `specEnv.accelerate = {}`);
 //! * `globalCache`, `override.extraJewelFuncs` of a second pass (the dumped store's actor is
 //!   another env's player, `$foreign`; on a `Carry` only the `.actor` paths are excused, the mods
-//!   are compared).
+//!   are compared; what is left of it: `EXPLAINED_MAX`). `env.radiusJewelList[i].nodes` is
+//!   compared like any member since FUP7 (the exporter writes the bare node-id map).
 //!
 //! Gate: no hit raises, every restart hit restarts with PoB's mod count, every second pass run on
 //! a `Carry` is identical, each corpus/CS2 build restarts (or not) as `SYNTHETIC` says, and the
@@ -467,44 +468,6 @@ fn mods_equal_norm(pob: &J, ours: &J, path: &str, srcs: &JfSrcs) -> bool {
     matches!((list(pob, None), list(ours, Some(srcs))), (Some(a), Some(b)) if a == b)
 }
 
-/// Every `env.radiusJewelList[i].nodes` holds the same node ids as PoB's.
-fn radius_nodes_equal(env: &EnvRef, dout: &StateDump) -> bool {
-    let pob = dout.root.get("env").and_then(|e| e.get("radiusJewelList"));
-    let pob: Vec<J> = pob
-        .and_then(|v| v.as_array().cloned().or_else(|| v.get("$seq").and_then(J::as_array).cloned()))
-        .unwrap_or_default();
-    let ours = env.radiusJewelList.get().snapshot();
-    if pob.len() != ours.len() {
-        return false;
-    }
-    for (p, o) in pob.iter().zip(&ours) {
-        let mut pids: Vec<i64> = p
-            .get("nodes")
-            .map(|n| resolve(&dout.root, n))
-            .and_then(|n| n.get("$num").or(Some(n)))
-            .and_then(J::as_object)
-            .map(|m| m.keys().filter_map(|k| k.parse().ok()).collect())
-            .unwrap_or_default();
-        let mut oids: Vec<i64> = match o.get(n!("nodes")) {
-            Val::Obj(x) => x.downcast_ref::<LjIntMap<NodeRef>>().map(LjIntMap::keys).unwrap_or_default(),
-            Val::Table(t) => t
-                .pairs()
-                .filter_map(|(k, _)| match k {
-                    Key::I(i) => Some(i),
-                    _ => None,
-                })
-                .collect(),
-            _ => return false,
-        };
-        pids.sort_unstable();
-        oids.sort_unstable();
-        if pids != oids {
-            return false;
-        }
-    }
-    true
-}
-
 /// PoB's closure `{"$fn": src}` against the port's `Value::JewelFunc` (exported as
 /// `{ func = {"$fn": key}, … }`): the CalcSetup.lua:877-884 default is key `$default`; any other
 /// key must stand for PoB's closure source exactly ([`JfSrcs`]: the source ranges the model's
@@ -709,6 +672,20 @@ fn extra_func_entries(env: &Env) -> usize {
         .count()
 }
 
+/// Replace each item of `actor.itemList` (decoded from a dump) by the build model's item with the
+/// same `id`, the object PoB's foreign actor shares with the dumped env (FUP7, CCR-0140 §2).
+fn share_model_items(build: &BuildRef, actor: &ActorRef) {
+    let Some(list) = actor.itemList.get() else { return };
+    list.with_mut(|m| {
+        for it in m.values_mut() {
+            let model = it.id.get().and_then(|id| build.itemsTab.items.with(|items| items.get(&(id as u32)).cloned()));
+            if let Some(model) = model {
+                *it = model;
+            }
+        }
+    });
+}
+
 /// One hit. `carry` is the Rust pass 1 of the restart this hit is the recursive call of: its
 /// store replaces the injected `override.extraJewelFuncs` (whose actor is PoB's pass-1 player,
 /// `$foreign` at injection), so the second pass runs on what the Rust restart built, with pass
@@ -751,8 +728,13 @@ fn run_hit(
             if name == "override" {
                 if let Some(o) = v.obj::<Override>() {
                     if let Some(l) = o.extraJewelFuncs.get() {
-                        if l.actor.get().upgrade().is_none() {
-                            l.actor.set(Rc::downgrade(&env.player));
+                        match l.actor.get().upgrade() {
+                            None => l.actor.set(Rc::downgrade(&env.player)),
+                            // an earlier env's player decoded from the dump (inlineForeign): its
+                            // `itemList` holds the build's items, which PoB shares with this env's
+                            // `player.itemList` (the dump has `$ref`s to them); the decoder made
+                            // fresh items, so put the model's (same `id`) back (FUP7, CCR-0140 §2)
+                            Some(a) => share_model_items(build, &a),
                         }
                     }
                 }
@@ -779,7 +761,11 @@ fn run_hit(
                 if let Some(o) = v.obj::<Override>() {
                     if o.extraJewelFuncs.get().is_some() {
                         o.extraJewelFuncs.set(Some(c.store.clone()));
-                        o.extra.set(Name::from(EXTRA_JEWEL_FUNCS_ACTOR), c.actor.clone());
+                        // the strong reference stays with the test (`keep_alive`), not in
+                        // `override.extra["$extraJewelFuncsActor"]`: the second pass does not read
+                        // it, and its export would give the actor that Rust-only canonical path
+                        // instead of PoB's `override.extraJewelFuncs.actor` (FUP7, CCR-0140 §2)
+                        keep_alive.push(c.actor.clone());
                     }
                 }
             }
@@ -869,7 +855,6 @@ fn run_hit(
     };
     let es_equal = split(&pob_es_ids) == split(&ours_es);
     let ours_tree = testkit::export_after(Some(&env), &after);
-    let radius_ok = radius_nodes_equal(&env, dout);
     let mut why: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut kept = Vec::new();
     for m in mm {
@@ -891,8 +876,6 @@ fn run_hit(
             Some("override.extraJewelFuncs (second pass, $foreign actor)")
         } else if kind(&m) == "LuaOrder" && p.contains(".mods") && order_outside_tree_equal(&dout.root, &ours_tree, p) {
             Some("LUA-ORDER (tree-node mods: injected allocNodes layout)")
-        } else if p.starts_with("env.radiusJewelList[") && p.contains("].nodes") && radius_ok {
-            Some("radiusJewelList.nodes (node-id map exported as userdata; same ids)")
         } else if p.ends_with(".func") && jewel_func_equal(&m, jsrc) {
             Some("jewel func (closure as data, calc doc §6)")
         } else if p.ends_with(".mods.JewelFunc") && mods_equal_norm(&dout.root, &ours_tree, p, jsrc) {
@@ -1327,11 +1310,15 @@ fn cs2_l4_overrides() {
 /// `pre-load` hits of `cs2_l4_items_segment` (all57 + corpus/CS2, measured 2026-11-10: 354 of
 /// 1458 hits).
 const PRELOAD_MAX: usize = 354;
-/// Explained buckets that rest on exporter gaps (FOLLOWUPS "CS2" 3), at their measured counts.
-const EXPLAINED_MAX: &[(&str, usize)] = &[
-    ("override.extraJewelFuncs (second pass, $foreign actor)", 17_414),
-    ("radiusJewelList.nodes (node-id map exported as userdata; same ids)", 129_887),
-];
+/// Explained buckets that rest on exporter gaps (FOLLOWUPS "CS2" 3, CCRDOC 11), at their measured
+/// counts (all57 + corpus/CS2). FUP7 (2026-11-13): `radiusJewelList.nodes` is exported as the node
+/// map it is (probe.rs `PObj::NodeIdMap`; was 129,887, now compared: 0 and its bucket is gone);
+/// `override.extraJewelFuncs` went from 17,414 to 1,768 (a dumped actor's items are the model's,
+/// `share_model_items`; a carry keeps pass 1's player alive outside `override.extra`). What is
+/// left: the tables a dumped foreign actor shares with this env's items (`weaponData1/2`: PoB's
+/// canonical path runs through the actor, the decoder makes copies) and, on a carry, Rust's
+/// pass-1 player against PoB's (its dead `enemy`, its own `cachedPlayerDB` parent, eager fields).
+const EXPLAINED_MAX: &[(&str, usize)] = &[("override.extraJewelFuncs (second pass, $foreign actor)", 1_768)];
 
 #[derive(Default)]
 struct Tally {

@@ -253,7 +253,7 @@ impl ColY {
 /// `PCall(string.matchOrPattern, s, pattern)`: `(err, match)` → `not err and match`.
 fn p_call_match(s: &str, pattern: &str) -> bool {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::tree_view::match_or_pattern(s, pattern)
+        pob_lua::string::matchOrPattern(s, pattern)
     }))
     .unwrap_or(false)
 }

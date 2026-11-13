@@ -1920,10 +1920,8 @@ name = "pob-app"
 version = "0.0.1"
 dependencies = [
  "ahash",
- "flate2",
  "indexmap",
  "js-sys",
- "miniz_oxide",
  "pob-calc",
  "pob-gamedata",
  "pob-host",

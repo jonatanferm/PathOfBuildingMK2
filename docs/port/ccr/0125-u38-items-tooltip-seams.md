@@ -2,6 +2,8 @@
 
 **Status: applied (CCRDOC, 2026-11-12; code `8ff2b69` Merge port/U38): §4, plus the local workarounds as the as-built design: §1 `tooltip::flavour_lookup`, §2 DIVERGENCE(temp-item-id) counting down from `u32::MAX`, §3 `tooltip::copy_item`. Not built: §1's fix of U33's `ctor::flavourLookup` (the copy that drops every entry is unused; FOLLOWUPS "CCRDOC" 9), §3 `Item::shallow_copy`, §5 (the re-exports) and §6 (the bridge spec).**
 
+**FUP7 (2026-11-13) built §1's clean-up: U33's `ctor::flavourLookup` is deleted and its `@pob` marker (ItemsTab.lua:62-69) is on `tooltip::flavour_lookup`.**
+
 Unit: **U38** (ItemsTab tooltips, `Classes/ItemsTab.lua:3993-5055`,
 `pob-app/src/tabs/items/tooltip.rs`). Filed status: **pending** (code on `port/U38` follows it, with
 the local workarounds marked `// CCR-0125`). Number reserved with `scripts/port/next_ccr.sh`.

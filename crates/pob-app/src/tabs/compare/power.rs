@@ -31,21 +31,19 @@
 //! * `itemsTab:AddItem` / `DeleteItem` are U32's `ItemsTabHooks` (U34's ports);
 //!   `slot:SetSelItemId` is U32's `items::slot::set_sel_item_id` (ItemSlotControl.lua:72-84).
 //! * `self:GetJewelComparisonSlots`, `NormalizeConfigVals`, `FormatConfigValue` are U46's.
-//! * `self:ShouldShowRing3` / `AddAbyssSockets` (CompareTab.lua:3668-3693, U49) and
+//! * `self:ShouldShowRing3` / `AddAbyssSockets` (CompareTab.lua:3668-3693) are U49's
+//!   `CompareTab::ShouldShowRing3` / `AddAbyssSockets` (`draw_a.rs`), and
 //!   `self:GetGemGrantedEffect` / `GetSocketGroupSignature` / `GetSocketGroupLabel`
-//!   (CompareTab.lua:2466-2513, U47) are not ported yet: this file has private copies of them
-//!   ([`should_show_ring3`], ...), marked CCR-0138 §1, to be replaced by calls to the owners'
-//!   ports when they land. `itemsTab.slots[name].shown()` (AddAbyssSockets) is the slot's
-//!   `shown` closure of ItemsTab.lua:173-197 / ItemSlotControl.lua:34-36 for the model slot
-//!   (`$shown` kinds; calc:BM-A's `slot_IsShown` is private: CCR-0138 §2).
+//!   (CompareTab.lua:2466-2513) U47's (`layout.rs`); FUP7 replaced this file's private copies
+//!   (CCR-0138 §1) with calls to them.
 //!
 //! # Lua semantics
 //!
 //! * `categories` is `self.comparePowerCategories` itself (the live table): each
 //!   `categories.X` test reads U46's field when it runs.
 //! * `self.comparePowerCompareId ~= compareEntry` compares the entry by identity; Lua keeps the
-//!   entry alive through the field. U46 typed the field `Option<usize>`; this unit keeps the
-//!   entry itself in [`State::comparePowerCompareId`] (CCR-0138 §3) and leaves U46's unused.
+//!   entry alive through the field. This unit keeps the entry itself in
+//!   [`State::comparePowerCompareId`] (CCR-0138 §3; U46's unused `Option<usize>` is gone, FUP7).
 //! * `type(nodeId) == "number"`: every key of `spec.allocNodes` is a number (`LjIntMap`).
 //! * `pNode.pathDist or 0`: `Cell<Option<f64>>`; `#(pNode.path or {})` the path's length.
 //! * `cItem.raw` is always a string (truthy); `cItem.name or "Unknown"`: `name` is always set.
@@ -255,137 +253,6 @@ fn gems_of(group: &model::SocketGroupRef) -> Vec<GemInstanceRef> {
     group.gemList.get().snapshot()
 }
 
-// ---- copies of other units' CompareTab methods (CCR-0138 §1) -----------------------------------
-
-/// `self:GetGemGrantedEffect(gem)` (CompareTab.lua:2466-2473, U47; CCR-0138 §1)
-fn get_gem_granted_effect(gem: &GemInstance) -> Option<model::gamedata::schema::skills::GrantedEffectRef> {
-    // L2469
-    if let Some(gd) = gem.gemData.get() {
-        // L2470
-        return Some(gd.grantedEffect.clone());
-    }
-    // L2472
-    gem.grantedEffect.get()
-}
-
-/// `gem.grantedEffect and gem.grantedEffect.name or gem.nameSpec`
-fn gem_name(gem: &GemInstance) -> String {
-    match gem.grantedEffect.get() {
-        Some(ge) => ge.name.to_string(),
-        None => gem.nameSpec.get().to_string(),
-    }
-}
-
-/// `self:GetSocketGroupSignature(group)` (CompareTab.lua:2475-2486, U47; CCR-0138 §1)
-fn get_socket_group_signature(group: &model::SocketGroupRef) -> String {
-    // L2477
-    let mut names: Vec<String> = Vec::new();
-    // L2478
-    for gem in gems_of(group) {
-        // L2479-2482
-        names.push(gem_name(&gem));
-    }
-    // L2484
-    pob_lua::sort::sort(&mut names, |a, b| a.as_bytes() < b.as_bytes());
-    // L2485
-    names.join("+")
-}
-
-/// `self:GetSocketGroupLabel(group)` (CompareTab.lua:2488-2513, U47; CCR-0138 §1)
-fn get_socket_group_label(group: &model::SocketGroupRef) -> String {
-    // L2490
-    let mut names: Vec<String> = Vec::new();
-    // L2491
-    for gem in gems_of(group) {
-        // L2492
-        let isSupport = gem.grantedEffect.get().is_some_and(|ge| ge.support);
-        // L2493
-        if !isSupport {
-            // L2494-2497
-            names.push(gem_name(&gem));
-        }
-    }
-    // L2500
-    if names.is_empty() {
-        // Fallback: show all gem names if no active skills found
-        // L2502
-        for gem in gems_of(group) {
-            // L2503-2506
-            names.push(gem_name(&gem));
-        }
-    }
-    // L2509
-    if names.is_empty() {
-        // L2510
-        return "(empty group)".to_owned();
-    }
-    // L2512
-    names.join(" + ")
-}
-
-/// `self:ShouldShowRing3(compareEntry)` (CompareTab.lua:3668-3674, U49; CCR-0138 §1)
-fn should_show_ring3(cx: &Cx, compareEntry: &CompareEntryRef) -> bool {
-    let flag = |b: &model::BuildRef| {
-        b.calcsTab
-            .mainEnv
-            .get()
-            .is_some_and(|env| env.modDB.get().Flag(None, pob_lua::nm!["AdditionalRingSlot"]))
-    };
-    // L3669-3673
-    flag(&cx.build().model) || flag(&compareEntry.model)
-}
-
-/// `slot.shown()` of a model slot (module notes; CCR-0138 §2): ItemsTab.lua:173-175 /
-/// 195-197 for the abyssal sockets of the swap / main weapons, ItemSlotControl.lua:34-36
-/// otherwise.
-fn abyssal_slot_shown(build: &model::BuildRef, slot: &Table) -> bool {
-    let useSecond = || {
-        build
-            .itemsTab
-            .activeItemSet
-            .get()
-            .unwrap_or_else(|| lua_error!("attempt to index field 'activeItemSet' (a nil value)"))
-            .truthy(n!("useSecondWeaponSet"))
-    };
-    match slot.str(n!("$shown")).as_deref() {
-        Some("abyssalSwap") => !slot.truthy(n!("inactive")) && useSecond(),
-        Some("abyssalWeapon") => !slot.truthy(n!("inactive")) && !useSecond(),
-        _ => !slot.truthy(n!("inactive")),
-    }
-}
-
-/// `self:AddAbyssSockets(comparison, destTable, requireBothSides)` (CompareTab.lua:3676-3693,
-/// U49; CCR-0138 §1)
-fn add_abyss_sockets(cx: &Cx, comparison: &CompareEntryRef, destTable: &mut Vec<String>, requireBothSides: bool) {
-    let p = cx.build().model.clone();
-    let c = &comparison.model;
-    let shown = |b: &model::BuildRef, name: &str| {
-        let slot = slot_at(b, name).unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
-        abyssal_slot_shown(b, &slot)
-    };
-    // L3680
-    let equipmentSlots = [
-        "Weapon 1", "Weapon 2", "Weapon 1 Swap", "Weapon 2 Swap", "Helmet", "Body Armour", "Gloves", "Boots", "Belt",
-    ];
-    // L3682
-    for slot in equipmentSlots {
-        // L3683
-        for number in 1..=6 {
-            // L3684
-            let abyssalSocketName = format!("{slot} Abyssal Socket {number}");
-            // L3685
-            let mainHas = shown(&p, &abyssalSocketName);
-            // L3686
-            let comparisonHas = shown(c, &abyssalSocketName);
-            // L3687-3688
-            if (requireBothSides && mainHas && comparisonHas) || (!requireBothSides && (mainHas || comparisonHas)) {
-                // L3689
-                destTable.push(abyssalSocketName);
-            }
-        }
-    }
-}
-
 // ---- ComparePowerBuilder ----------------------------------------------------------------------
 
 /// `local baseSlots = { ... }` with Ring 3 and the abyssal sockets (L2553-2559, L2718-2724).
@@ -397,12 +264,12 @@ fn base_slots(cx: &Cx, compareEntry: &CompareEntryRef) -> Vec<String> {
     .iter()
     .map(|s| (*s).to_owned())
     .collect();
-    if should_show_ring3(cx, compareEntry) {
+    if CompareTab::ShouldShowRing3(cx, compareEntry) {
         // t_insert(baseSlots, 10, "Ring 3")
         baseSlots.insert(9, "Ring 3".to_owned());
     }
     // we only use jewel slots if both sides have them available
-    add_abyss_sockets(cx, compareEntry, &mut baseSlots, true);
+    CompareTab::AddAbyssSockets(cx, compareEntry, &mut baseSlots, true);
     baseSlots
 }
 
@@ -410,7 +277,7 @@ fn base_slots(cx: &Cx, compareEntry: &CompareEntryRef) -> Vec<String> {
 fn support_names(group: &model::SocketGroupRef) -> HashSet<String> {
     let mut pSupportNames = HashSet::new();
     for gem in gems_of(group) {
-        let ge = get_gem_granted_effect(&gem);
+        let ge = CompareTab::GetGemGrantedEffect(&gem);
         if let Some(ge) = ge.filter(|ge| ge.support) {
             // `ge.name or gem.nameSpec` (`ge.name` is always set)
             pSupportNames.insert(ge.name.to_string());
@@ -646,7 +513,7 @@ impl CompareTab {
                     // L2593
                     for gem in gems_of(&cMainGroup) {
                         // L2594
-                        let ge = get_gem_granted_effect(&gem);
+                        let ge = CompareTab::GetGemGrantedEffect(&gem);
                         // L2595
                         if let Some(ge) = ge.filter(|ge| ge.support) {
                             // L2596
@@ -955,7 +822,7 @@ impl CompareTab {
             // L2908
             for group in pGroups.snapshot() {
                 // L2909
-                pSignatures.insert(get_socket_group_signature(&group));
+                pSignatures.insert(CompareTab::GetSocketGroupSignature(&group));
             }
 
             // L2912
@@ -963,7 +830,7 @@ impl CompareTab {
                 co::with_cx(|cx| {
                     let p = cx.build().model.clone();
                     // L2913
-                    let sig = get_socket_group_signature(cGroup);
+                    let sig = CompareTab::GetSocketGroupSignature(cGroup);
                     // L2914
                     if sig.is_empty() || pSignatures.contains(&sig) {
                         return;
@@ -999,7 +866,7 @@ impl CompareTab {
                             // L2934
                             if !f.4 {
                                 // L2935
-                                let label = get_socket_group_label(cGroup);
+                                let label = CompareTab::GetSocketGroupLabel(cGroup);
                                 let gem = color(cx, "GEM");
                                 // L2937-2949
                                 results.push(entry("Skill gem", gem.clone(), gem, label, None, None, f));
@@ -1032,7 +899,7 @@ impl CompareTab {
                 // L2980
                 for cGem in gems_of(&cMainGroup) {
                     // L2981
-                    let cGrantedEffect = get_gem_granted_effect(&cGem);
+                    let cGrantedEffect = CompareTab::GetGemGrantedEffect(&cGem);
                     // L2982
                     let Some(cGrantedEffect) = cGrantedEffect.filter(|ge| ge.support) else { continue };
                     // L2983

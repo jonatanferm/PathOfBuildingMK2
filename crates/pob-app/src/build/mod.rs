@@ -7,7 +7,7 @@
 //! `buildMode` is one Lua object (`new("ControlHost"):ControlHost()`, Build.lua:22) whose methods
 //! are spread over U19 (Init, init.rs), U20 (loadouts, io, on_frame, popups, class_drop) and U21
 //! (skill_select, stats, display_stats). `main.modes.BUILD` is [`BuildModeObj`] (the
-//! `main_mode::Mode` trait, CCR-0091 A); methods of U20/U21 and of the tabs that U19's code calls
+//! `main_mode::Mode` trait, CCR-0096 A); methods of U20/U21 and of the tabs that U19's code calls
 //! go through [`init::BuildHooks`] (CCR-0098 §3) until their owners install
 //! theirs. `main:Init` installs [`mode`] as `main.modes.BUILD` (CCR-0098 §5, done by U20).
 //!
@@ -133,7 +133,7 @@ pub fn mode() -> Rc<dyn Mode> {
     Rc::new(BuildModeObj)
 }
 
-/// The `buildMode` module object as `main` sees it (CCR-0091 A). The state lives in
+/// The `buildMode` module object as `main` sees it (CCR-0096 A). The state lives in
 /// `cx.app().build` and the `BuildMode` node; this object only routes `main:CallMode`.
 pub struct BuildModeObj;
 

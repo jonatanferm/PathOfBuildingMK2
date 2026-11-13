@@ -2,6 +2,8 @@
 
 **Status: applied (CCRDOC, 2026-11-12; code `c55e330` Merge port/U37): §2, §3 (resolution (a), test-local Lua reload) and §4. Not built: §1 (`checkLineForAllocates` is still copied in `craft_b.rs`) and §3's patch registration in `patches.rs`.**
 
+**FUP7 (2026-11-13) built §1: `display_item::checkLineForAllocates` is `pub`; `craft_b.rs`'s copy is gone.**
+
 Unit: **U37** (ItemsTab crafting B, `Classes/ItemsTab.lua:3121-3992`,
 `pob-app/src/tabs/items/craft_b.rs`).
 Filed status: **pending** (code on `port/U37` follows it, with the local workarounds marked

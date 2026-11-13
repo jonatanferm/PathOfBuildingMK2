@@ -352,7 +352,7 @@ impl PassiveTreeView {
             let mut i = need.len();
             while i >= 1 {
                 // L1344
-                if match_or_pattern(haystack, &need[i - 1]) {
+                if pob_lua::string::matchOrPattern(haystack, &need[i - 1]) {
                     // L1345
                     need.remove(i - 1);
                 }
@@ -482,97 +482,3 @@ impl PassiveTreeView {
 }
 
 use crate::model::Val;
-
-/// lua: Common.lua:1038-1079 `string:matchOrPattern(pattern)` (unowned helper, ui doc §13 item
-/// 15: the first consuming unit ports it; U12 did not).
-/// @pob Modules/Common.lua:1038-1079 h=f7b8bae7
-pub fn match_or_pattern(s: &str, pattern: &str) -> bool {
-    // L1039-1069 local function generateOrPatterns(pattern)
-    fn generate_or_patterns(pattern: &str) -> Vec<String> {
-        struct SubGroup {
-            open: usize,
-            close: usize,
-            patterns: Vec<String>,
-        }
-        // L1040-1041
-        let mut sub_groups: Vec<SubGroup> = Vec::new();
-        let mut index = 1usize;
-        // find and call generate patterns on all subGroups
-        // L1043
-        let groups: Vec<String> = pob_lua::gmatch(pattern, "%b()")
-            .map(|c| c[0].to_str().into_owned())
-            .collect();
-        for sub_group in groups {
-            // L1044 pattern:find(subGroup, (subGroups[index] and subGroups[index].close or 1), true)
-            let init = sub_groups.get(index - 1).map_or(1, |g| g.close) as i64;
-            let (open, close) = pob_lua::find(pattern, &sub_group, Some(init), true)
-                .map(|(a, b, _)| (a, b))
-                .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on a nil value"));
-            // L1045
-            let inner = pob_ui_core::luastr::sub(&sub_group, 2.0, Some(-2.0)).into_owned();
-            sub_groups.push(SubGroup {
-                open,
-                close,
-                patterns: generate_or_patterns(&inner),
-            });
-            // L1046
-            index += 1;
-        }
-
-        // generate complete patterns from the subGroup patterns
-        // L1050
-        let first_open = sub_groups.first().map_or(0, |g| g.open) as f64;
-        let mut generated: Vec<String> =
-            vec![pob_ui_core::luastr::sub(pattern, 1.0, Some(first_open - 1.0)).into_owned()];
-        // L1051
-        for (i, sub_group) in sub_groups.iter().enumerate() {
-            // L1052
-            let next_open = sub_groups.get(i + 1).map_or(0, |g| g.open) as f64;
-            let regular_next =
-                pob_ui_core::luastr::sub(pattern, (sub_group.close + 1) as f64, Some(next_open - 1.0))
-                    .into_owned();
-            // L1053
-            let mut temp: Vec<String> = Vec::new();
-            // L1054
-            for sub_pattern in &generated {
-                // L1055 (ORDER: module notes)
-                for sg_pattern in &sub_group.patterns {
-                    // L1056
-                    temp.push(format!("{sub_pattern}{sg_pattern}{regular_next}"));
-                }
-            }
-            // L1059
-            generated = temp;
-        }
-
-        // apply | operators
-        // L1063
-        let mut or_patterns: Vec<String> = Vec::new();
-        // L1064
-        for g in &generated {
-            // L1065
-            for or_pattern in pob_lua::gmatch(g, "[^|]+") {
-                // L1066 store string as key to avoid duplicates.
-                let p = or_pattern[0].to_str().into_owned();
-                if !or_patterns.contains(&p) {
-                    or_patterns.push(p);
-                }
-            }
-        }
-        // L1069
-        or_patterns
-    }
-
-    // L1072
-    let or_patterns = generate_or_patterns(pattern);
-    // L1073 (ORDER: module notes)
-    for or_pattern in or_patterns {
-        // L1074
-        if pob_lua::lmatch(s, &or_pattern, None).is_some() {
-            // L1075
-            return true;
-        }
-    }
-    // L1078
-    false
-}

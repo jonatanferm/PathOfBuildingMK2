@@ -15,7 +15,8 @@
 //! Also here, as the first consumer in wave order (ui doc §12 note 15, CCR-0109 §7):
 //! `urlEncode`/`urlDecode` (Common.lua:1024-1036), ImportTab.lua's global `HexToChar`/`UrlDecode`
 //! (1913-1924, inside U44's line range but called at L594), `common.sha1`, and SimpleGraphic's
-//! `Deflate`/`Inflate` ([`deflate`], [`inflate`]; `ui_api.cpp` `l_Deflate`/`l_Inflate`).
+//! `Deflate`/`Inflate` ([`deflate`], [`inflate`]: adapters over the shared
+//! `pob_gamedata::sg_zlib` port of `ui_api.cpp` `l_Deflate`/`l_Inflate`, FUP7).
 //!
 //! `main.api`, `main.lastExportWebsite`, `main.lastCharacterHash` and the global `historyList`
 //! are not `MainState` fields; CCR-0109 §1 keeps them in [`MainExtra`] (one per app).
@@ -23,9 +24,9 @@
 //! Lua semantics:
 //! * `common.base64.encode(Deflate(x)):gsub("+","-"):gsub("/","_")` / the reverse: see
 //!   [`encode_build_code`] / [`decode_build_code`]. DIVERGENCE(deflate-bytes): SimpleGraphic's
-//!   `Deflate` is zlib's `deflateInit(&z, 9)`; the port uses miniz_oxide at level 9, whose
-//!   compressed bytes differ from zlib's. The codes decode to the same XML and both decoders
-//!   accept both encoders' output.
+//!   `Deflate` is zlib's `deflateInit(&z, 9)`; the port uses miniz_oxide at level 9
+//!   (`pob_gamedata::sg_zlib`), whose compressed bytes differ from zlib's. The codes decode to
+//!   the same XML and both decoders accept both encoders' output.
 //! * DIVERGENCE(bytes): build XML and response bodies are Lua byte strings; the port keeps them
 //!   as UTF-8 (`from_utf8_lossy` after Inflate), as `platform/net.rs` does.
 //! * `SetText(text:gsub(..))` passes gsub's count as `notify` (a number, truthy): `true` here.
@@ -65,15 +66,16 @@ use crate::model::xml::XmlNode;
 
 // ---- SimpleGraphic / Common.lua helpers (CCR-0109 §7) -----------------------------------------
 
-/// `Deflate(data)` (SimpleGraphic `l_Deflate`: zlib stream, level 9). DIVERGENCE(deflate-bytes).
+/// `Deflate(data)` (SimpleGraphic `l_Deflate`: zlib stream, level 9; `pob_gamedata::sg_zlib`).
+/// DIVERGENCE(deflate-bytes).
 pub fn deflate(data: &[u8]) -> Vec<u8> {
-    miniz_oxide::deflate::compress_to_vec_zlib(data, 9)
+    pob_gamedata::sg_zlib::Deflate(data)
 }
 
-/// `Inflate(data)` (SimpleGraphic `l_Inflate`: a zlib stream; nil unless it ends with
-/// `Z_STREAM_END`).
+/// `Inflate(data)`'s first result (SimpleGraphic `l_Inflate`: a zlib stream; nil unless it ends
+/// with `Z_STREAM_END`; `pob_gamedata::sg_zlib`). ImportTab, PartyTab and CompareTab use it.
 pub fn inflate(data: &[u8]) -> Option<Vec<u8>> {
-    miniz_oxide::inflate::decompress_to_vec_zlib(data).ok()
+    pob_gamedata::sg_zlib::Inflate(data).ok()
 }
 
 /// `common.base64.encode(Deflate(xml)):gsub("+","-"):gsub("/","_")` (ImportTab.lua:505).

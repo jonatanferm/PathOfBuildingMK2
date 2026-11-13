@@ -1,7 +1,7 @@
 //! @pob-file Modules/Common.lua @16de4b82d
 //! LuaJIT `string.*` byte semantics (calc doc §4.1 `string.rs`) and PoB's
 //! string helpers from `Modules/Common.lua` (`sanitiseText` 306,
-//! `string:split` 1001), `ModParser.lua` (`firstToUpper` 13) and
+//! `string:split` 1001, `string:matchOrPattern` 1038), `ModParser.lua` (`firstToUpper` 13) and
 //! `_SimpleGraphic.def.lua` (`StripEscapes` 295).
 //!
 //! Byte-level functions take and return `&[u8]`/`Vec<u8>` and are exact. The
@@ -184,6 +184,112 @@ pub fn split(s: &str, sep: &str) -> Vec<String> {
     );
     // L1009
     fields
+}
+
+/// lua: Common.lua:1038-1079 `string:matchOrPattern(pattern)`: `s` matches one of the
+/// alternatives (`a|b`, with `(..)` groups expanded) of `pattern`. Raises (`lua_error!`) like
+/// `string.match` on a malformed alternative; a caller that `PCall`s it wraps it in
+/// [`crate::error::catch`]. The one port every caller shares (FUP7; CCR-0107 §3, CCR-0112 §2,
+/// ui doc §13 item 15).
+///
+/// ORDER: `pairs(subGroup.patterns)` (L1055) and `pairs(orPatterns)` (L1073) walk string keys in
+/// LuaJIT hash order; here they walk insertion order (each key once, as in the `= true` set). The
+/// result is an any-match, so the order shows only when one alternative matches and another
+/// raises.
+/// @pob Modules/Common.lua:1038-1079 h=f7b8bae7
+pub fn matchOrPattern(s: &str, pattern: &str) -> bool {
+    struct SubGroup {
+        open: usize,
+        close: usize,
+        patterns: Vec<String>,
+    }
+    // L1039
+    fn generateOrPatterns(pattern: &str) -> Vec<String> {
+        // L1040
+        let mut subGroups: Vec<SubGroup> = Vec::new();
+        // L1041
+        let mut index = 1usize;
+        // find and call generate patterns on all subGroups
+        // L1043
+        let groups: Vec<String> = gmatch(pattern, "%b()")
+            .map(|c| c[0].to_str().into_owned())
+            .collect();
+        for subGroup in groups {
+            // L1044 (`subGroups[index]` is always nil here: index is #subGroups + 1, so the
+            // search starts at 1)
+            let init = subGroups.get(index - 1).map_or(1, |g| g.close) as i64;
+            let (open, close) = match find(pattern, &subGroup, Some(init), true) {
+                Some((a, b, _)) => (a, b),
+                None => {
+                    crate::lua_error!("attempt to perform arithmetic on local 'open' (a nil value)")
+                }
+            };
+            // L1045
+            let inner = sub(&subGroup, 2, Some(-2)).into_owned();
+            subGroups.push(SubGroup {
+                open,
+                close,
+                patterns: generateOrPatterns(&inner),
+            });
+            // L1046
+            index += 1;
+        }
+
+        // generate complete patterns from the subGroup patterns
+        // L1050
+        let first_open = subGroups.first().map_or(0, |g| g.open) as i64;
+        let mut generatedPatterns: Vec<String> =
+            vec![sub(pattern, 1, Some(first_open - 1)).into_owned()];
+        // L1051
+        for (i, subGroup) in subGroups.iter().enumerate() {
+            // L1052
+            let next_open = subGroups.get(i + 1).map_or(0, |g| g.open) as i64;
+            let regularNextString =
+                sub(pattern, subGroup.close as i64 + 1, Some(next_open - 1)).into_owned();
+            // L1053
+            let mut tempPatterns: Vec<String> = Vec::new();
+            // L1054
+            for subPattern in &generatedPatterns {
+                // L1055 (ORDER: insertion order, see above)
+                for subGroupPattern in &subGroup.patterns {
+                    // L1056
+                    tempPatterns.push(format!("{subPattern}{subGroupPattern}{regularNextString}"));
+                }
+            }
+            // L1059
+            generatedPatterns = tempPatterns;
+        }
+
+        // apply | operators
+        // L1063
+        let mut orPatterns: Vec<String> = Vec::new();
+        // L1064
+        for generatedPattern in &generatedPatterns {
+            // L1065
+            for c in gmatch(generatedPattern, "[^|]+") {
+                // L1066 store string as key to avoid duplicates.
+                let orPattern = c[0].to_str().into_owned();
+                if !orPatterns.contains(&orPattern) {
+                    orPatterns.push(orPattern);
+                }
+            }
+        }
+        // L1069
+        orPatterns
+    }
+
+    // L1072
+    let orPatterns = generateOrPatterns(pattern);
+    // L1073 (ORDER: insertion order, see above)
+    for orPattern in &orPatterns {
+        // L1074
+        if r#match(s, orPattern, None).is_some() {
+            // L1075
+            return true;
+        }
+    }
+    // L1078
+    false
 }
 
 /// Clean item text by removing or replacing unsupported or redundant characters or sequences

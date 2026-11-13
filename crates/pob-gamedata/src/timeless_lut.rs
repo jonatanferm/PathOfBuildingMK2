@@ -215,11 +215,6 @@ fn ConPrintf(msg: &str) {
     }
 }
 
-/// SimpleGraphic's `Inflate(data)`: a zlib stream; nothing (nil) when it is not one.
-fn Inflate(compressed: &[u8]) -> Option<Vec<u8>> {
-    miniz_oxide::inflate::decompress_to_vec_zlib(compressed).ok()
-}
-
 // ---------------------------------------------------------------------------
 // Lua helpers
 // ---------------------------------------------------------------------------
@@ -567,7 +562,8 @@ pub fn loadJewelFile(jewelTypeName: &str, cacheUncompressed: bool) -> Option<Vec
     }
 
     // L84
-    let jewelData = Inflate(&compressedData);
+    // (`local jewelData = Inflate(...)` keeps the first result: nil on failure)
+    let jewelData = crate::sg_zlib::Inflate(&compressedData).ok();
     // L85
     if cacheUncompressed {
         // L86-90: io.open(…, "wb+") truncates; `write(nil)` then raises

@@ -2,6 +2,8 @@
 
 **Status: applied (CCRDOC, 2026-11-12; code `b9888df` Merge port/U48): §2 (`abyssal_slot_shown`), §3, §4 and §5. Not built: §1's switch to U49's now-public methods (`power.rs` keeps its five private copies) and §3's deletion of U46's unused `init::State::comparePowerCompareId`.**
 
+**FUP7 (2026-11-13) built §1 (power.rs calls U49's `ShouldShowRing3`/`AddAbyssSockets` and U47's group helpers) and §3's deletion of `init::State::comparePowerCompareId`.**
+
 Unit: **U48** (`Classes/CompareTab.lua:2516-3161`, `Classes/ComparePowerReportListControl.lua`,
 `Classes/CompareCalcsHelpers.lua`; files `pob-app/src/tabs/compare/{power.rs,power_list.rs,calcs_helpers.rs}`).
 Filed status: **pending** (code on `port/U48` follows it, with the local workarounds marked `// CCR-0138`).

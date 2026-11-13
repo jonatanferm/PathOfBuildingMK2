@@ -30,9 +30,9 @@
 //! Stand-ins and harness fixes (both sides run the same ones):
 //! * u18's: `main.modes.BUILD` draws nothing and records its `Init` arguments (pob-app's
 //!   `PendingMode`), `main:DrawBackground` draws nothing;
-//! * SimpleGraphic's `Deflate`/`Inflate` on the Lua side are bound to pob-app's (u43's reason:
-//!   the oracle natives use another zlib level), so the similar-builds code and an imported
-//!   build code decode the same on both sides;
+//! * SimpleGraphic's `Deflate`/`Inflate` are `pob_gamedata::sg_zlib` on both sides (the
+//!   oracle's natives since FUP7), so the similar-builds code and an imported build code
+//!   decode the same on both sides;
 //! * `PoBArchivesProvider:GetRecommendations` runs its own curl sub-script (a POST), which the
 //!   oracle's `LaunchSubScript` cannot serve (it takes the URL from argument 4, which is the
 //!   build code here, and finishes with `body, errMsg, headers` where this script returns
@@ -241,28 +241,6 @@ fn directives(text: &str, name: &str) -> Vec<String> {
         .collect()
 }
 
-/// SimpleGraphic's `Deflate` / `Inflate`, bound to pob-app's (module notes; as u43).
-fn install_sg_zlib(lua: &mlua::Lua) -> mlua::Result<()> {
-    use pob_app::tabs::import::core::{deflate, inflate};
-    let g = lua.globals();
-    g.set(
-        "Deflate",
-        lua.create_function(|lua, data: mlua::String| {
-            lua.create_string(deflate(&data.as_bytes()))
-        })?,
-    )?;
-    g.set(
-        "Inflate",
-        lua.create_function(|lua, data: mlua::String| {
-            Ok(match inflate(&data.as_bytes()) {
-                Some(out) => (Some(lua.create_string(out)?), None),
-                None => (None, Some("data error".to_owned())),
-            })
-        })?,
-    )?;
-    Ok(())
-}
-
 // ---- the Lua side ----
 
 struct LuaSide {
@@ -286,10 +264,7 @@ impl App for LuaSide {
             code.push_str(LUA_DRAW_BODY);
         }
         self.app
-            .with_vm(|pob| {
-                pob.eval::<()>(&code)?;
-                install_sg_zlib(&pob.lua)
-            })
+            .with_vm(|pob| pob.eval::<()>(&code))
             .unwrap_or_else(|e| panic!("Lua stubs: {e}"));
     }
     fn on_frame(&mut self) {

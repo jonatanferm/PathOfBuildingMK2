@@ -666,6 +666,11 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
    with 31 lines covered twice (1302-1315, 1317-1323, 1325-1334): `pob-app/src/tabs/config/ctor.rs:2465`
    (U41) and `pob-calc-core/src/model/config_tab.rs:810` (BM-B). Fix: U41's marker becomes a
    `/// lua:` note (ui doc §10.5, "Provenance of split functions").
+   **Closed by FUP7** (port/FUP7, 2026-11-13): `ctor.rs` `update_custom_mods_controls` carries a
+   `/// lua:` note naming BM-B's marker. `provenance.py coverage --range
+   Classes/ConfigTab.lua:1-1362`: 1231 in-scope lines, 0 uncovered, 0 covered twice. The whole
+   scope (`coverage`): 41,266 lines, 0 uncovered, 0 covered twice; `check`: 2357 `@pob`, 208
+   `@pob-skip`, 249 `@pob-file`, 0 errors; `pob-oracle --test U0` 6/6 (full and quick corpus).
 7. **A dropped build leaks on desktop** (CCR-0142 §3 B). `build/init.rs:759` drops the previous
    `BuildState` without breaking `Env.build`/`MiscCalculator.build` ↔ `calcsTab` and
    `ActiveSkill.socketGroup` ↔ `displaySkillList(Calcs)` (calc doc §3.3 rule 4). Every switch of
@@ -689,6 +694,27 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
    two (import/core.rs on miniz_oxide, party.rs on flate2). pob-oracle's LuaJIT `Inflate`/`Deflate`
    natives differ from SimpleGraphic (`""` instead of nil, default level), which the u43/u45
    harnesses work around. Owner: whoever takes the shared helpers (pob-lua for the PRNG).
+   **Closed by FUP7** (port/FUP7, 2026-11-13): `pob_lua::string::matchOrPattern` is the one port
+   (U41's `ctor::match_or_pattern` and the tabs' `pcall_match` are `PCall` wrappers over it; L0
+   `pob-lua/tests/l0_string.rs` `pob_match_or_pattern`: 6025 vectors run against Common.lua
+   1038-1079 under LuaJIT, 0 mismatches). `pob_lua::math::{m_random, m_randomseed}` is the one
+   PRNG (one per-thread state, as LuaJIT's one per Lua state; L0 `l0_math.rs` `lj_math_random`:
+   12,800 draws, 0 mismatches, of which 7,600 on seeds whose `random_seed` rounds differently
+   under FMA are checked against an FMA-seeded model, because this host is aarch64 and both the
+   oracle's vendored LuaJIT and /usr/bin/luajit (2.1.1788856981) fuse `d*PI+E` in `random_seed`:
+   `math.randomseed(-3.3)` then five `math.random(1,1000000)` print `854163 235769 441195 408577
+   471319` under both, the FMA model's stream, where the port gives `853552 235769 458773 408577
+   440069`. So the port's unfused (x64, CCR-0001) stream for FMA-sensitive seeds is checked only
+   against the model (resting on the reasoning that baseline x86-64 has no FMA contraction),
+   never against a real x64 LuaJIT; seeds that round the same either way (0, 12.5, 1.7e9, ...) match both LuaJITs
+   bit-exactly). SimpleGraphic's
+   `Inflate`/`Deflate` are `pob_gamedata::sg_zlib` (the `l_Inflate` loop on miniz_oxide's
+   stream API, `nil, zError(err)`; level 9), used by the timeless LUT loader,
+   `tabs/import/core.rs`'s adapters (ImportTab, PartyTab, CompareTab) and pob-oracle's LuaJIT
+   natives (`jit.rs`), so the u43/u44/u46/u48/u52 rebindings are gone and u45 gained
+   `e_partial_code` (a truncated code: invalid on both sides). pob-app no longer depends on
+   flate2 or miniz_oxide. Not changed: pob-oracle's pure-Rust interpreter host
+   (`src/lua/host.rs`, not the LuaJIT oracle) keeps its own flate2 natives.
 9. **Dead or duplicate code left by the seams.** `tabs/items/ctor.rs::flavourLookup` drops every
    entry and is unused (U38's `tooltip::flavour_lookup` is the one used; CCR-0125 §1);
    `on_frame::State.last_*` and `on_frame::StatLineInfo` are fallbacks nothing writes (CCR-0106 §4);
@@ -699,6 +725,16 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
    `calcRadiusBreakpointsOpt` directly (CCR-0043). Two code comments in `pob-app/src/build/mod.rs`
    (lines 10, 136) still cite `CCR-0091 A`, U16's pre-renumbering number: they mean CCR-0096 A
    (the CCR files were corrected by CCRDOC). No behaviour change expected.
+   **Closed by FUP7** (port/FUP7, 2026-11-13): `ctor::flavourLookup` deleted (its `@pob`
+   ItemsTab.lua:62-69 marker is on `tooltip::flavour_lookup`); `on_frame::State.last_*` deleted
+   and the `StatLineInfo` downcast fallback dropped (`StatLineInfo` stays as
+   `get_sidebar_breakdown`'s argument, built from U21's `stats::StatLine`);
+   `init::State::comparePowerCompareId` deleted; `power.rs` calls `CompareTab::ShouldShowRing3` /
+   `AddAbyssSockets` (U49) and `GetGemGrantedEffect` / `GetSocketGroupSignature` /
+   `GetSocketGroupLabel` (U47); `display_item::checkLineForAllocates` is `pub` and `craft_b.rs`
+   calls it; BM-A's `build_xml::{skillsTab_ctor_model, ImportCalcSettings, new_timelessData}` are
+   `pub` (the first takes `main.defaultGemQuality`) and `entry.rs` calls them; `skill_types.rs`
+   calls `calcRadiusBreakpointsOpt` directly; both comments read `CCR-0096 A`.
 10. **The ItemsTab range slider draws its knob from the unrounded value while dragged**
     (CCR-0124 §5). `ctor.rs` `range_slider_overrides` syncs `val` from `modLine.range` only before
     the class Draw, so the drag step's unrounded `5/82` is drawn where PoB draws `round(5/82, 6)`
@@ -712,6 +748,35 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
     bare `LjIntMap<NodeRef>` (`radiusJewelList[i].nodes`) as `{"$userdata": true}`, and a second
     pass's `override.extraJewelFuncs` actor does not line up path by path. `tests/CS2.rs` excuses
     both within `EXPLAINED_MAX`. Owner: ORC-X (probe.rs).
+    **Closed by FUP7** (port/FUP7, 2026-11-13; the second gap in part): probe.rs `PObj::NodeIdMap`
+    exports a bare `Rc<LjIntMap<NodeRef>>` as the node map it is, with its own identity (a second
+    entry of one socket is a `$ref`, as in PoB). CS2 (all57 + corpus/CS2): the
+    `radiusJewelList.nodes` bucket went from 129,887 to 0 and is gone (with `radius_nodes_equal`);
+    CS3's `nodesInRadius (opaque export)` (17,835 at L5) is gone too, with CS3 unchanged
+    otherwise (L4 336 pass / 1 fail, L5 168 / 3: the `isSupporting` `$keys` order of
+    allflame_exp_051, failing the same way in the 2026-11-13 01:14 full suite before FUP7). In
+    `tests/CS2.rs` a dumped foreign actor's `itemList` holds the model's items
+    (`share_model_items`) and a carry keeps pass 1's player alive in the test instead of
+    `override.extra["$extraJewelFuncsActor"]`: the `override.extraJewelFuncs` bucket went from
+    17,414 to 1,768, the new `EXPLAINED_MAX` (CS2 still 1104 / 1104 compared hits identical, 6
+    restarts, 6 identical second passes). Left (still excused): the tables a dumped foreign actor
+    shares with this env's items (`weaponData1/2`, whose PoB canonical path runs through the
+    actor while the decoder makes copies) and, on a carry, Rust's pass-1 player against PoB's (its
+    dead `enemy`, its own `cachedPlayerDB` parent, eager struct fields). Tightening the excuse to
+    carry hits only made 707 of 1104 hits fail, so it stays.
+
+    FUP7 runs: pob-ui-oracle u20_build, u21_stats, u23_tree_view, u27_timeless, u31_skills,
+    u32_items, u36_craft_a, u37_craft, u38_tooltips, u41_config, u43_import, u44_character,
+    u45_party (with `e_partial_code`), u46_compare, u47_compare, u48_compare_power, u49_compare,
+    u52_ext_build_list: all pass; `parity` 54 passed, among them the u28 galleries (notable,
+    timeless list and socket: 0 divergences); pob-oracle CS2 (full and quick corpus), U0 (full
+    and quick), OF-B, BM-A, INT-3 pass; CS3 as before (see above); pob-lua (27 unit tests, 8 L0
+    binaries), pob-gamedata `sg_zlib` and pob-app `--lib` (75) pass. Main.lua:437-443 was
+    covered by both `main_mode/on_frame.rs` and `pob-ui-core/src/popups.rs` (outside
+    `scope.toml`, so `coverage` did not report it): the popups.rs marker is a `/// lua:` note
+    now. Still covered twice outside `scope.toml`: Common.lua:803-828 `formatNumSep`
+    (`calc_format.rs` and `luastr.rs`, ui doc §13 item 15's A8 merge) and
+    Data/Global.lua:179-184 inside 174-214 in pob-dump's generated `global.rs` (codegen output).
 12. **A build link on the command line still raises** (DIVERGENCE(no-cli-args)). Main.lua:71-82
     imports `arg[1]` through `buildSites.ParseImportLinkFromURI`/`DownloadBuild`, which U43 has
     ported (`tabs/import/build_sites.rs`). `pob-app/src/main_mode/init.rs:150-153` still raises

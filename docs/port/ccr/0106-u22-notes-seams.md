@@ -2,6 +2,8 @@
 
 **Status: applied (CCRDOC, 2026-11-12; code `32b022c` Merge port/U22): §1 (`&mut Cx` savers), §2 (the per-tab arms; ui doc §10.5), §3, §4 and §5 (`app/pob-desktop` initialises the game data). The §4 clean-ups were not done: `on_frame::State.last_*` and `StatLineInfo` stay as fallbacks (FOLLOWUPS "CCRDOC" 9).**
 
+**FUP7 (2026-11-13) removed the §4 fallbacks: `on_frame::State.last_*` are gone (OnFrame reads U21's `stats::State`), and SetDisplayStat reads only U21's `stats::StatLine` (`StatLineInfo` stays as the hook argument).**
+
 Unit: **U22** (NotesTab, `Classes/NotesTab.lua:1-112`, the wave-4 template gate). Filed status:
 **pending** (code on `port/U22` follows it). Number reserved with `scripts/port/next_ccr.sh`.
 

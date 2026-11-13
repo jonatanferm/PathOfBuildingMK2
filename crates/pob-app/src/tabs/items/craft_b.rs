@@ -220,32 +220,12 @@ fn get_from_output(
     })
 }
 
-/// `self.build.spec.nodes` for `checkLineForAllocates`.
+/// `self.build.spec.nodes` for `checkLineForAllocates` (U35's port in `display_item.rs`; FUP7
+/// removed this file's CCR-0129 §1 copy).
 fn check_line(cx: &Cx, line: &str) -> String {
     let spec = cx.build().model.spec.get();
     spec.nodes
-        .with(|nodes| checkLineForAllocates(line, Some(nodes)))
-}
-
-/// lua: ItemsTab.lua:2493-2501 `checkLineForAllocates(line, nodes)` (a module local, U35's
-/// range: `display_item.rs` ports it as a private fn). // CCR-0129 §1: a statement-for-statement
-/// copy until U35 makes its port `pub` (no marker here, U35's covers the lines).
-fn checkLineForAllocates(line: &str, nodes: Option<&model::LjIntMap<model::NodeRef>>) -> String {
-    // L2494
-    if let Some(nodes) = nodes.filter(|_| lmatch(line, "Allocates").is_some()) {
-        // L2495
-        let nodeId = lmatch(line, "%d+").and_then(|s| pob_lua::tonumber(&s));
-        // L2496
-        let node = nodeId
-            .filter(|x| x.fract() == 0.0)
-            .and_then(|x| nodes.get(x as i64));
-        if let Some(node) = node {
-            // L2497
-            return format!("Allocates {}", node.dn.get());
-        }
-    }
-    // L2500
-    line.to_owned()
+        .with(|nodes| super::display_item::checkLineForAllocates(line, Some(nodes)))
 }
 
 /// The string keys of an affix table in canonical order (bytewise; ORDER (a), module notes).

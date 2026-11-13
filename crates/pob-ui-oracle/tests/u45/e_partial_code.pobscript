@@ -1,0 +1,37 @@
+# U45 (FUP7): a partial build code. pob-oracle's LuaJIT `Inflate` is SimpleGraphic's since FUP7
+# (`pob_gamedata::sg_zlib`: nil for a stream that does not end), so a truncated code reads as
+# invalid on both sides (importCodeHandle returns before "Code is valid"; before FUP7 the oracle
+# returned "" and the Lua side showed "Code is valid"). The first 120 characters of a_import's
+# code (whole base64 quads: the decode succeeds, the zlib stream is cut), RETURN (finishImport
+# returns: importCodeValid is false), a typed "!" (still invalid), Ctrl+S, and a snapshot whose
+# Party section is still empty.
+#! u45-saved Builds/party_plain.xml
+#! u45-expect-no-party Destructive Link
+fixture userdir=user_plain
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 40 122
+click LEFTBUTTON
+frames 2
+move 400 170
+click LEFTBUTTON
+frames 1
+paste-clipboard "eJyVVNtu4jAQfa6_Isp7loSK1QqRVEmAbiXYImi1zyaZgIUvyHZaIvnj1zGXpVtVG5QHW3PG55yZjD16ODDqvYFURPDYj76Fvge8ECXhm9h_fZkGP_yHBI0W"
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+press RETURN
+frames 2
+type "!"
+frames 2
+key-down CTRL
+press s
+key-up CTRL
+frames 2
+snapshot partial
+frames 1

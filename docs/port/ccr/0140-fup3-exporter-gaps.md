@@ -2,6 +2,8 @@
 
 **Status: rejected (CCRDOC, 2026-11-12): not built. `probe.rs` still exports a bare `LjIntMap<NodeRef>` as `{"$userdata": true}`, and CS2's L4 test excuses both buckets within its measured `EXPLAINED_MAX`. This is test-only; FOLLOWUPS "CCRDOC" 11 names the owner.**
 
+**FUP7 (2026-11-13) built §1 (probe.rs `PObj::NodeIdMap`: the bare node-id map is exported as a node map with its own identity; CS2's `radiusJewelList.nodes` bucket went from 129,887 to 0 and is gone) and part of §2 in `tests/CS2.rs` (a dumped foreign actor's items are the model's, a carry keeps pass 1's player alive outside `override.extra`): the `override.extraJewelFuncs` bucket went from 17,414 to 1,768, CS2's new `EXPLAINED_MAX`. Left: the tables a dumped actor shares with this env's items and, on a carry, Rust's pass-1 player against PoB's.**
+
 Unit: **FUP3** (oracle hygiene, FOLLOWUPS "CS2" 3; owner of the change: ORC-X / ORC-X2, the
 owners of `crates/pob-calc-core/src/probe.rs`). Filed status: **pending**. FUP3 is limited to
 `crates/pob-oracle` (no product-code changes), so it could not close these gaps itself; CS2's

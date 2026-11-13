@@ -26,7 +26,8 @@
 //!   `luastr::lmatch`.
 //! * `common.base64.decode(x:gsub("_","/"))` passes gsub's count as an ignored second argument.
 //! * `Inflate` is SimpleGraphic's (`l_Inflate`: zlib stream, nil unless it reaches the stream
-//!   end), [`inflate`] here (CCR-0114 §3).
+//!   end): `tabs::import::core::inflate` over the shared `pob_gamedata::sg_zlib` (FUP7; the
+//!   CCR-0114 §3 local copy is gone).
 //! * `launch:ShowErrMsg("^1Error loading '%s': %s", fileName, errMsg)` (L198, L201): `fileName`
 //!   is an undeclared global in the ctor (LUA-GLOBAL-NIL), formatted as `nil`.
 //! * `node[1]` of an `<ExportedBuffs>` node that holds an element instead of text is a table
@@ -212,28 +213,6 @@ pub fn site_hooks() -> SiteHooks {
 /// Replace entries of the installed [`SiteHooks`].
 pub fn set_site_hooks(f: impl FnOnce(&mut SiteHooks)) {
     SITE_HOOKS.with(|h| f(h.borrow_mut().get_or_insert_with(default_site_hooks)));
-}
-
-/// SimpleGraphic's `Inflate(string)` (`l_Inflate`, ui_api.cpp): a zlib stream; the inflated
-/// bytes when `inflate` reaches `Z_STREAM_END`, nil otherwise (CCR-0114 §3).
-pub fn inflate(data: &[u8]) -> Option<Vec<u8>> {
-    use flate2::{Decompress, FlushDecompress, Status};
-    let mut z = Decompress::new(true);
-    let mut out: Vec<u8> = Vec::with_capacity(data.len().saturating_mul(4).max(64));
-    loop {
-        if out.len() == out.capacity() {
-            // the output buffer filled: embiggen it
-            out.reserve(out.capacity());
-        }
-        let (in0, out0) = (z.total_in(), z.total_out());
-        let input = &data[usize::try_from(z.total_in()).ok()?..];
-        match z.decompress_vec(input, &mut out, FlushDecompress::None) {
-            Ok(Status::StreamEnd) => return Some(out),
-            Ok(Status::Ok) if z.total_in() != in0 || z.total_out() != out0 => {}
-            // Z_BUF_ERROR (no progress: the input ended before the stream did) or Z_DATA_ERROR
-            _ => return None,
-        }
-    }
 }
 
 pub struct PartyTab {
@@ -1372,7 +1351,7 @@ impl PartyTab {
         // L150
         let decoded = // CCR-0114 §4: `common.base64` is not re-exported by `model.rs`
         pob_calc::classes::passive_spec::base64_decode(&gsub(&gsub(buf, "-", "+"), "_", "/"));
-        let Some(xml_bytes) = inflate(&decoded) else {
+        let Some(xml_bytes) = crate::tabs::import::core::inflate(&decoded) else {
             // L151-152
             return;
         };
@@ -1873,24 +1852,6 @@ mod tests {
         assert_eq!(line_counter(""), 0.0);
         assert_eq!(line_counter("a\nb\n"), 32.0);
         assert_eq!(line_counter("^7---------------------------\n"), 16.0);
-    }
-
-    #[test]
-    fn inflate_follows_simplegraphic() {
-        use std::io::Write;
-        let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-        enc.write_all(b"<PathOfBuilding/>").unwrap();
-        let z = enc.finish().unwrap();
-        assert_eq!(inflate(&z).as_deref(), Some(&b"<PathOfBuilding/>"[..]));
-        // a truncated stream never reaches Z_STREAM_END: nil
-        assert_eq!(inflate(&z[..z.len() - 3]), None);
-        // not a zlib stream: nil
-        assert_eq!(inflate(b"hello"), None);
-        assert_eq!(inflate(b""), None);
-        // trailing bytes after the stream end are ignored
-        let mut t = z.clone();
-        t.extend_from_slice(b"junk");
-        assert_eq!(inflate(&t).as_deref(), Some(&b"<PathOfBuilding/>"[..]));
     }
 
     #[test]

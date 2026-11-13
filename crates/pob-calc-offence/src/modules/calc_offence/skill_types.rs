@@ -5,7 +5,8 @@
 //! durations and the skill uptimes.
 //!
 //! Owner: OF-B. The callees `calcAreaOfEffect`, `runSkillFunc`, `calcAreaMod`, `calcRadius`,
-//! `calcRadiusBreakpoints`, `calcSkillCooldown`, `calcSkillDuration`, `calcWarcryCastTime` and
+//! `calcRadiusBreakpoints` (here its `calcRadiusBreakpointsOpt` form, which keeps the four Lua
+//! nils of a zero radius; CCR-0043, FUP7), `calcSkillCooldown`, `calcSkillDuration`, `calcWarcryCastTime` and
 //! `calcTotemLife` are OF-A's (helpers_setup.rs).
 #![allow(non_snake_case)]
 // literal Lua statement shapes (`x = x * y`, `local x` then assignment, `not (a or b)`)
@@ -19,7 +20,7 @@
 )]
 
 use super::helpers_setup::{
-    calcAreaMod, calcAreaOfEffect, calcRadius, calcRadiusBreakpoints, calcSkillCooldown,
+    calcAreaMod, calcAreaOfEffect, calcRadius, calcRadiusBreakpointsOpt, calcSkillCooldown,
     calcSkillDuration, calcTotemLife, calcWarcryCastTime, runSkillFunc,
 };
 use super::OffenceCtx;
@@ -884,7 +885,7 @@ pub fn seg_skillTypeStats(ctx: &mut OffenceCtx) -> Flow {
         if let Some(bd) = &breakdown {
             // L1316
             let (incAreaBreakpoint, moreAreaBreakpoint, redAreaBreakpoint, lessAreaBreakpoint) =
-                radius_breakpoints(misc.TrapTriggerRadiusBase, incArea, moreArea);
+                calcRadiusBreakpointsOpt(misc.TrapTriggerRadiusBase, incArea, moreArea, None);
             // L1317
             bd.set(
                 n!("TrapTriggerRadius"),
@@ -1120,7 +1121,7 @@ pub fn seg_skillTypeStats(ctx: &mut OffenceCtx) -> Flow {
         if let Some(bd) = &breakdown {
             // L1400
             let (incAreaBreakpoint, moreAreaBreakpoint, redAreaBreakpoint, lessAreaBreakpoint) =
-                radius_breakpoints(misc.MineDetonationRadiusBase, incArea, moreArea);
+                calcRadiusBreakpointsOpt(misc.MineDetonationRadiusBase, incArea, moreArea, None);
             // L1401
             bd.set(
                 n!("MineDetonationRadius"),
@@ -1160,7 +1161,7 @@ pub fn seg_skillTypeStats(ctx: &mut OffenceCtx) -> Flow {
                     calcLib::mods(&skillModList, skillCfg, nm!["AreaOfEffect"]);
                 // L1408
                 let (incAreaBreakpoint, moreAreaBreakpoint, redAreaBreakpoint, lessAreaBreakpoint) =
-                    radius_breakpoints(misc.MineAuraRadiusBase, incArea, moreArea);
+                    calcRadiusBreakpointsOpt(misc.MineAuraRadiusBase, incArea, moreArea, None);
                 // L1409
                 bd.set(
                     n!("MineAuraRadius"),
@@ -2091,24 +2092,4 @@ fn lua_index_int_map(t: &std::collections::BTreeMap<i64, f64>, k: f64) -> Option
 fn lua_index_variety(t: &indexmap::IndexMap<AStr, f64>, k: &Val) -> Option<f64> {
     let k = k.str()?;
     t.get(&*k).copied()
-}
-
-/// `calcRadiusBreakpoints(baseRadius, incArea, moreArea)` with the four nils it returns for a
-/// zero radius (CalcOffence.lua:198-224; `breakdown.area` then prints no breakpoint lines).
-/// CCR-0043: the frozen OF-A signature returns four numbers; until it returns `Option`s the
-/// nil case is recognised here by the same test the Lua makes (`radius > 0`, line 201), with
-/// the same pure helpers.
-fn radius_breakpoints(
-    baseRadius: f64,
-    incArea: f64,
-    moreArea: f64,
-) -> (Option<f64>, Option<f64>, Option<f64>, Option<f64>) {
-    // CCR-0043
-    let radius = calcRadius(baseRadius, calcAreaMod(incArea, moreArea), None);
-    let (inc, more, red, less) = calcRadiusBreakpoints(baseRadius, incArea, moreArea, None);
-    if radius > 0.0 {
-        (Some(inc), Some(more), Some(red), Some(less))
-    } else {
-        (None, None, None, None)
-    }
 }

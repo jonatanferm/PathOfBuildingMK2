@@ -12,9 +12,10 @@
 //!   default `nullval`), a parse error to nil. Decoded tables are [`Json`] values.
 //!   DIVERGENCE(json-scalars): a token field that is neither a string nor a number (Lua would
 //!   store the boolean/table and fail later at a concatenation) reads as nil.
-//! * `math.randomseed` / `math.random` are LuaJIT 2.1's Tausworthe generator ([`lj_random`],
-//!   `lib_math.c`; CCR-0033 §3 asks for it in `pob_lua::math`, CCR-0109 §4), one state per app
-//!   thread as LuaJIT keeps one per Lua state.
+//! * `math.randomseed` / `math.random` are LuaJIT 2.1's Tausworthe generator,
+//!   `pob_lua::math::{m_randomseed, m_random}` (`lib_math.c`; CCR-0033 §3, CCR-0109 §4; FUP7
+//!   replaced the local `lj_random` copy), one state per app thread as LuaJIT keeps one per Lua
+//!   state.
 //! * `os.time()` is [`os_time`] (CCR-0109 §3: `Platform` has no wall clock).
 //! * `launch:DownloadPage` is [`crate::platform::net::download_page`]; the OAuth listener
 //!   (`LaunchSubScript(LaunchServer.lua)`) is `Sys::net.oauth_listen`, whose completion is decoded
@@ -30,6 +31,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use pob_lua::math::{m_random, m_randomseed};
 use pob_lua::{lfmt, FmtArg};
 use pob_sg::HttpResponse;
 use pob_ui_core::luastr::lmatch;
@@ -128,88 +130,6 @@ pub fn os_time(cx: &Cx) -> f64 {
 /// Replace the `os.time()` source (`None`: the default).
 pub fn set_os_time(f: Option<Rc<dyn Fn(&Cx) -> f64>>) {
     OS_TIME.with(|t| *t.borrow_mut() = f);
-}
-
-// ---- LuaJIT's math.random (CCR-0033 §3, CCR-0109 §4) -----------------------------------------
-
-/// LuaJIT 2.1 `lib_math.c`: the Tausworthe PRNG (period 2^223) behind `math.random` and
-/// `math.randomseed`. One state per thread (LuaJIT: one per Lua state, initialised with
-/// `random_init(rs, 0.0)` on first use).
-pub mod lj_random {
-    use std::cell::RefCell;
-
-    #[derive(Clone, Copy)]
-    struct RandomState {
-        gen: [u64; 4],
-        valid: bool,
-    }
-
-    thread_local! {
-        static RS: RefCell<RandomState> = const { RefCell::new(RandomState { gen: [0; 4], valid: false }) };
-    }
-
-    /// `TW223_GEN(i, k, q, s)`
-    fn tw223_gen(rs: &mut RandomState, r: &mut u64, i: usize, k: u32, q: u32, s: u32) {
-        let mut z = rs.gen[i];
-        z = (((z << q) ^ z) >> (k - s)) ^ ((z & (u64::MAX << (64 - k))) << s);
-        *r ^= z;
-        rs.gen[i] = z;
-    }
-
-    /// `lj_math_random_step`: the bits of a double in [1.0, 2.0).
-    fn random_step(rs: &mut RandomState) -> u64 {
-        let mut r = 0u64;
-        tw223_gen(rs, &mut r, 0, 63, 31, 18);
-        tw223_gen(rs, &mut r, 1, 58, 19, 28);
-        tw223_gen(rs, &mut r, 2, 55, 24, 7);
-        tw223_gen(rs, &mut r, 3, 47, 21, 8);
-        (r & 0x000f_ffff_ffff_ffff) | 0x3ff0_0000_0000_0000
-    }
-
-    /// `random_init(rs, d)`
-    fn random_init(rs: &mut RandomState, mut d: f64) {
-        // 64-k[i] as four 8 bit constants.
-        let mut r: u32 = 0x1109_0601;
-        for i in 0..4 {
-            let m: u64 = 1u64 << (r & 255);
-            r >>= 8;
-            d = d * std::f64::consts::PI + std::f64::consts::E;
-            let mut u = d.to_bits();
-            // Ensure k[i] MSB of gen[i] are non-zero.
-            if u < m {
-                u += m;
-            }
-            rs.gen[i] = u;
-        }
-        rs.valid = true;
-        for _ in 0..10 {
-            random_step(rs);
-        }
-    }
-
-    /// `math.randomseed(x)`
-    pub fn randomseed(x: f64) {
-        RS.with(|rs| random_init(&mut rs.borrow_mut(), x));
-    }
-
-    /// `math.random()`, `math.random(m)`, `math.random(m, n)` (`lj_vm_floor` = `f64::floor`).
-    pub fn random(r1: Option<f64>, r2: Option<f64>) -> f64 {
-        RS.with(|rs| {
-            let mut rs = rs.borrow_mut();
-            if !rs.valid {
-                random_init(&mut rs, 0.0);
-            }
-            let d = f64::from_bits(random_step(&mut rs)) - 1.0;
-            match (r1, r2) {
-                // d is a double in range [0, 1]
-                (None, _) => d,
-                // d is an int in range [1, r1]
-                (Some(r1), None) => (d * r1).floor() + 1.0,
-                // d is an int in range [r1, r2]
-                (Some(r1), Some(r2)) => (d * (r2 - r1 + 1.0)).floor() + r1,
-            }
-        })
-    }
 }
 
 // ---- TradeQueryRateLimiter seam (U51; CCR-0109 §2) -------------------------------------------
@@ -506,9 +426,9 @@ pub type AuthCallback = Rc<dyn Fn(&mut Cx, Option<String>)>;
 /// @pob Classes/PoEAPI.lua:92-154 h=c4946280
 pub fn fetch_auth_token(cx: &mut Cx, callback: AuthCallback) {
     // L94
-    lj_random::randomseed(os_time(cx));
+    m_randomseed(os_time(cx));
     // L95
-    let secret = lj_random::random(Some(pob_lua::math::lpow(2.0, 32.0) - 1.0), None);
+    let secret = m_random(Some(pob_lua::math::lpow(2.0, 32.0) - 1.0), None);
     // L96
     let code_verifier = base64_encode(pob_lua::tostring_num(secret).as_bytes());
     // L97
@@ -522,7 +442,7 @@ pub fn fetch_auth_token(cx: &mut Cx, callback: AuthCallback) {
         |_| {
             Some(lfmt!(
                 "%x",
-                lj_random::random(Some(0.0), Some(f64::from(0xf)))
+                m_random(Some(0.0), Some(f64::from(0xf)))
             ))
         },
         None,
@@ -876,29 +796,5 @@ mod tests {
         let v = dkjson_decode(r#"{"a": null, "b": 1}"#).unwrap();
         assert!(json_get(&v, "a").is_none());
         assert_eq!(json_arith(json_get(&v, "b"), "b"), 1.0);
-    }
-
-    #[test]
-    fn lj_random_matches_luajit() {
-        // Values printed by LuaJIT 2.1 (/usr/bin/luajit):
-        //   math.randomseed(1700000000); print(string.format("%.17g", math.random(2^32-1)))
-        //   for i=1,4 do io.write(math.random(0, 15), " ") end
-        //   math.randomseed(0); print(string.format("%.17g", math.random()))
-        //   print(math.random(10, 20))
-        lj_random::randomseed(1_700_000_000.0);
-        assert_eq!(
-            lj_random::random(Some(4_294_967_295.0), None),
-            2_876_347_540.0
-        );
-        let b: Vec<f64> = (0..4)
-            .map(|_| lj_random::random(Some(0.0), Some(15.0)))
-            .collect();
-        assert_eq!(b, [14.0, 0.0, 0.0, 7.0]);
-        lj_random::randomseed(0.0);
-        assert_eq!(
-            lfmt!("%.17g", lj_random::random(None, None)),
-            "0.79420629243124097"
-        );
-        assert_eq!(lj_random::random(Some(10.0), Some(20.0)), 17.0);
     }
 }

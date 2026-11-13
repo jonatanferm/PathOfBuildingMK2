@@ -16,6 +16,8 @@
 //!   (CCR-0001), and [`lpow`] blocks LLVM from making the same fold.
 //! * `math.log(x, b)`: `lib_math.c` = `log2(x) * (1/log2(b))`.
 //! * `math.modf`: libm `modf`.
+//! * `math.random`/`math.randomseed`: `lib_math.c` over `lj_prng.c`'s TW223 generator
+//!   ([`m_random`], [`m_randomseed`]).
 //!
 //! libm functions (`exp`, `log`, `log2`, `pow`) come from the platform libm
 //! like LuaJIT's; on wasm32 they come from Rust's bundled libm port.
@@ -148,6 +150,95 @@ pub fn m_pow(a: f64, b: f64) -> f64 {
     lpow(a, b)
 }
 
+// ---- math.random / math.randomseed (lib_math.c, lj_prng.c; CCR-0033 §3, CCR-0109 §4) ----------
+
+/// LuaJIT 2.1's PRNG state (`PRNGState`, Tausworthe, period 2^223). LuaJIT keeps one per Lua
+/// state (`G(L)->prng`); the port keeps one per thread, shared by every `math.random` caller
+/// (FUP7: the one port, replacing the Timeless Jewel list's and the OAuth flow's copies).
+#[derive(Clone, Copy)]
+struct PrngState {
+    u: [u64; 4],
+    valid: bool,
+}
+
+thread_local! {
+    static PRNG: std::cell::RefCell<PrngState> =
+        const { std::cell::RefCell::new(PrngState { u: [0; 4], valid: false }) };
+}
+
+/// `lj_prng_u64` (lj_prng.c `TW223_GEN` x4): one step, the running xor of the four states.
+fn prng_u64(rs: &mut PrngState) -> u64 {
+    let mut r = 0u64;
+    for (i, (k, q, s)) in [
+        (63u32, 31u32, 18u32),
+        (58, 19, 28),
+        (55, 24, 7),
+        (47, 21, 8),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut z = rs.u[i];
+        z = (((z << q) ^ z) >> (k - s)) ^ ((z & (u64::MAX << (64 - k))) << s);
+        r ^= z;
+        rs.u[i] = z;
+    }
+    r
+}
+
+/// lib_math.c `random_seed(rs, d)`.
+fn random_seed(rs: &mut PrngState, mut d: f64) {
+    // 64-k[i] as four 8 bit constants.
+    let mut r: u32 = 0x1109_0601;
+    for i in 0..4 {
+        let m: u64 = 1u64 << (r & 255);
+        r >>= 8;
+        // 3.14159265358979323846, 2.7182818284590452354 (the same doubles)
+        d = d * std::f64::consts::PI + std::f64::consts::E;
+        let mut u = d.to_bits();
+        // Ensure k[i] MSB of u[i] are non-zero.
+        if u < m {
+            u += m;
+        }
+        rs.u[i] = u;
+    }
+    rs.valid = true;
+    for _ in 0..10 {
+        prng_u64(rs);
+    }
+}
+
+/// `math.randomseed(x)`.
+pub fn m_randomseed(x: f64) {
+    PRNG.with(|rs| random_seed(&mut rs.borrow_mut(), x));
+}
+
+/// `math.random()`, `math.random(m)`, `math.random(m, n)` (lib_math.c `math_random`;
+/// `lj_vm_floor` = `f64::floor`).
+///
+/// The state starts as after `math.randomseed(0)`, which is what the UI oracle's determinism
+/// patch sets. DIVERGENCE(prng-seed): an unpatched PoB on LuaJIT ≥ 2.1.0-beta3+prng starts from
+/// `lj_prng_seed_fixed` instead.
+pub fn m_random(r1: Option<f64>, r2: Option<f64>) -> f64 {
+    PRNG.with(|rs| {
+        let mut rs = rs.borrow_mut();
+        if !rs.valid {
+            random_seed(&mut rs, 0.0);
+        }
+        // lj_prng_u64d: a double bit pattern in the range 1.0 <= d < 2.0
+        let bits = (prng_u64(&mut rs) & 0x000f_ffff_ffff_ffff) | 0x3ff0_0000_0000_0000;
+        let d = f64::from_bits(bits) - 1.0;
+        match (r1, r2) {
+            // d is a double in range [0, 1]
+            (None, _) => d,
+            // d is an int in range [1, r1]
+            (Some(r1), None) => (d * r1).floor() + 1.0,
+            // d is an int in range [r1, r2]
+            (Some(r1), Some(r2)) => (d * (r2 - r1 + 1.0)).floor() + r1,
+        }
+    })
+}
+
 /// Rounds a number to the nearest <dec> decimal places
 /// @pob Modules/Common.lua:709-716 h=b2a501ce
 pub fn round(val: f64, dec: Option<i32>) -> f64 {
@@ -277,6 +368,40 @@ pub fn floor_b(x: f64, base: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The values the Timeless Jewel list's and the OAuth flow's copies were checked against
+    /// (moved here by FUP7), printed by LuaJIT 2.1 (/usr/bin/luajit):
+    /// `math.randomseed(0) for i=1,8 do io.write(math.random(2,17)," ") end` prints
+    /// `14 13 11 14 3 12 7 13`; seed 12.5 gives `9 13 2 7`;
+    /// `math.randomseed(1700000000); print(string.format("%.17g", math.random(2^32-1)))` then
+    /// `for i=1,4 do io.write(math.random(0, 15), " ") end`;
+    /// `math.randomseed(0); print(string.format("%.17g", math.random()))`, `math.random(10, 20)`.
+    /// None of these seeds rounds differently under FMA, so the aarch64 /usr/bin/luajit (which
+    /// fuses `random_seed`'s `d*PI+E`) prints the x64 stream for them.
+    /// `l0_math.rs` compares random seeds and arguments against the oracle's LuaJIT.
+    #[test]
+    fn random_matches_luajit() {
+        m_randomseed(0.0);
+        let got: Vec<f64> = (0..8).map(|_| m_random(Some(2.0), Some(17.0))).collect();
+        assert_eq!(got, vec![14.0, 13.0, 11.0, 14.0, 3.0, 12.0, 7.0, 13.0]);
+        m_randomseed(12.5);
+        let got: Vec<f64> = (0..4).map(|_| m_random(Some(2.0), Some(17.0))).collect();
+        assert_eq!(got, vec![9.0, 13.0, 2.0, 7.0]);
+        // the state starts as after randomseed(0)
+        PRNG.with(|p| p.borrow_mut().valid = false);
+        assert_eq!(m_random(Some(2.0), Some(17.0)), 14.0);
+
+        m_randomseed(1_700_000_000.0);
+        assert_eq!(m_random(Some(4_294_967_295.0), None), 2_876_347_540.0);
+        let b: Vec<f64> = (0..4).map(|_| m_random(Some(0.0), Some(15.0))).collect();
+        assert_eq!(b, [14.0, 0.0, 0.0, 7.0]);
+        m_randomseed(0.0);
+        assert_eq!(
+            crate::lfmt!("%.17g", m_random(None, None)),
+            "0.79420629243124097"
+        );
+        assert_eq!(m_random(Some(10.0), Some(20.0)), 17.0);
+    }
 
     #[test]
     fn basics() {

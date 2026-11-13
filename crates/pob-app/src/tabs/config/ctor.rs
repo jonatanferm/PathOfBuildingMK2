@@ -91,8 +91,8 @@
 //!
 //! ORDER: `pairs(section.varControlList)` (L272): a sum of heights, order-independent (c).
 //! `pairs(mainEnv.skillsUsed)` (L630): an any-match, order-independent (c). `pairs(subGroup.patterns)`
-//! and `pairs(orPatterns)` (matchOrPattern): set iteration; the result is an any-match, so the
-//! order matters only when one alternative raises a pattern error and another matches, where
+//! and `pairs(orPatterns)` (matchOrPattern, shared in `pob_lua::string`): set iteration; the
+//! result is an any-match, so the order matters only when one alternative raises a pattern error and another matches, where
 //! PoB's own result is per-process random (c; insertion order here). The bridge iterates
 //! `varControls` in option order (each control independent, (c)).
 //!
@@ -105,7 +105,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use pob_lua::math::m_max;
 use pob_lua::string::StripEscapes;
 use pob_lua::{n, tostring_num};
@@ -516,106 +516,12 @@ fn single(n: Option<Name>) -> Option<StrOrList> {
 
 // ---- string:matchOrPattern (Common.lua:1038-1079) ----------------------------------------------
 
-/// lua: Common.lua:1038-1079 `string:matchOrPattern(pattern)`; `Err` when a generated pattern
-/// raises (what `PCall` reports as `err`).
-/// @pob Modules/Common.lua:1038-1079 h=f7b8bae7
+/// `PCall(string.matchOrPattern, s, pattern)` over the shared port
+/// (`pob_lua::string::matchOrPattern`, FUP7): `Err` when a generated pattern raises (what `PCall`
+/// reports as `err`).
 pub fn match_or_pattern(s: &str, pattern: &str) -> Result<bool, String> {
-    std::panic::catch_unwind(|| match_or_pattern_raw(s, pattern))
+    std::panic::catch_unwind(|| pob_lua::string::matchOrPattern(s, pattern))
         .map_err(|p| pob_host::panic_message(&*p))
-}
-
-struct SubGroup {
-    open: usize,
-    close: usize,
-    patterns: IndexSet<String>,
-}
-
-/// L1039-1070 generateOrPatterns (the `orPatterns` set; `pairs` order is insertion order here,
-/// see ORDER in the module notes).
-fn generate_or_patterns(pattern: &str) -> IndexSet<String> {
-    // L1040
-    let mut sub_groups: Vec<SubGroup> = Vec::new();
-    // L1041
-    let mut index = 1usize;
-    // find and call generate patterns on all subGroups
-    // L1043
-    let groups: Vec<String> = pob_lua::pattern::gmatch(pattern, "%b()")
-        .map(|c| c[0].to_str().into_owned())
-        .collect();
-    for sub_group in groups {
-        // L1044 (`subGroups[index]` is always nil here: index == #subGroups + 1)
-        let init = sub_groups
-            .get(index - 1)
-            .map_or(1, |g: &SubGroup| g.close as i64);
-        let (open, close, _) = pob_lua::pattern::find(pattern, &sub_group, Some(init), true)
-            .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on a nil value"));
-        // L1045
-        let inner = pob_lua::string::sub(&sub_group, 2, Some(-2)).into_owned();
-        sub_groups.push(SubGroup {
-            open,
-            close,
-            patterns: generate_or_patterns(&inner),
-        });
-        // L1046
-        index += 1;
-    }
-
-    // generate complete patterns from the subGroup patterns
-    // L1050
-    let first_open = sub_groups.first().map_or(0, |g| g.open as i64);
-    let mut generated_patterns: Vec<String> =
-        vec![pob_lua::string::sub(pattern, 1, Some(first_open - 1)).into_owned()];
-    // L1051
-    for (i, sub_group) in sub_groups.iter().enumerate() {
-        // L1052
-        let next_open = sub_groups.get(i + 1).map_or(0, |g| g.open as i64);
-        let regular_next_string =
-            pob_lua::string::sub(pattern, sub_group.close as i64 + 1, Some(next_open - 1))
-                .into_owned();
-        // L1053
-        let mut temp_patterns: Vec<String> = Vec::new();
-        // L1054
-        for sub_pattern in &generated_patterns {
-            // L1055
-            for sub_group_pattern in &sub_group.patterns {
-                // L1056
-                temp_patterns.push(format!(
-                    "{sub_pattern}{sub_group_pattern}{regular_next_string}"
-                ));
-            }
-        }
-        // L1059
-        generated_patterns = temp_patterns;
-    }
-
-    // apply | operators
-    // L1063
-    let mut or_patterns: IndexSet<String> = IndexSet::new();
-    // L1064
-    for generated_pattern in &generated_patterns {
-        // L1065
-        for c in pob_lua::pattern::gmatch(generated_pattern, "[^|]+") {
-            // L1066 store string as key to avoid duplicates.
-            or_patterns.insert(c[0].to_str().into_owned());
-        }
-    }
-    // L1069
-    or_patterns
-}
-
-fn match_or_pattern_raw(s: &str, pattern: &str) -> bool {
-    // L1072
-    let or_patterns = generate_or_patterns(pattern);
-    // L1073
-    for or_pattern in &or_patterns {
-        // L1074
-        if pob_lua::pattern::r#match(s, or_pattern, None).is_some() {
-            // L1075
-            return true;
-        }
-    }
-    // L1078
-    false
 }
 
 // ---- ConfigOptions.lua tooltip helpers (11-115) ------------------------------------------------
@@ -2526,8 +2432,8 @@ impl ConfigTab {
     }
 
     /// lua: ConfigTab.lua:1302-1334 UpdateCustomModsControls (the model half, 1306-1316, is
-    /// calc:BM-B's `ConfigTab::UpdateCustomModsControls`; CCR-0110 §2)
-    /// @pob Classes/ConfigTab.lua:1302-1334 h=378e2cbb
+    /// calc:BM-B's `ConfigTab::UpdateCustomModsControls`, which holds the `@pob` marker for
+    /// 1302-1334; ui doc §10.5 "Provenance of split functions", CCR-0110 §2, CCR-0121 §1)
     pub fn update_custom_mods_controls(cx: &mut Cx, me: CtrlId) {
         // L1303
         let Some(custom_section) = Self::st(cx, me).custom_section else {
