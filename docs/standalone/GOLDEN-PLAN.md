@@ -1141,7 +1141,22 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
 
 ## 7. Risks and open questions
 
-### Questions for the user
+### Decisions (user, 2026-11-13)
+
+1. **Privacy:** strip identifiers. GOLD2 removes the character name, account name and import
+   links from every committed build XML before recording. The goldens are recorded from the
+   stripped XML.
+2. **DF-A sample:** 20k cases per function (≈ 3 MB), plus every edge case taken from the full 100k
+   streams.
+3. **Lua-semantics vectors:** freeze them. A unit (GOLD14) records LuaJIT's answers for the
+   L0/luastr vectors (`string.format`/`%g`/`tostring`, patterns, `table.sort`, pairs-order tables,
+   `math.random` streams) as small goldens (< 5 MB) with PoB-free runners, before `mlua` goes. They
+   are deleted when the refactor removes the emulation.
+4. **docs/port:** CUT1 moves it to `docs/history/port/`. It is not deleted.
+5. **Used-tracking values** (orchestrator decision): GOLD3 records used-tracking **values**, not
+   only key sets, as long as that stays within the size cap.
+
+### Questions for the user (answered above)
 
 1. **Privacy of the fresh corpus.** The 100 fresh builds are poe.ninja exports of real
    characters. `docs/port/parity/fresh-corpus.md` already lists their character links. The
