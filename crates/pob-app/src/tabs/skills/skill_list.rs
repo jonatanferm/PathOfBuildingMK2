@@ -28,6 +28,11 @@
 //!   for the two numbers, as calc:CS3's groups, CCR-0083 §3).
 //! - `wipeTable(self.list)` (L47) removes every row of the aliased list in place.
 //! - `socketGroup.includeInFullDPS = not …` (L211) writes a boolean, so the nil marker goes.
+//! - Not in PoB (CCR-0142 §3 B, FOLLOWUPS "CCRDOC" 7): a group the delete paths (L47, L175,
+//!   L186) take out of the list is torn down ([`SocketGroup::teardown`]: its
+//!   `displaySkillList(Calcs)` are cleared), because each display skill's `socketGroup` points
+//!   back to it, a cycle Lua's GC collects. The lists are only read for groups in the list; the
+//!   recalc that `buildFlag` asks for replaces the envs that still hold the old skills.
 //!
 //! Props with side effects (ui doc §7.3): none.
 #![allow(non_snake_case)]
@@ -275,7 +280,10 @@ impl SkillListControl {
                                 // L47 (module notes)
                                 while ListControl::list_len(cx, me) > 0 {
                                     let n = ListControl::list_len(cx, me);
-                                    ListControl::list_remove(cx, me, n);
+                                    if let Some(g) = ListControl::list_remove(cx, me, n) {
+                                        // CCR-0142 §3 B (module notes)
+                                        group_of(&g).teardown();
+                                    }
                                 }
                                 // L48
                                 rebuild_imbued_support_by_slot(cx);
@@ -560,6 +568,8 @@ impl SkillListControl {
         } else if socketGroup.gemList.get().get(1).is_none() {
             // L175
             ListControl::list_remove(cx, me, index);
+            // CCR-0142 §3 B (module notes)
+            socketGroup.teardown();
             // L176
             rebuild_imbued_support_by_slot(cx);
             // L177
@@ -591,6 +601,8 @@ impl SkillListControl {
                 move |cx| {
                     // L186
                     ListControl::list_remove(cx, me, index);
+                    // CCR-0142 §3 B (module notes)
+                    group.teardown();
                     // L187
                     rebuild_imbued_support_by_slot(cx);
                     // L188

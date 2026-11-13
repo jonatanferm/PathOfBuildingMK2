@@ -1,4 +1,5 @@
-//! The desktop app (ui doc §3): `pob_host::run_desktop(cfg, pob_app::PobApp::new)`, whose calc is
+//! The desktop app (ui doc §3): `pob_host::run_desktop(cfg, pob_app::PobApp::new)` with the command
+//! line as `launch.arg`, whose calc is
 //! the Rust calc (`RustCalc`, calc:PWR/CA). Feature `lua-calc` (dev only) runs PoB's Lua calc in a
 //! second VM instead (pob-ui-oracle's LuaCalcBridge, ui doc D14, §10.4). Owner: U7; U53's cut-over
 //! renamed the package from `pob-port-desktop` and wired the `lua-calc` injection. The
@@ -68,18 +69,33 @@ fn main() -> anyhow::Result<()> {
             .to_string_lossy()
             .into_owned(),
     };
+    // SimpleGraphic's `arg` global: the command line after the program name, e.g. the
+    // `pob://pobbin/<id>` link a protocol handler passes (Main.lua:41-49, :71-83)
+    let arg: Vec<String> = std::env::args().skip(1).collect();
     #[cfg(feature = "lua-calc")]
     {
         let src = root.join("src");
         pob_host::run_desktop(cfg, move |parts| {
-            pob_app::PobApp::with_calc(
+            let mut app = pob_app::PobApp::with_calc(
                 parts,
                 std::rc::Rc::new(move || {
                     Box::new(pob_ui_oracle::lua_calc::LuaCalcBridge::lua(Some(src.clone())))
                 }),
-            )
+            );
+            with_arg(&mut app, arg);
+            app
         })
     }
     #[cfg(not(feature = "lua-calc"))]
-    pob_host::run_desktop(cfg, pob_app::PobApp::new)
+    pob_host::run_desktop(cfg, move |parts| {
+        let mut app = pob_app::PobApp::new(parts);
+        with_arg(&mut app, arg);
+        app
+    })
+}
+
+/// `launch.arg` before `on_init` (Launch.lua:OnInit runs Main.lua, which reads it).
+fn with_arg(app: &mut pob_app::PobApp, arg: Vec<String>) {
+    use pob_app::app::CxApp;
+    app.cx.app_mut().launch.arg = arg;
 }

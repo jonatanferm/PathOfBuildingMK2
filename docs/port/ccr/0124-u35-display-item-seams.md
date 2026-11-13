@@ -1,6 +1,6 @@
 # CCR-0124: U35 display item seams
 
-**Status: applied (CCRDOC, 2026-11-12; code `d479e21` Merge port/U35): §1-§4. The §5 finding for U33 (the range slider is drawn unrounded while it is dragged) has no fix in `ctor.rs` (FOLLOWUPS "CCRDOC" 10).**
+**Status: applied (CCRDOC, 2026-11-12; code `d479e21` Merge port/U35): §1-§4. The §5 finding for U33 (the range slider is drawn unrounded while it is dragged) is fixed by FUP5 (2026-11-13, `ctor.rs` `sync_after_drag_step`; `u35/g_range_lines` drags the slider; FOLLOWUPS "CCRDOC" 10).**
 
 Unit: **U35** (ItemsTab display item, `Classes/ItemsTab.lua:1948-2608`,
 `pob-app/src/tabs/items/display_item.rs`).

@@ -11,9 +11,11 @@
 //! parser and its cache are the calc plan's (pob-modparser, data/dump), so L135-139 load nothing
 //! and the `saveNewModCache` regeneration (L203-222, `main:SaveModCache` :315-348) is skipped with
 //! a console note.
-//! DIVERGENCE(no-cli-args): the hosts pass no command line (`arg` is empty), so the `arg[1]`
-//! protocol-handler import (L71-84, `buildSites`, U43) never runs; `launch.arg` exists for a host
-//! that supplies one, and a non-empty `arg[1]` raises until U43 ports `buildSites`.
+//! `arg` is `launch.arg`, which the desktop host fills from its command line (`app/pob-desktop`;
+//! the web host passes none). The `arg[1]` protocol-handler import (L71-83) runs on U43's
+//! `buildSites` ([`build_sites::parse_import_link_from_uri`], [`build_sites::download_build`]).
+//! `arg[1] = nil` (L82) is `launch.arg.remove(0)`: the next argument moves up, where Lua's `arg`
+//! keeps a hole at 1 (nothing reads `arg` again after Init, and L41-49 ran before).
 //! DIVERGENCE(branding): user decision 2026-11-12. `forkLabel` (L253-255) reads
 //! `^8PoB Rust Port` instead of `^8PoB Community Fork`, and `versionLabel` (L257-259) shows the
 //! port's own version (`launch::PORT_VERSION`, `YYYY.MM.DD.N`) in place of
@@ -39,6 +41,7 @@ use pob_ui_core::prelude::*;
 use super::{ItemDb, MainHooks, MainHost, Mode, ModeArg};
 use crate::app::CxApp;
 use crate::model;
+use crate::tabs::import::build_sites;
 
 /// CCR-0096: the `main.modes` table of L61-63. U18 replaces the LIST entry with BuildList.lua's
 /// mode object and U19 the BUILD entry with Build.lua's.
@@ -75,7 +78,7 @@ pub fn load_module(cx: &mut Cx) -> CtrlId {
     let _ = cx.data();
     // L28 ToastNotification = LoadModule("Modules/ToastNotification"): its module-level locals
     // are `cx.app().main.toasts` (ToastState::default()).
-    // L41-49: `arg` switches (DIVERGENCE(no-cli-args): `arg` is empty unless a host sets it)
+    // L41-49: `arg` switches (`launch.arg`, module notes)
     let args = cx.app().launch.arg.clone();
     // L41 if arg and isValueInTable(arg, "--no-jit") then (no JIT in the port)
     if args.iter().any(|a| a == "--no-jit") {
@@ -144,21 +147,51 @@ pub fn main_init(cx: &mut Cx) {
     cx.app_mut().main.game_accounts = IndexMap::new();
 
     // L70
-    #[allow(unused_mut)]
     let mut ignore_build = false;
     // L71 if arg[1] then
     if let Some(a1) = cx.app().launch.arg.first().cloned() {
-        // L72-81 buildSites.ParseImportLinkFromURI / DownloadBuild (U43)
-        lua_error!(
-            "main:Init: importing {a1:?} needs buildSites (Modules/BuildSiteTools.lua, U43), not ported yet"
+        // L72 (the local is shadowed by the callback's third argument and never read)
+        let _import_link = build_sites::parse_import_link_from_uri(&a1);
+        // L73
+        build_sites::download_build(
+            cx,
+            &a1,
+            None,
+            Rc::new(
+                |cx: &mut Cx, is_success: bool, data: String, import_link: Option<String>| {
+                    // L74
+                    if !is_success {
+                        // L75
+                        super::on_frame::set_mode(
+                            cx,
+                            "BUILD",
+                            vec![ModeArg::Bool(false), ModeArg::Str(data)],
+                        );
+                    } else {
+                        // L77
+                        let xml_text = crate::tabs::import::core::decode_build_code(&data);
+                        // L78
+                        super::on_frame::set_mode(
+                            cx,
+                            "BUILD",
+                            vec![
+                                ModeArg::Bool(false),
+                                ModeArg::Str("Imported Build".to_owned()),
+                                xml_text.map_or(ModeArg::Nil, ModeArg::Str),
+                                ModeArg::Bool(false),
+                                import_link.map_or(ModeArg::Nil, ModeArg::Str),
+                            ],
+                        );
+                        // L79
+                        cx.app_mut().main.new_mode_change_to_tree = true;
+                    }
+                },
+            ),
         );
-        // L82 arg[1] = nil
-        #[allow(unreachable_code)]
-        {
-            cx.app_mut().launch.arg.remove(0);
-            // L83
-            ignore_build = true;
-        }
+        // L82 arg[1] = nil -- Protect against downloading again this session.
+        cx.app_mut().launch.arg.remove(0);
+        // L83
+        ignore_build = true;
     }
 
     // L86

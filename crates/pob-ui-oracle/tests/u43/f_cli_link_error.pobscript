@@ -1,0 +1,10 @@
+# U43 (FUP5, FOLLOWUPS "CCRDOC" 12): a command-line build link whose download fails (Main.lua:74-75):
+# pob://pastebin/u43Missing -> https://pastebin.com/raw/u43Missing answers 404, so the callback
+# opens an empty build named after the error message ("Response code: 404").
+#! u43-arg pob://pastebin/u43Missing
+#! u43-expect-label Response code: 404
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 4
+snapshot cli_link_error
+frames 1

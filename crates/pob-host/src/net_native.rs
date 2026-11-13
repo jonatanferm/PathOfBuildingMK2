@@ -12,7 +12,9 @@
 //! - header lines (`requestHeader:gmatch("[^\r\n]+")`) → request headers ([`HttpRequest::headers`]);
 //! - `OPT_USERAGENT "Path of Building/<version>"` → [`HttpRequest::user_agent`];
 //! - `OPT_ACCEPT_ENCODING ""` (all encodings curl knows, decoded transparently),
-//!   `OPT_FOLLOWLOCATION 1`, POST with `OPT_POSTFIELDS` when there is a body;
+//!   `OPT_FOLLOWLOCATION 1`, POST with `OPT_POSTFIELDS` when there is a body (with curl's
+//!   default `Content-Type: application/x-www-form-urlencoded` unless a header line sets one,
+//!   [`crate::post_content_type`]);
 //! - `errMsg`: the curl error text, else `"Response code: <code>"` when the code is not 200,
 //!   else `"No data returned"` for an empty body; the body and header are returned either way.
 //!
@@ -82,6 +84,10 @@ pub fn download(req: &HttpRequest) -> HttpResponse {
         if let Some((k, v)) = line.split_once(':') {
             r = r.set(k.trim(), v.trim());
         }
+    }
+    // OPT_POSTFIELDS: curl's default Content-Type (FOLLOWUPS "CCRDOC" 3)
+    if let Some(ct) = crate::post_content_type(req) {
+        r = r.set("Content-Type", ct);
     }
     let result = match &req.body {
         Some(b) => r.send_bytes(b),
@@ -604,11 +610,37 @@ mod tests {
         assert!(req
             .to_ascii_lowercase()
             .contains("content-type: application/json"));
+        assert_eq!(req.to_ascii_lowercase().matches("content-type:").count(), 1);
         assert_eq!(r.body.as_deref(), Some(&b"hello"[..]));
         assert_eq!(r.error, None);
         assert!(r.headers.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(r.headers.contains("x-rate-limit-policy: p\r\n"));
         assert!(r.headers.ends_with("\r\n\r\n"));
+        // OPT_POSTFIELDS without a Content-Type header line: curl's form default
+        let (url, h) = serve("200 OK", "ok");
+        download(&HttpRequest {
+            url,
+            headers: vec!["Accept: */*".into()],
+            body: Some(b"a=1&b=2".to_vec()),
+            user_agent: None,
+        });
+        let req = h.join().unwrap().to_ascii_lowercase();
+        assert!(req.starts_with("post /x http/1.1"));
+        assert_eq!(
+            req.matches("content-type:").count(),
+            1,
+            "one Content-Type: {req}"
+        );
+        assert!(req.contains("content-type: application/x-www-form-urlencoded\r\n"));
+        // a GET carries none
+        let (url, h) = serve("200 OK", "ok");
+        download(&HttpRequest {
+            url,
+            headers: vec![],
+            body: None,
+            user_agent: None,
+        });
+        assert!(!h.join().unwrap().to_ascii_lowercase().contains("content-type"));
         let (url, h) = serve("404 Not Found", "nope");
         let r = download(&HttpRequest {
             url,

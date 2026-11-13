@@ -17,7 +17,9 @@
 //! scenario whose input silently stopped reaching the tab, which both sides would agree on),
 //! `#! u43-expect-import ATTR=VALUE` (a Lua snapshot's `Import` element has it),
 //! `#! u43-expect-copy` (the Lua side copied a build code that decodes to a `PathOfBuilding`
-//! document).
+//! document), `#! u43-arg LINK` (the command line's `arg[1]`, set before `OnInit`: Main.lua:71-83
+//! downloads it through `buildSites` with the scenario's `fixture net=` responses; FOLLOWUPS
+//! "CCRDOC" 12).
 //!
 //! The Rust side's calc is U15's LuaCalcBridge (ext:calc), as in u20-u22.
 //!
@@ -236,6 +238,9 @@ fn install_sg_zlib(lua: &mlua::Lua) -> mlua::Result<()> {
 
 struct LuaSide {
     app: LuaApp,
+    /// `#! u43-arg LINK`: SimpleGraphic's `arg[1]` (the oracle sets `arg = {}`, pob-oracle
+    /// `jit.rs`), before `OnInit` runs Main.lua.
+    arg: Option<String>,
 }
 
 impl App for LuaSide {
@@ -246,6 +251,11 @@ impl App for LuaSide {
         self.app.sys()
     }
     fn on_init(&mut self) {
+        if let Some(a) = self.arg.clone() {
+            self.app
+                .with_vm(|pob| pob.lua.globals().get::<mlua::Table>("arg")?.set(1, a))
+                .unwrap_or_else(|e| panic!("arg[1]: {e}"));
+        }
         self.app.on_init();
         self.app
             .with_vm(|pob| {
@@ -709,6 +719,7 @@ fn read_saved(user: &UserDir, names: &[String]) -> Vec<(String, Option<String>)>
 /// the test keeps of the VM and the user dir afterwards (`extra`, JSON). The key covers this file
 /// (stubs and Lua-side wrapper), the Lua-side code, PoB, this test's scripts and fixtures, the
 /// fixture user dir, the script, the screen and the other arguments.
+#[allow(clippy::too_many_arguments)]
 fn lua_run(
     root: &Path,
     script: &pob_host::script::Script,
@@ -717,6 +728,7 @@ fn lua_run(
     screen: pob_sg::ScreenInfo,
     saved: &[String],
     net: &pob_ui_oracle::sg_bridge::NetFixtures,
+    arg: Option<&str>,
 ) -> anyhow::Result<LuaRun> {
     let scripts = test_dir();
     let mut inputs: Vec<&Path> = vec![&scripts];
@@ -731,6 +743,7 @@ fn lua_run(
             &format!("{screen:?}"),
             &format!("{saved:?}"),
             &format!("{net:?}"),
+            &format!("{arg:?}"),
         ],
     );
     oracle_cache::cached_lua_run(key, || {
@@ -740,7 +753,10 @@ fn lua_run(
             .map_err(|e| anyhow::anyhow!("{e}"))?
             .net
             .borrow_mut() = net.clone();
-        let mut lua_side = LuaSide { app: lua_app };
+        let mut lua_side = LuaSide {
+            app: lua_app,
+            arg: arg.map(str::to_owned),
+        };
         let mut d = Driver::new(screen, handles, user.path.clone());
         let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
         drop(lua_side);
@@ -763,11 +779,12 @@ fn run_sides(
     screen: pob_sg::ScreenInfo,
     saved: &[String],
     net: &pob_ui_oracle::sg_bridge::NetFixtures,
+    arg: Option<&str>,
 ) -> anyhow::Result<(Side, Side)> {
     let user = UserDir::new(fixture)?;
 
     // Lua (cached, TP4)
-    let run = lua_run(root, script, &user, fixture, screen, saved, net)?;
+    let run = lua_run(root, script, &user, fixture, screen, saved, net, arg)?;
     let lua = Side {
         frames: run.frames,
         error: run.error,
@@ -781,6 +798,8 @@ fn run_sides(
     let (sg, sys) = boot::oracle_parts(root, &user.path, &handles)?;
     let src = std::fs::canonicalize(root.join("src")).unwrap_or_else(|_| root.join("src"));
     let mut rust_side = RustSide::new(PlatformParts { sg, sys }, src, net.clone());
+    // `arg` (launch.arg), before on_init, as the desktop host sets it
+    rust_side.app.cx.app_mut().launch.arg = arg.map(str::to_owned).into_iter().collect();
     let mut d = Driver::new(screen, handles, user.path.clone());
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         runner::drive(&mut rust_side, script, &mut d)
@@ -1045,6 +1064,7 @@ fn u43_scenarios() {
         let (script, base_dir) = runner::load_script(&path).unwrap();
         let fx = runner::fixtures(&script, &base_dir).unwrap();
         let saved = directives(&text, "u43-saved");
+        let arg = directives(&text, "u43-arg").into_iter().next();
         {
             let tag = if own_screen {
                 format!("u43_{stem}")
@@ -1058,6 +1078,7 @@ fn u43_scenarios() {
                 runner::screen(w, h, s),
                 &saved,
                 &fx.net,
+                arg.as_deref(),
             ) {
                 Ok(s) => s,
                 Err(e) => {

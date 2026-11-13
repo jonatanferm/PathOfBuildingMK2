@@ -1,0 +1,14 @@
+# U43 (FUP5, FOLLOWUPS "CCRDOC" 12): a build link on the command line (Main.lua:71-83). arg[1] is a
+# protocol-handler link; main:Init downloads it (buildSites.DownloadBuild: pob://pobbin/<id>, the
+# site id lowercased, -> https://pobb.in/pob/u43Code048, the code of allflame_exp_048) instead of
+# opening "Unnamed build"
+# (ignoreBuild: LoadSettings opens no mode either); the next frame delivers it and the callback
+# opens "Imported Build" with the decoded XML, the download URL as importLink, and the Tree tab
+# (newModeChangeToTree). The snapshot's Import section carries that link.
+#! u43-arg pob://pobbin/u43Code048
+#! u43-expect-import importLink=https://pobb.in/pob/u43Code048
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 4
+snapshot cli_link
+frames 1

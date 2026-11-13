@@ -4,7 +4,6 @@
 # dbFileName: importCodeHandle selects mode 2 itself) and paste the same code again.
 #! u43-expect-label Import to a new build
 #! u43-expect-label Code is valid
-#! u43-set-aside-frame 30 CCR-0109 §9: buildMode:OnFrame (U20) draws the old build node after an Init run inside the tab Draw
 fixture userdir=../../fixtures/user1
 frames 2
 move 400 91

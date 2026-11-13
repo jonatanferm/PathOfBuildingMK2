@@ -275,18 +275,9 @@ pub fn run_request(req: &Request) -> Reply {
                 .map(|o| output_stats(&o))
                 .unwrap_or_default();
             // CCR-0142: the request's build is dropped here, but two `Rc` cycles would keep it
-            // and its envs alive (Lua's GC collects them): `calcsTab.mainEnv/calcsEnv/
-            // miscCalculator` → `env.build`/`.build` → the build, and every socket group's
-            // `displaySkillList(Calcs)` → skill → `activeSkill.socketGroup` → the group. Break
-            // both, then free the GlobalCache's envs (they point back to this build too).
-            build.calcsTab.mainEnv.set(None);
-            build.calcsTab.calcsEnv.set(None);
-            build.calcsTab.miscCalculator.set(None);
-            for group in build.skillsTab.socketGroupList.get().snapshot() {
-                group.displaySkillList.set(None);
-                group.displaySkillListCalcs.set(None);
-            }
-            pob_calc::modules::common::wipeGlobalCache();
+            // and its envs alive (Lua's GC collects them); `Build::teardown` breaks both and
+            // frees the GlobalCache's envs (they point back to this build too).
+            build.teardown();
             Reply::Done {
                 seq: *seq,
                 result: Ok(stats),

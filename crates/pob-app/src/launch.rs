@@ -90,7 +90,8 @@ pub struct LaunchState {
     pub proxy_url: Option<String>,
     /// Main.lua:47 (`--no-ssl`)
     pub no_ssl: bool,
-    /// The `arg` global (command line). DIVERGENCE(no-cli-args): empty unless a host sets it.
+    /// The `arg` global: the command line after the program name (the desktop host sets it before
+    /// `on_init`; Main.lua:41-49 and :71-83 read it).
     pub arg: Vec<String>,
     /// Not in PoB: treat a manifest without branch/platform as a release install (no dev mode).
     /// The UI oracle patches the Lua the same way (pob-ui-oracle patch 4: the checkout's
