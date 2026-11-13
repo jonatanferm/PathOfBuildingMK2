@@ -31,9 +31,13 @@ step pin_breakdown
 move 1210 322
 click LEFTBUTTON
 frames 3
+# the Life breakdown stays pinned when the cursor leaves the cell; a click elsewhere unpins it
 move 1100 800
+frames 1
+expect-text "1,879 (base)"
 click LEFTBUTTON
 frames 2
+expect-no-text "1,879 (base)"
 step scroll
 move 1100 600
 wheel down 5
@@ -42,6 +46,7 @@ wheel down 5
 frames 2
 wheel up 10
 frames 2
+expect-no-recalc
 step switch_group
 move 600 92
 click LEFTBUTTON

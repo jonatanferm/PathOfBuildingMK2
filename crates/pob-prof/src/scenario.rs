@@ -19,6 +19,7 @@
 //! | `expect-power` | guard: a power report has finished in this step (`wait-power` ran to its end) |
 //! | `expect-differs A B` / `expect-same A B` | guard: the build XML of snapshots A and B (`snapshot NAME`) differ / are equal |
 //! | `expect-calc-func` | guard: the build has a misc calculator (`configTab.calcFunc`) |
+//! | `expect-text "S"` / `expect-no-text "S"` | guard: one extra frame is drawn with a `TraceRecorder`, and some / none of its drawn strings (escapes stripped) contains S. For clicks and keys whose effect shows only on screen (a sub-view, a pinned breakdown, a typed search). The extra frame is not one of the step's frames and its time and allocations leave the step, but the app does run it |
 //! | `wait-idle [MAX]` | runs frames until no background coroutine is alive (`App::wants_frames`: the item database loader of `main:Init`, list loaders, …; at most MAX frames, default 1000; fails at MAX) |
 //! | `wait-power [MAX]` | runs frames until no power report is running (at most MAX frames, default 3000; the guard fails at MAX) |
 //! | `clipboard-build-code "Builds/x.xml"` | puts the build code (`ImportTab`'s export encoding) of a fixture build on the virtual clipboard; untimed |
@@ -59,6 +60,10 @@ pub enum Guard {
     Differs(String, String),
     Same(String, String),
     CalcFunc,
+    /// `expect-text "S"`
+    Text(String),
+    /// `expect-no-text "S"`
+    NoText(String),
 }
 
 /// A parsed scenario.
@@ -118,6 +123,8 @@ const DIRECTIVES: &[&str] = &[
     "expect-differs",
     "expect-same",
     "expect-calc-func",
+    "expect-text",
+    "expect-no-text",
     "wait-power",
     "wait-idle",
     "clipboard-build-code",
@@ -192,6 +199,17 @@ fn directive(w: &[String]) -> Result<Seg, String> {
         "expect-calc-func" => {
             argc(0)?;
             Seg::Guard(Guard::CalcFunc)
+        }
+        "expect-text" | "expect-no-text" => {
+            argc(1)?;
+            if w[1].is_empty() {
+                return Err(format!("`{}`: the text is empty", w[0]));
+            }
+            Seg::Guard(if w[0] == "expect-text" {
+                Guard::Text(w[1].clone())
+            } else {
+                Guard::NoText(w[1].clone())
+            })
         }
         "wait-power" => {
             if w.len() > 2 {
@@ -376,12 +394,25 @@ mod tests {
             ("# d\nexpect-recalc x", "not a count"),
             ("# d\nexpect-mode", "takes 1"),
             ("# d\nclipboard-build-code \"x", "unterminated"),
+            ("# d\nexpect-text \"\"", "empty"),
+            ("# d\nexpect-no-text a b", "takes 1"),
         ] {
             let e = Scenario::parse(text, Path::new("t.pobscript"))
                 .unwrap_err()
                 .to_string();
             assert!(e.contains(needle), "{text:?}: {e}");
         }
+    }
+
+    #[test]
+    fn parses_text_guards() {
+        let s = Scenario::parse(
+            "# d\nstep a\nexpect-text \"Calc Mode:\"\nexpect-no-text \"1,879 (base)\"\n",
+            Path::new("t.pobscript"),
+        )
+        .unwrap();
+        assert_eq!(s.segs[1], Seg::Guard(Guard::Text("Calc Mode:".into())));
+        assert_eq!(s.segs[2], Seg::Guard(Guard::NoText("1,879 (base)".into())));
     }
 
     /// Every committed scenario parses and names its steps.

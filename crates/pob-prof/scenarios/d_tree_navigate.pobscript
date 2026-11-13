@@ -17,6 +17,7 @@ wheel up 1
 frames 2
 wheel up 1
 frames 2
+expect-no-recalc
 step hover_nodes
 # Intelligence (unallocated), Pain Attunement, a jewel socket, Solipsism, Dexterity (118 dependants)
 move 1245 313
@@ -72,6 +73,7 @@ move 750 900
 frames 1
 move 450 900
 frames 1
+expect-no-recalc
 step zoom_out
 move 1100 540
 wheel down 3
@@ -80,8 +82,10 @@ wheel down 3
 frames 3
 wheel down 3
 frames 3
+expect-no-recalc
 step zoomed_out_idle
 frames 10
+expect-no-recalc
 step drag
 key-down LEFTBUTTON
 move 1080 530
@@ -108,3 +112,6 @@ type "life"
 frames 3
 press ESCAPE
 frames 2
+# the search box keeps the typed text
+expect-text "life"
+expect-no-recalc

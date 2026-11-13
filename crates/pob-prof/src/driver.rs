@@ -11,7 +11,7 @@
 //!   (CalcsTab.lua:655), so it spreads over frames as a user sees it. Input timing (double-click
 //!   detection) stays on the virtual clock, so the scripted input means the same in every run.
 //! - **No trace.** The app runs without a `TraceRecorder` (as shipped); `inspect --texts` turns
-//!   one on.
+//!   one on, and each `expect-text` guard records one extra, untimed frame.
 //! - **Frames are rendered** by the run's [`Renderer`] (none, CPU raster, offscreen wgpu).
 //! - **Services.** The platform is [`ProfPlatform`] (the clock above; otherwise pob-host's
 //!   `HeadlessPlatform` behaviour); files are pob-host's copy-on-write `HeadlessFs` over the
@@ -613,24 +613,7 @@ impl Driver {
         let rns = self.renderer.render(frame);
         if self.texts {
             if let Some(t) = app.sg().trace.take() {
-                self.last_texts = t
-                    .frames
-                    .last()
-                    .map(|f| {
-                        f.calls
-                            .iter()
-                            .filter_map(|c| match &c.call {
-                                ApiCall::DrawString {
-                                    x, y, height, text, ..
-                                } => Some(format!(
-                                    "{x:7.1} {y:7.1} h{height:<4} {}",
-                                    pob_sg::strip_escapes(text)
-                                )),
-                                _ => None,
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                self.last_texts = drawn_strings(&t, true);
             }
         }
         let total_ms = (frame_ns + rns) as f64 / 1e6;
@@ -663,6 +646,24 @@ impl Driver {
             }
         }
         Self::check_errors(app)
+    }
+
+    /// One extra frame with a `TraceRecorder`, for `expect-text`: the strings it draws. It runs
+    /// inside the guard's `untimed` and is not one of the step's frames; it is rendered (so the
+    /// renderer sees every frame's textures) and advances the virtual clock like any frame.
+    fn traced_frame(&mut self, app: &mut ProfApp) -> Result<Vec<String>> {
+        self.ensure_init(app)?;
+        let had = app.sg().trace.take();
+        app.sg().trace = Some(TraceRecorder::new());
+        let r = run_frame(app, self.screen, self.cursor_phys);
+        let t = app.sg().trace.take();
+        app.sg().trace = had;
+        self.drain_effects();
+        self.h.clock_ms.set(self.h.clock_ms.get() + FRAME_MS);
+        let frame = r.map_err(|e| anyhow!(e))?;
+        self.renderer.render(frame);
+        Self::check_errors(app)?;
+        Ok(t.map(|t| drawn_strings(&t, false)).unwrap_or_default())
     }
 
     /// Count the file writes since the last call (the save guard) and drop the side effects
@@ -800,6 +801,11 @@ impl Driver {
 
     fn guard(&mut self, app: &mut ProfApp, g: &Guard) -> Result<()> {
         self.drain_effects();
+        // expect-text draws its frame before `fail` borrows the step
+        let texts = match g {
+            Guard::Text(_) | Guard::NoText(_) => self.traced_frame(app)?,
+            _ => Vec::new(),
+        };
         let fail = |m: String| {
             Err(anyhow!(
                 "guard failed in step {:?}: {m}",
@@ -869,6 +875,25 @@ impl Driver {
                     return fail(format!(
                         "snapshots {a} and {b} are {}",
                         if differs { "equal" } else { "different" }
+                    ));
+                }
+            }
+            Guard::Text(want) | Guard::NoText(want) => {
+                let found = texts.iter().any(|t| t.contains(want.as_str()));
+                let expect = matches!(g, Guard::Text(_));
+                if found != expect {
+                    let mut seen: Vec<&str> = texts.iter().map(String::as_str).collect();
+                    seen.dedup();
+                    seen.truncate(40);
+                    return fail(format!(
+                        "{} {want:?}: {} in the {} strings of a traced frame (first: {seen:?})",
+                        if expect {
+                            "expect-text"
+                        } else {
+                            "expect-no-text"
+                        },
+                        if found { "found" } else { "not found" },
+                        texts.len()
                     ));
                 }
             }
@@ -959,6 +984,32 @@ impl Driver {
         self.perf.step(name);
         self.cur = Some(StepAcc::new(name, model_weak(app)));
     }
+}
+
+/// The strings drawn in the last frame of `t`, escapes stripped; `with_pos` prefixes each with
+/// its position and height (inspect `--texts`).
+fn drawn_strings(t: &TraceRecorder, with_pos: bool) -> Vec<String> {
+    t.frames
+        .last()
+        .map(|f| {
+            f.calls
+                .iter()
+                .filter_map(|c| match &c.call {
+                    ApiCall::DrawString {
+                        x, y, height, text, ..
+                    } => {
+                        let s = pob_sg::strip_escapes(text);
+                        Some(if with_pos {
+                            format!("{x:7.1} {y:7.1} h{height:<4} {s}")
+                        } else {
+                            s
+                        })
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// [`stats::quantile`], 0 without samples (JSON has no NaN).

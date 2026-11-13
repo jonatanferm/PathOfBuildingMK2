@@ -16,6 +16,8 @@ step select_group
 move 450 144
 click LEFTBUTTON
 frames 2
+# the selected group's gem slots (hovering the list only shows a tooltip)
+expect-text "Gem name:"
 step gem_level
 # Hypothermia level + then -
 move 1069 264

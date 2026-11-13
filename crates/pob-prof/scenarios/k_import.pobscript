@@ -15,6 +15,8 @@ step generate_code
 move 806 418
 click LEFTBUTTON
 frames 2
+# the generated code in its edit box (a zlib stream, base64: "eNr...")
+expect-text "eNr"
 step paste_code
 clipboard-build-code "Builds/allflame_exp_032.xml"
 move 480 528
@@ -23,6 +25,7 @@ key-down CTRL
 press v
 key-up CTRL
 frames 2
+expect-text "Code is valid"
 step import_new_build
 move 616 552
 click LEFTBUTTON

@@ -749,7 +749,7 @@ fn cmd_compare(a: &Args) -> ExitCode {
     match run() {
         Ok(o) => {
             print!("{}", o.report);
-            if o.regressed {
+            if o.regressed || !o.incomplete.is_empty() {
                 ExitCode::FAILURE
             } else {
                 ExitCode::SUCCESS

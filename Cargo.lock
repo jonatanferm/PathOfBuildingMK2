@@ -2181,6 +2181,7 @@ dependencies = [
  "pob-lua",
  "pob-sg",
  "pob-sg-wgpu",
+ "pob-testpaths",
  "pollster",
  "rustix 1.1.4",
  "serde",

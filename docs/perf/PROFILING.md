@@ -8,7 +8,8 @@ on performance and to guard the idiomatic refactor against regressions.
 
 It depends on no PoB code, no LuaJIT and no oracle crate (`cargo tree -p pob-prof | grep -c
 "pob-oracle\|pob-ui-oracle\|mlua"` is 0): only on the product crates (pob-app, pob-host, pob-sg,
-pob-sg-wgpu, pob-calc, pob-gamedata, pob-lua) and on the files the product itself reads.
+pob-sg-wgpu, pob-calc, pob-gamedata, pob-lua) and on the files the product itself reads. Its tests
+add the dev-dependency `pob-testpaths` (dependency-free; it only locates the test inputs).
 
 Code: `crates/pob-prof` (library + the `pob-prof` binary), `scripts/perf/prof.sh`,
 `scripts/perf/flamegraph.sh`. Scenarios: `crates/pob-prof/scenarios/*.pobscript`. Fixture user
@@ -42,13 +43,19 @@ The app needs the compiled game data (`data.bin`, `trees/`) and its image and fo
 it is resolved in one place, `crates/pob-prof/src/paths.rs`:
 
 - **Assets**: `--assets DIR`, else `POB_PROF_ASSETS`, else `POB_ASSETS` (the override the VENDOR
-  unit adds), else `POB_ROOT`, else the first `.PathOfBuilding/src` above the working directory or
-  the executable. A directory with a `src/` subdirectory is read as PoB-shaped (`src/` +
+  unit adds), else `POB_ROOT`, else the first `.PathOfBuilding/src` in a search root: the
+  ancestors of the working directory, of the executable and of the crate's source directory, then
+  the main checkout of the linked git worktree any of them is in (its `.git` file names it; the
+  order `pob-testpaths` uses). So a worktree outside the main checkout (`/tmp/...`, where
+  refactor agents run `prof.sh`) finds the gitignored inputs without any environment. A directory with a `src/` subdirectory is read as PoB-shaped (`src/` +
   `runtime/SimpleGraphic/`); any other directory is used directly as the image root, with the fonts
   in its `runtime/SimpleGraphic`, `runtime` or itself (whichever holds `Fonts/`). When VENDOR's
   bundle lands with another layout, only `paths::locate` changes.
 - **Game data**: `--data DIR`, else `POB_DUMP_DIR`, else `data.bin` in the assets directory, else the
-  first `data/dump/data.bin` above the working directory or the executable.
+  first `data/dump/data.bin` in a search root (as above).
+- **Tests** (`cargo.sh test -p pob-prof`) find the PoB checkout and `data/dump` through the
+  dev-dependency `pob-testpaths` and pass them to `paths::locate` explicitly: a missing input fails
+  the test unless `POB_ALLOW_SKIP=1` (CCR-0031 B).
 - **User directory**: the scenario's `fixture userdir=../fixtures/user`: `Settings.xml` (opens in
   the build list) and 7 builds of the parity corpus, copied in (committed):
 
@@ -87,9 +94,30 @@ gated.
 | `l_save` | open from the list (double-click), edit, Ctrl+S, type a note, Save button | open_from_list, edit_level, save_ctrl_s, notes, save_button |
 | `calc_<build>` (7) | the calc alone, per fixture build (`crates/pob-prof/src/stages.rs`) | full, initEnv, perform, buildOutput_MAIN, buildOutput_CALCS, getMiscCalculator, misc_call |
 
-Every interaction carries guards (a click that must trigger a recalc, a hover that must compute a
-tooltip's stat differences, a tab that must be open, a save that must write a file), so a layout
-change that makes a click miss fails the run instead of silently measuring nothing.
+**Guards.** Every step driven by a click or a key carries a guard that fails the run when the
+input misses: a recalc that must run, a tooltip that must compute stat differences, a tab or mode
+that must be open, a file that must be written, a power report that must finish, or a string that
+must (or must not) be drawn (`expect-text`, for effects that are only visible: the Compare
+sub-views, the pinned Calcs breakdown, the selected socket group, the generated and the pasted
+build code, the power report list, the tree search text). Each of these guards was checked by
+dropping the step's click or key from a copy of the scenario: the run then fails in that step.
+
+Steps whose input is only cursor movement, the wheel or idle frames have no guard that can see a
+miss; they carry `expect-no-recalc` / `expect-mode` (or `wait-idle`, which fails when the
+background work does not end), which catch an unexpected recalc or a lost screen but not a wheel
+or a hover that lands on nothing. **A miss there goes undetected**, and the step then measures
+cheaper frames (`compare` reports it as `better`):
+
+| scenario | steps whose miss is not detected | what they do |
+|---|---|---|
+| `a_startup` | background_load, list_hover, list_idle | `wait-idle`; hover list rows; idle |
+| `d_tree_navigate` | zoom_in, sweep, zoom_out, zoomed_out_idle | wheel and cursor sweeps over the tree; idle |
+| `h_calcs` | scroll | wheel over the sections |
+| `j_compare` | summary (the wheel part; the summary view itself is guarded) | wheel over the summary |
+
+`d_tree_navigate`'s `hover_nodes`, `e_items`' `hover_slots` and `g_config`'s `hover_options` are
+hovers, but guarded: their tooltips must compute stat differences (`expect-misc`). A `better` on
+one of the unguarded steps above deserves a look at `inspect --png` before it is believed.
 
 ## What is measured
 
@@ -163,8 +191,12 @@ Gated by default: the steps' `wall_ms`, `cpu_ms`, `frame_p95_ms`, `recalc_ms`, `
 `total.wall_ms`, `total.cpu_ms`, `total.peak_rss_mb`; `_setup` steps never. Options:
 `--threshold PCT` (default 10; the RSS fields default to 20, see Noise),
 `--field-threshold allocs=2` (repeatable), `--alpha 0.05`, `--gate wall_ms,allocs` (replace the gated fields), `--all` (print
-every metric), `--scenarios a,b`. Exit status: 1 when anything REGRESSED, 0 otherwise, 2 on usage
-errors. The last lines give the geometric mean of the `wall_ms` and `cpu_ms` ratios (new/base) over
+every metric), `--scenarios a,b`. NEW is `INCOMPLETE` when a compared scenario has failed
+repetitions in NEW, when a gated metric of BASE is absent from NEW (a step that no longer runs, a
+build load that was not detected), or when a scenario named by `--scenarios` is missing from NEW;
+a scenario missing from NEW without `--scenarios` is listed as "missing from NEW (not compared)"
+but is no error (a subset run against the full baseline). Exit status: 1 when anything REGRESSED
+or NEW is INCOMPLETE, 0 otherwise, 2 on usage errors. The last lines give the geometric mean of the `wall_ms` and `cpu_ms` ratios (new/base) over
 every gated step: the single number to hill-climb on.
 
 **Bless a baseline**: run the whole suite on an idle machine (§Noise), check `errors` is empty
@@ -222,16 +254,23 @@ its position (how coordinates for new scenario steps are found); `--until` stops
    `clipboard-build-code "Builds/x.xml"`, and the guards `expect-recalc [N]`,
    `expect-no-recalc`, `expect-misc [N]`, `expect-file-write [N]`, `expect-mode LIST|BUILD`,
    `expect-tab TREE|SKILLS|ITEMS|CALCS|CONFIG|IMPORT|NOTES|PARTY|COMPARE`, `expect-power`,
-   `expect-differs A B`, `expect-same A B`, `expect-calc-func`.
+   `expect-differs A B`, `expect-same A B`, `expect-calc-func`, `expect-text "S"`,
+   `expect-no-text "S"`. `expect-text` draws one extra frame with a trace recorder and looks for S
+   in its drawn strings (escapes stripped; a substring match); that frame is not one of the step's
+   frames and its time and allocations leave the step, but the app does run it.
 2. Open the build in the set-up and end the set-up with `wait-idle`, so the measured steps do not
    include the background loading that follows every build open (measure that on purpose, as
    `b_open_build` does).
 3. Find coordinates with `pob-prof inspect <your scenario> --until STEP --png /tmp/x.png --texts`
    (look at the picture; the strings list gives exact label positions, and a hovered tree node's
-   tooltip names the node). Put a guard after every interaction.
+   tooltip names the node). Put a guard after every click and key, and check it: drop the input
+   from a copy of the scenario, and `inspect` must fail in that step. A step whose miss cannot be
+   seen goes into the table under "Guards".
 4. `pob-prof inspect <scenario>` until it passes, then `cargo.sh test -p pob-prof` (every committed
-   scenario must parse and have a description and a step), then bless a new baseline (a new
-   scenario is reported as "new scenario (not in BASE)" until then).
+   scenario must parse and have a description and a step; `committed_scenarios_cheap` replays
+   `k_import`, `f_skills` and `j_compare` in a debug build (~20 s), and `-- --ignored` runs
+   `committed_scenarios_all`, every scenario, ~3 min), then bless a new baseline (a new scenario
+   is reported as "new scenario (not in BASE)" until then).
 
 ## Noise
 
@@ -445,6 +484,7 @@ Recurring themes, in rough order of payoff:
 - The calc stage breakdown has no `offence`/`defence` timers (CCR-0150); use the sampling shares.
 - Allocations are counted on the main thread only; the wgpu backend's threads are not.
 - The governor cannot be pinned without root (see Noise); results record it.
-- Coordinates in the scenarios are for 1920x1080 at dpi 1 and the current layout; a UI change that
-  moves a control fails the scenario's guard, and the scenario needs new coordinates (see "Adding a
-  scenario").
+- Coordinates in the scenarios are for 1920x1080 at dpi 1 and the current layout. A UI change that
+  moves a clicked control fails the step's guard, and the scenario needs new coordinates (see
+  "Adding a scenario"). A change that moves what a hover, wheel or idle step points at is not
+  detected for the steps listed under "Guards": they then measure cheaper frames.

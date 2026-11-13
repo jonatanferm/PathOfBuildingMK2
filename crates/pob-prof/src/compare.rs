@@ -11,9 +11,15 @@
 //!
 //! Gated by default (all lower-is-better): the steps' `wall_ms`, `cpu_ms`, `frame_p95_ms`, `recalc_ms`,
 //! `build_load_ms`, `power_ms`, `allocs`, `heap_peak_mb`, `rss_peak_mb`, and
-//! `startup.to_first_screen_ms`, `total.peak_rss_mb` (threshold 10 %, RSS 20 %). `_setup` steps are never gated. The exit status is 1 when
-//! any metric REGRESSED, 0 otherwise (2 on usage errors). A summary line gives the geometric mean
-//! of the `wall_ms` ratios (new/base) over every gated step: the single number to hill-climb on.
+//! `startup.to_first_screen_ms`, `total.peak_rss_mb` (threshold 10 %, RSS 20 %). `_setup` steps are never gated.
+//!
+//! NEW is `INCOMPLETE` when a compared scenario has failed repetitions in NEW, when a gated metric
+//! of BASE is absent from NEW (a step that no longer runs, a build load that was not detected), or
+//! when a scenario named by `--scenarios` is missing from NEW. A scenario missing from NEW without
+//! `--scenarios` is listed but not an error (a subset run, `run --scenarios a,b`, compared against
+//! the full baseline). The exit status is 1 when any metric REGRESSED or NEW is INCOMPLETE, 0
+//! otherwise (2 on usage errors). A summary line gives the geometric mean of the `wall_ms` ratios
+//! (new/base) over every gated step: the single number to hill-climb on.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -89,6 +95,8 @@ pub struct Outcome {
     pub rows: Vec<Row>,
     pub report: String,
     pub regressed: bool,
+    /// Why NEW cannot be fully compared (module docs, `INCOMPLETE`); empty when it can.
+    pub incomplete: Vec<String>,
     pub geomean_wall: Option<f64>,
 }
 
@@ -178,23 +186,38 @@ pub fn compare(base: &ResultsFile, new: &ResultsFile, o: &CompareOptions) -> Out
     }
     let mut ratios = Vec::new();
     let mut cpu_ratios = Vec::new();
+    let mut incomplete = Vec::new();
+    for name in &o.scenarios {
+        if !new.scenarios.contains_key(name) {
+            incomplete.push(format!("{name}: missing from NEW"));
+        }
+    }
     for (name, sb) in &base.scenarios {
         if !o.scenarios.is_empty() && !o.scenarios.contains(name) {
             continue;
         }
         let Some(sn) = new.scenarios.get(name) else {
-            let _ = writeln!(out, "{name}: missing from NEW");
+            let _ = writeln!(out, "{name}: missing from NEW (not compared)");
             continue;
         };
         for e in &sn.errors {
             let _ = writeln!(out, "{name}: NEW failed: {e}");
         }
+        if !sn.errors.is_empty() {
+            incomplete.push(format!(
+                "{name}: {} failed repetition(s) in NEW",
+                sn.errors.len()
+            ));
+        }
         for (key, b) in &sb.metrics {
-            let Some(n) = sn.metrics.get(key) else {
-                continue;
-            };
             let f = field(key);
             let gated = !step(key).starts_with('_') && gated_fields.iter().any(|g| g == f);
+            let Some(n) = sn.metrics.get(key) else {
+                if gated {
+                    incomplete.push(format!("{name}: gated metric {key} is absent from NEW"));
+                }
+                continue;
+            };
             let thr = o.field_threshold.get(f).copied().unwrap_or(o.threshold_pct);
             let (v, delta, p) = verdict(b, n, gated, thr, o.alpha);
             if gated && step(key) != "total" && b.median > 0.0 && n.median > 0.0 {
@@ -280,10 +303,21 @@ pub fn compare(base: &ResultsFile, new: &ResultsFile, o: &CompareOptions) -> Out
         rows.iter().filter(|r| r.gated).count(),
         o.alpha
     );
+    if !incomplete.is_empty() {
+        let _ = writeln!(
+            out,
+            "INCOMPLETE: NEW cannot be fully compared ({} problem(s)):",
+            incomplete.len()
+        );
+        for m in &incomplete {
+            let _ = writeln!(out, "  {m}");
+        }
+    }
     Outcome {
         rows,
         report: out,
         regressed,
+        incomplete,
         geomean_wall: geomean,
     }
 }
@@ -344,6 +378,59 @@ mod tests {
         assert!(!o2.regressed);
         // the same file never regresses
         assert!(!compare(&base, &base, &CompareOptions::default()).regressed);
+    }
+
+    #[test]
+    fn incomplete_new_fails() {
+        let base = file(&[
+            ("open.wall_ms", &[100.0, 101.0, 99.0, 100.5, 100.2]),
+            ("open.build_load_ms", &[50.0, 51.0, 49.0, 50.5, 50.2]),
+            ("open.frames", &[5.0; 5]),
+        ]);
+        // the same numbers, but the build load was not detected: a gated metric is absent
+        let mut new = file(&[
+            ("open.wall_ms", &[100.0, 101.0, 99.0, 100.5, 100.2]),
+            ("open.frames", &[5.0; 5]),
+        ]);
+        let o = compare(&base, &new, &CompareOptions::default());
+        assert!(!o.regressed);
+        assert_eq!(o.incomplete.len(), 1, "{}", o.report);
+        assert!(o.incomplete[0].contains("open.build_load_ms"));
+        // an ungated metric absent from NEW is not a problem
+        let mut b2 = base.clone();
+        b2.scenarios
+            .get_mut("s")
+            .unwrap()
+            .metrics
+            .remove("open.build_load_ms");
+        assert!(compare(&b2, &new, &CompareOptions::default())
+            .incomplete
+            .is_empty());
+        // failed repetitions in NEW
+        new.scenarios
+            .get_mut("s")
+            .unwrap()
+            .errors
+            .push("guard failed".into());
+        let o = compare(&b2, &new, &CompareOptions::default());
+        assert!(
+            o.incomplete.iter().any(|m| m.contains("failed repetition")),
+            "{}",
+            o.report
+        );
+        // a scenario missing from NEW: listed; an error only when named by --scenarios
+        let empty = ResultsFile {
+            schema: crate::results::SCHEMA.into(),
+            ..ResultsFile::default()
+        };
+        assert!(compare(&b2, &empty, &CompareOptions::default())
+            .incomplete
+            .is_empty());
+        let named = CompareOptions {
+            scenarios: vec!["s".into()],
+            ..CompareOptions::default()
+        };
+        assert_eq!(compare(&b2, &empty, &named).incomplete.len(), 1);
     }
 
     #[test]

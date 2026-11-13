@@ -32,6 +32,11 @@ wgpu = { version = "=30.0.1", features = ["webgl"] }
 rustix = { version = "1", features = ["time"] }
 dhat = { version = "0.3", optional = true }
 
+[dev-dependencies]
+# The smoke test finds the PoB checkout (assets) and data/dump through it (CCR-0031 B: a missing
+# input fails unless POB_ALLOW_SKIP=1). Dev-only: the suite itself never links it.
+pob-testpaths.workspace = true
+
 [[bin]]
 name = "pob-prof"
 path = "src/bin/pob-prof.rs"

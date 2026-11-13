@@ -17,6 +17,7 @@ click LEFTBUTTON
 frames 3
 move 1100 500
 frames 3
+expect-text "Hide Power Report"
 step level_change_rebuild
 move 928 14
 click LEFTBUTTON

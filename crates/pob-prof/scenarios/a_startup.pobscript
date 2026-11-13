@@ -13,5 +13,7 @@ move 700 111
 frames 3
 move 700 131
 frames 3
+expect-mode LIST
 step list_idle
 frames 30
+expect-mode LIST

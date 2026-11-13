@@ -12,10 +12,13 @@
 //!    app asks for and the fonts are in the first of `DIR/runtime/SimpleGraphic`, `DIR/runtime`,
 //!    `DIR/fonts/..`, `DIR`;
 //! 2. `POB_ROOT`: `$POB_ROOT/src` + `$POB_ROOT/runtime/SimpleGraphic`;
-//! 3. the first `.PathOfBuilding/src` in an ancestor of the working directory or the executable.
+//! 3. the first `.PathOfBuilding/src` in a search root: the ancestors of the working directory, of
+//!    the executable and of this crate's source directory, then the main checkout of the linked
+//!    git worktree any of them is in (its `.git` file names it), the order `pob-testpaths` uses. A
+//!    worktree outside the main checkout (`/tmp/…`) finds the gitignored inputs this way.
 //!
 //! **Game data**: `--data DIR`, else `POB_DUMP_DIR`, else `<assets>/data.bin`'s directory, else the
-//! first `data/dump/data.bin` in an ancestor of the working directory or the executable.
+//! first `data/dump/data.bin` in a search root (as above).
 //!
 //! The suite never reads PoB's Lua: only the files the product reads.
 
@@ -37,7 +40,9 @@ pub struct Inputs {
     pub how: String,
 }
 
-fn ancestors_of_cwd_and_exe() -> Vec<PathBuf> {
+/// The directories the search starts from: the working directory, the executable's directory and
+/// this crate's source directory (when it still exists).
+fn starts() -> Vec<PathBuf> {
     let mut starts = Vec::new();
     if let Ok(d) = std::env::current_dir() {
         starts.push(d);
@@ -48,20 +53,45 @@ fn ancestors_of_cwd_and_exe() -> Vec<PathBuf> {
     {
         starts.push(d);
     }
+    let built = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if built.is_dir() {
+        starts.push(built);
+    }
     starts
 }
 
-/// The first `rel` that exists in an ancestor of the working directory or of the executable.
-pub fn find_up(rel: &str) -> Option<PathBuf> {
-    for s in ancestors_of_cwd_and_exe() {
-        for d in s.ancestors() {
-            let p = d.join(rel);
-            if p.exists() {
-                return Some(p);
-            }
-        }
+/// `<main>` for a linked git worktree whose `.git` file (in `start` or an ancestor) says
+/// `gitdir: <main>/.git/worktrees/<name>` (as `pob-testpaths`).
+fn linked_main_checkout(start: &Path) -> Option<PathBuf> {
+    let dot_git = start
+        .ancestors()
+        .map(|a| a.join(".git"))
+        .find(|p| p.exists())?;
+    let text = std::fs::read_to_string(&dot_git).ok()?; // a directory in the main checkout
+    let gitdir = PathBuf::from(text.strip_prefix("gitdir:")?.trim());
+    Some(gitdir.parent()?.parent()?.parent()?.to_path_buf())
+}
+
+/// The search roots, in order: every ancestor of each start, then the main checkouts of the linked
+/// worktrees the starts are in.
+pub fn search_roots() -> Vec<PathBuf> {
+    let starts = starts();
+    let mut out: Vec<PathBuf> = Vec::new();
+    for s in &starts {
+        out.extend(s.ancestors().map(Path::to_path_buf));
     }
-    None
+    out.extend(starts.iter().filter_map(|s| linked_main_checkout(s)));
+    let mut seen = std::collections::BTreeSet::new();
+    out.retain(|p| seen.insert(p.clone()));
+    out
+}
+
+/// The first `<root>/<rel>` that exists, over [`search_roots`].
+pub fn find_up(rel: &str) -> Option<PathBuf> {
+    search_roots()
+        .into_iter()
+        .map(|r| r.join(rel))
+        .find(|p| p.exists())
 }
 
 fn env_path(k: &str) -> Option<PathBuf> {
@@ -156,4 +186,28 @@ pub fn crate_dir() -> PathBuf {
 /// `crates/pob-prof/scenarios`.
 pub fn scenario_dir() -> PathBuf {
     crate_dir().join("scenarios")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A linked worktree outside the main checkout reaches it through its `.git` file.
+    #[test]
+    fn linked_worktree_names_its_main_checkout() {
+        let d = std::env::temp_dir().join(format!("pob-prof-paths-{}", std::process::id()));
+        let sub = d.join("crates/x");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(d.join(".git"), "gitdir: /some/main/.git/worktrees/wt\n").unwrap();
+        let got = linked_main_checkout(&sub);
+        std::fs::remove_dir_all(&d).unwrap();
+        assert_eq!(got, Some(PathBuf::from("/some/main")));
+        // this crate's source directory is a search start
+        let r = search_roots();
+        assert!(
+            r.iter()
+                .any(|p| p.join("crates/pob-prof/Cargo.toml").is_file()),
+            "{r:?}"
+        );
+    }
 }

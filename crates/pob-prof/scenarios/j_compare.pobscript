@@ -31,25 +31,31 @@ wheel down 5
 frames 2
 wheel up 5
 frames 2
+expect-no-recalc
+expect-text "Difference"
 step tree_view
 move 428 138
 click LEFTBUTTON
 frames 4
 move 1100 600
 frames 3
+expect-text "Overlay comparison"
 step skills_view
 move 504 138
 click LEFTBUTTON
 frames 3
+expect-text "Ethereal Knives of the Massacre (Body Armour)"
 step items_view
 move 580 138
 click LEFTBUTTON
 frames 3
 move 900 300
 frames 2
+expect-text "Weapon 1 Swap:"
 step calcs_view
 move 655 138
 click LEFTBUTTON
 frames 3
 move 900 300
 frames 2
+expect-text "Calc Mode:"
