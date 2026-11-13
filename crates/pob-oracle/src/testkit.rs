@@ -186,6 +186,88 @@ pub fn probe_dumps(
     }
 }
 
+/// CK3 (CCR-0148): `POB_ORACLE_REQUIRE=1` or `CI` (set, not empty / `0` / `false`): a test
+/// whose input is missing must fail rather than skip (the tests' `skip` helpers assert this).
+#[must_use]
+pub fn oracle_required() -> bool {
+    std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
+        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0")
+}
+
+/// CK3 (CCR-0148): `Err(what is missing)` when [`probe_dumps`] cannot probe at all because an
+/// input is missing (no PoB checkout, no `.parity` for the cache, a build without the `luajit`
+/// feature) and no `$POB_PROBE_DIR` override is set. A test checks this before probing and
+/// applies its skip policy to it; once it is `Ok`, a probe that fails or dumps nothing is a
+/// test failure, never a skip.
+pub fn probe_inputs() -> Result<(), String> {
+    if std::env::var_os("POB_PROBE_DIR").is_some() {
+        return Ok(());
+    }
+    if !cfg!(feature = "luajit") {
+        return Err("built without the luajit feature (no probe), and no $POB_PROBE_DIR".to_owned());
+    }
+    if crate::oracle::find_pob_src().is_none() {
+        return Err("no PoB checkout (.PathOfBuilding/src)".to_owned());
+    }
+    if find_parity_dir().is_none() {
+        return Err("no .parity directory (probe cache)".to_owned());
+    }
+    Ok(())
+}
+
+// ---- `POB_QUERY_CACHE=refresh`: once per process, never a partial entry (CK3) ------------------
+
+/// CK3 (CCR-0148 §2): the refresh of the cache entry `entry` (a directory), at most once per
+/// process. Tests of one binary that share an entry (ORC-X's four tests, DF-G's three, OF-F's
+/// two legs) used to re-run and rewrite it each, while another test read it. The first caller
+/// of a key runs `run` (which re-runs PoB and publishes the entry); concurrent callers of the
+/// same key wait for it, and every later caller gets `served()` (the entry as published) while
+/// `filled()` holds. A failed `run` is not remembered (the next caller runs again).
+pub(crate) fn refresh_once<T>(
+    entry: &Path,
+    filled: impl FnOnce() -> bool,
+    served: impl FnOnce() -> T,
+    run: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+    type Slots = Mutex<HashMap<PathBuf, Arc<Mutex<bool>>>>;
+    static SLOTS: OnceLock<Slots> = OnceLock::new();
+    let slot = SLOTS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry(entry.to_path_buf())
+        .or_default()
+        .clone();
+    let mut done = slot.lock().unwrap_or_else(PoisonError::into_inner);
+    if *done && filled() {
+        return Ok(served());
+    }
+    let out = run()?;
+    *done = true;
+    Ok(out)
+}
+
+/// CK3 (CCR-0148 §2): take the published directory `entry` out of the cache in one rename
+/// (to a private name next to it, then deleted), so a concurrent reader finds the complete old
+/// entry, no entry, or the complete new one, never one half deleted (`remove_dir_all` on the
+/// entry itself deletes file by file while its completion marker may still be there).
+pub(crate) fn retire_entry(entry: &Path) {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let name = entry
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let trash = entry.with_file_name(format!(
+        ".{name}.retired.{}.{}",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    if std::fs::rename(entry, &trash).is_ok() {
+        let _ = std::fs::remove_dir_all(&trash);
+    }
+}
+
 /// `docs/port/stages.toml` of this checkout: the stages file `scripts/port/oracle.sh run`
 /// patches with by default.
 #[must_use]
@@ -297,12 +379,27 @@ pub fn probe_selection(
     stages: Option<&Path>,
     opts: &crate::runner::ProbeOptions,
 ) -> Result<crate::runner::ProbeDumps, String> {
+    use crate::runner::{cache_mode, CacheMode, ProbeDumps};
     let cache = selection_cache(xml, stages, opts)?;
     if cache.is_filled() {
-        return Ok(crate::runner::ProbeDumps::cached(cache.state_dir()));
+        return Ok(ProbeDumps::cached(cache.state_dir()));
     }
     let patched = shared_patch(stages)?;
-    cache.fill(bin, xml, &patched.src, opts).map_err(|e| e.0)
+    if cache_mode() != CacheMode::Refresh {
+        return cache.fill(bin, xml, &patched.src, opts).map_err(|e| e.0);
+    }
+    // CK3 (CCR-0148 §2): `refresh` re-probes each entry once per process, and the old entry
+    // leaves the cache in one rename (`SelectionCache::fill` then finds nothing to delete), so
+    // no test of this binary (or reader elsewhere) sees the entry half rewritten
+    refresh_once(
+        &cache.dir,
+        || cache.dir.join("hits.json.zst").is_file(),
+        || ProbeDumps::cached(cache.state_dir()),
+        || {
+            retire_entry(&cache.dir);
+            cache.fill(bin, xml, &patched.src, opts).map_err(|e| e.0)
+        },
+    )
 }
 
 /// TP1: the text of an in-process PoB query, from the shared content-addressed query cache
@@ -420,29 +517,49 @@ pub fn oracle_dir(
         fill(&out.path)?;
         return Ok(out);
     };
-    let cached = OracleDir {
+    let cached = || OracleDir {
         path: entry.clone(),
         private: false,
     };
     if mode == CacheMode::On && entry.join(DONE).is_file() {
-        return Ok(cached);
+        return Ok(cached());
     }
-    let tmp = tmp_name(&entry);
-    let _ = std::fs::remove_dir_all(&tmp);
-    std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    let res = (|| {
-        fill(&tmp)?;
-        std::fs::write(tmp.join(DONE), b"").map_err(|e| format!("{}: {e}", tmp.display()))?;
-        // publish by rename first (atomic; it fails onto an existing entry), so a concurrent
-        // writer's complete entry is never deleted under its reader; only `refresh`, or an
-        // incomplete entry left over (older layout, interrupted delete), is removed and replaced
-        if mode == CacheMode::Refresh {
-            let _ = std::fs::remove_dir_all(&entry);
-        }
-        crate::runner::publish_dir(&tmp, &entry, &entry.join(DONE)).map_err(|e| e.0)
-    })();
-    let _ = std::fs::remove_dir_all(&tmp);
-    res.map(|()| cached)
+    /// The run that fills a staged directory.
+    type Fill<'a> = Box<dyn FnOnce(&Path) -> Result<(), String> + 'a>;
+    let publish = |fill: Fill<'_>| {
+        let tmp = tmp_name(&entry);
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+        let res = (|| {
+            fill(&tmp)?;
+            std::fs::write(tmp.join(DONE), b"").map_err(|e| format!("{}: {e}", tmp.display()))?;
+            // publish by rename first (atomic; it fails onto an existing entry), so a
+            // concurrent writer's complete entry is never deleted under its reader; only
+            // `refresh` (below), or an incomplete entry left over (older layout, interrupted
+            // delete), is replaced
+            crate::runner::publish_dir(&tmp, &entry, &entry.join(DONE)).map_err(|e| e.0)
+        })();
+        let _ = std::fs::remove_dir_all(&tmp);
+        res.map(|()| cached())
+    };
+    if mode != CacheMode::Refresh {
+        return publish(Box::new(fill));
+    }
+    // CK3 (CCR-0148 §2): `refresh` re-runs each entry once per process (later tests of this
+    // binary read that run), and the old entry leaves the cache in one rename right before the
+    // new one is published, so a reader never finds a half-deleted entry with its marker
+    refresh_once(
+        &entry,
+        || entry.join(DONE).is_file(),
+        cached,
+        || {
+            publish(Box::new(|tmp: &Path| {
+                fill(tmp)?;
+                retire_entry(&entry);
+                Ok(())
+            }))
+        },
+    )
 }
 
 /// The dump files of `stage_in` and `stage_out` from the first directory of `dirs` that holds
@@ -876,5 +993,56 @@ mod tests {
         );
         assert_eq!(buff_mod_list_path("a.buffList[2].modListX"), None);
         assert_eq!(buff_mod_list_path("a.buffList[2].name"), None);
+    }
+
+    /// CK3 (CCR-0148 §2): under `refresh` an entry is re-run once per process: concurrent
+    /// callers of one key wait for the first and are served its run; a failed run is retried.
+    #[test]
+    fn refresh_once_runs_each_key_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+        use std::sync::Arc;
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/tmp")
+            .join(format!("ck3-refresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let entry = dir.join("sel-x");
+        let runs = Arc::new(AtomicUsize::new(0));
+        // a failed run publishes nothing and is not remembered
+        let r: Result<u8, String> =
+            refresh_once(&entry, || entry.is_dir(), || 0, || Err("probe failed".to_owned()));
+        assert!(r.is_err());
+        let threads: Vec<_> = (0..6)
+            .map(|_| {
+                let (entry, runs) = (entry.clone(), runs.clone());
+                std::thread::spawn(move || {
+                    refresh_once(
+                        &entry,
+                        || entry.join("done").is_file(),
+                        || "served",
+                        || {
+                            runs.fetch_add(1, SeqCst);
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            std::fs::create_dir_all(&entry).unwrap();
+                            std::fs::write(entry.join("done"), b"").unwrap();
+                            Ok("ran")
+                        },
+                    )
+                    .unwrap()
+                })
+            })
+            .collect();
+        let got: Vec<&str> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+        assert_eq!(runs.load(SeqCst), 1, "{got:?}");
+        assert_eq!(got.iter().filter(|g| **g == "ran").count(), 1, "{got:?}");
+        // a published entry that has since vanished is run again
+        retire_entry(&entry);
+        assert!(!entry.exists());
+        let again = refresh_once(&entry, || entry.is_dir(), || "served", || Ok("ran")).unwrap();
+        assert_eq!(again, "ran");
+        // the retired copy is gone, nothing is left next to the entry
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(Result::ok).collect();
+        assert!(left.is_empty(), "{left:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

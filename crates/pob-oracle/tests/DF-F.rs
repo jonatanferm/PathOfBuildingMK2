@@ -33,6 +33,11 @@
 //! Knobs: `DFF_BUILDS=stem1,stem2`, `DFF_LIMIT=n`, `DFF_VERBOSE=1` (print
 //! every mismatch), `DFF_ALL_HITS=1` (every recorded pair, not just the
 //! main env's lowest one).
+//!
+//! CK3 (CCR-0148): a missing input (`data/dump`, `.parity`, the PoB checkout) skips with a
+//! message (fails under `POB_ORACLE_REQUIRE=1` / `CI`). Once the inputs are there, a build whose
+//! probe fails or dumps no `2612`/`3165` pair fails both tests (all57 too), and so does a run
+//! with no hit compared; the report gives the number of hits compared.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -51,7 +56,21 @@ fn flag(name: &str) -> bool {
 }
 
 fn required() -> bool {
-    flag("POB_ORACLE_REQUIRE") || flag("CI")
+    testkit::oracle_required()
+}
+
+/// The inputs a run needs (`data/dump`, and what probing needs: `testkit::probe_inputs`);
+/// `false` after skipping (module docs).
+fn inputs() -> bool {
+    if !testkit::init_default_data() {
+        skip("no data dump (data/dump)");
+        return false;
+    }
+    if let Err(why) = testkit::probe_inputs() {
+        skip(&why);
+        return false;
+    }
+    true
 }
 
 fn skip(why: &str) {
@@ -245,6 +264,8 @@ struct Tally {
     pending: Vec<String>,
     pending_sites: BTreeMap<&'static str, usize>,
     missing: Vec<String>,
+    /// CK3: `<stem>: <error>` of builds whose probe failed.
+    probe_failed: Vec<String>,
 }
 
 impl Tally {
@@ -252,15 +273,22 @@ impl Tally {
         let verbose = flag("DFF_VERBOSE");
         let judged = self.pass + self.fail.len() + self.errors.len();
         eprintln!(
-            "{what}: {} hits; judged {judged}: {} pass ({} pre-existing cross-run mismatches excused), {} mismatch, {} error; {} pending (unported callees); {} builds without a paired dump",
+            "{what}: {} hits compared; judged {judged}: {} pass ({} pre-existing cross-run mismatches excused), {} mismatch, {} error; {} pending (unported callees); {} builds without a paired dump, {} probes failed",
             self.hits,
             self.pass,
             self.excused,
             self.fail.len(),
             self.errors.len(),
             self.pending.len(),
-            self.missing.len()
+            self.missing.len(),
+            self.probe_failed.len()
         );
+        for f in &self.probe_failed {
+            eprintln!("  PROBE FAILED {f}");
+        }
+        for m in &self.missing {
+            eprintln!("  NO PAIRED DUMP {m}");
+        }
         for (site, n) in &self.pending_sites {
             eprintln!("  pending on {site}: {n} hits");
         }
@@ -277,9 +305,6 @@ impl Tally {
         if verbose {
             for p in &self.pending {
                 eprintln!("  pending {p}");
-            }
-            for m in &self.missing {
-                eprintln!("  missing {m}");
             }
         }
     }
@@ -300,7 +325,7 @@ fn run_corpus(builds: &[PathBuf]) -> Tally {
         ) {
             Ok(d) => d,
             Err(e) => {
-                t.missing.push(format!("{stem} (probe failed: {e})"));
+                t.probe_failed.push(format!("{stem}: {e}"));
                 continue;
             }
         };
@@ -350,6 +375,20 @@ fn run_corpus(builds: &[PathBuf]) -> Tally {
 /// The gate on a tally: pending hits fail only in strict mode; the judged
 /// hits must pass at `min_rate`.
 fn gate(t: &Tally, what: &str, min_rate: f64) {
+    // CK3 (CCR-0148): with the inputs there (checked before the run), a failed or empty probe
+    // and a run that compared nothing fail; they are not a missing input
+    assert!(
+        t.probe_failed.is_empty(),
+        "{what}: {} builds' probes failed (first: {:?})",
+        t.probe_failed.len(),
+        t.probe_failed.first()
+    );
+    assert!(
+        t.missing.is_empty(),
+        "{what}: builds without a paired dump: {:?}",
+        t.missing
+    );
+    assert!(t.hits > 0, "{what}: no hit compared");
     let strict = flag("DFF_STRICT") || required();
     assert!(
         !strict || t.pending.is_empty(),
@@ -357,6 +396,10 @@ fn gate(t: &Tally, what: &str, min_rate: f64) {
         t.pending.len()
     );
     let judged = t.pass + t.fail.len() + t.errors.len();
+    assert!(
+        judged > 0 || !t.pending.is_empty(),
+        "{what}: no hit judged"
+    );
     if judged > 0 {
         let rate = t.pass as f64 / judged as f64;
         assert!(
@@ -371,17 +414,18 @@ fn gate(t: &Tally, what: &str, min_rate: f64) {
 
 #[test]
 fn dff_l4_all57() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if !inputs() {
+        return;
     }
     let Some(parity) = find_parity_dir() else {
         return skip("no .parity directory");
     };
-    let t = run_corpus(&corpus(&parity));
-    t.report("DF-F L4 all57");
-    if t.hits == 0 {
-        return skip("no paired buildDefenceEstimations:2612/3165 dumps");
+    let builds = corpus(&parity);
+    if builds.is_empty() {
+        return skip("no .parity/builds/*.xml (or none selected by DFF_BUILDS / DFF_LIMIT)");
     }
+    let t = run_corpus(&builds);
+    t.report("DF-F L4 all57");
     gate(&t, "DF-F L4 all57", 0.98);
 }
 
@@ -390,8 +434,8 @@ fn dff_l4_all57() {
 /// on block). Gate: 100 %.
 #[test]
 fn dff_l4_unit() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if !inputs() {
+        return;
     }
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/DF-F");
     let mut builds: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -407,15 +451,12 @@ fn dff_l4_unit() {
         let want: Vec<&str> = list.split(',').map(str::trim).collect();
         builds.retain(|p| want.contains(&stem(p)));
     }
+    if builds.is_empty() && std::env::var_os("DFF_BUILDS").is_some() {
+        eprintln!("DF-F L4 unit: no corpus/DF-F build selected by DFF_BUILDS");
+        return;
+    }
+    assert!(!builds.is_empty(), "corpus/DF-F has no builds (run derive.py)");
     let t = run_corpus(&builds);
     t.report("DF-F L4 unit");
-    if t.hits == 0 {
-        return skip("no paired dumps for corpus/DF-F (see the missing list)");
-    }
-    assert!(
-        t.missing.is_empty(),
-        "DF-F L4 unit: builds without paired dumps: {:?}",
-        t.missing
-    );
     gate(&t, "DF-F L4 unit", 1.0);
 }

@@ -35,8 +35,12 @@
 //! build's bytes, the selection and the probe code; probed here when absent)
 //! (`perform:1691` / `perform:1862` seed the `mergeFlasks` / `mergeTinctures` closures' upvalues,
 //! `testkit::seed_merge_closures`, CCR-0079 §1; without them the segment raises at L3121).
-//! Knobs: `PFF_BUILDS=stem1,stem2`, `PFF_VERBOSE=1` (print mismatches). A missing input skips
-//! with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! Knobs: `PFF_BUILDS=stem1,stem2`, `PFF_VERBOSE=1` (print mismatches). A missing input
+//! (`data/dump`, `.parity`, the PoB checkout) skips with a message; with `POB_ORACLE_REQUIRE=1`
+//! (or `CI`) it fails instead. CK3 (CCR-0148): once the inputs are there, a build whose probe
+//! fails (`probe-failed`) or lacks one of the five segment dumps of one perform run (`missing`)
+//! fails the test, and so does a run that compared no build; the summary gives the number of
+//! builds compared.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -50,9 +54,7 @@ use pob_oracle::testkit;
 use serde_json::Value as J;
 
 fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
+    assert!(!testkit::oracle_required(), "required input missing: {why}");
     eprintln!("SKIPPED: {why}");
 }
 
@@ -100,6 +102,8 @@ enum Verdict {
     Blocked,
     Fail,
     Missing,
+    /// CK3: the build's probe failed.
+    ProbeFailed,
 }
 
 struct Outcome {
@@ -137,8 +141,14 @@ fn run_build(xml: &Path) -> Outcome {
     let dirs: Vec<PathBuf> = match &held {
         Ok(d) => d.dirs().to_vec(),
         Err(e) => {
-            eprintln!("{stem}: probe failed: {e}");
-            Vec::new()
+            return Outcome {
+                verdict: Verdict::ProbeFailed,
+                mismatches: Vec::new(),
+                known: Vec::new(),
+                blockers: Vec::new(),
+                replayed: Vec::new(),
+                note: format!("probe failed: {e}"),
+            };
         }
     };
     let hits = [
@@ -340,6 +350,9 @@ fn pff_l4_perform_2997_3497() {
     if !testkit::init_default_data() {
         return skip("no data dump (data/dump)");
     }
+    if let Err(why) = testkit::probe_inputs() {
+        return skip(&why);
+    }
     let Some(parity) = find_parity_dir() else {
         return skip("no .parity directory");
     };
@@ -351,6 +364,7 @@ fn pff_l4_perform_2997_3497() {
     let mut counts: BTreeMap<Verdict, usize> = BTreeMap::new();
     let mut blockers: BTreeMap<String, usize> = BTreeMap::new();
     let mut fails = Vec::new();
+    let mut unprobed = Vec::new();
     let mut total_mm = 0usize;
     let mut order_only = 0usize;
     for xml in &builds {
@@ -393,22 +407,30 @@ fn pff_l4_perform_2997_3497() {
         if o.verdict == Verdict::Fail {
             fails.push(stem(xml).to_owned());
         }
+        if matches!(o.verdict, Verdict::Missing | Verdict::ProbeFailed) {
+            unprobed.push(format!("{} ({:?}: {})", stem(xml), o.verdict, o.note));
+        }
     }
     eprintln!(
-        "PF-F L4 2997->3497: {} builds: pass={} blocked={} fail={} missing={} (mismatches {}, LUA-ORDER-only builds {})",
+        "PF-F L4 2997->3497: {} builds, {ran} compared: pass={} blocked={} fail={} missing={} probe-failed={} (mismatches {}, LUA-ORDER-only builds {})",
         builds.len(),
         counts.get(&Verdict::Pass).copied().unwrap_or(0),
         counts.get(&Verdict::Blocked).copied().unwrap_or(0),
         counts.get(&Verdict::Fail).copied().unwrap_or(0),
         counts.get(&Verdict::Missing).copied().unwrap_or(0),
+        counts.get(&Verdict::ProbeFailed).copied().unwrap_or(0),
         total_mm,
-        order_only
+        order_only,
+        ran = builds.len() - unprobed.len(),
     );
     eprintln!("blocking stubs (builds): {blockers:?}");
-    let ran = builds.len() - counts.get(&Verdict::Missing).copied().unwrap_or(0);
-    if ran == 0 {
-        return skip("no perform:2997/3497 dumps (see the module doc for the oracle.sh command)");
-    }
+    // CK3 (CCR-0148): with the inputs there (checked above), a failed or empty probe fails
+    assert!(
+        unprobed.is_empty(),
+        "PF-F L4: {} builds without their segment dumps: {unprobed:?}",
+        unprobed.len()
+    );
+    assert!(builds.len() > unprobed.len(), "PF-F L4: no build compared");
     assert!(fails.is_empty(), "PF-F L4 failures: {fails:?}");
     assert!(
         counts.get(&Verdict::Pass).copied().unwrap_or(0) > 0,

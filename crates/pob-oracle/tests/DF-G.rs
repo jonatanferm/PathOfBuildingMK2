@@ -29,8 +29,12 @@
 //! `buildDefenceEstimations:3165@main,buildDefenceEstimations:end@main` under
 //! `docs/port/stages.toml`, from the shared probe cache (`testkit::probe_dumps`, CK2: keyed by the
 //! patched source, the build's bytes, the selection and the probe code; probed here when absent;
-//! the three tests share the entry). Missing dumps are printed and skip; with
-//! `POB_ORACLE_REQUIRE=1` (or `CI`) a missing input fails.
+//! the three tests share the entry; under `POB_QUERY_CACHE=refresh` the first re-probes it and
+//! the others read that run, `testkit::probe_selection`, once per process). A missing input
+//! (`data/dump`, `.parity`, the PoB checkout) skips with a message; with `POB_ORACLE_REQUIRE=1`
+//! (or `CI`) it fails. CK3 (CCR-0148): once the inputs are there, a build whose probe fails or
+//! lacks the `:3165` / `:end` pair fails the test, and so does a run that compared no build;
+//! the summary gives the number of builds compared.
 #![allow(non_snake_case)]
 
 use std::collections::BTreeSet;
@@ -53,8 +57,7 @@ const HELPER_SITES: [&str; 3] = [
 ];
 
 fn required() -> bool {
-    std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0")
+    testkit::oracle_required()
 }
 
 fn skip(why: &str) {
@@ -206,6 +209,7 @@ enum Outcome {
     Fail(Vec<String>),
     /// The run hit a DF-A helper stub.
     Blocked(Vec<String>),
+    /// No `:3165` / `:end` pair in the build's probe run, or the probe failed (CK3: a failure).
     Missing(String),
 }
 
@@ -317,14 +321,14 @@ fn run_all(builds: &[PathBuf], no_breakdown: bool, title: &str) -> Tally {
             Outcome::Fail(l) => t.fail.push((s, l)),
             Outcome::Blocked(l) => t.blocked.push((s, l)),
             Outcome::Missing(m) => {
-                eprintln!("{m}");
-                t.missing.push(s);
+                eprintln!("  MISSING {m}");
+                t.missing.push(m);
             }
         }
     }
     let ran = t.pass.len() + t.fail.len() + t.blocked.len();
     eprintln!(
-        "DF-G {title}: {} builds, {ran} ran: {} pass, {} fail, {} blocked (DF-A helper stubs), {} missing dumps",
+        "DF-G {title}: {} builds, {ran} compared: {} pass, {} fail, {} blocked (DF-A helper stubs), {} missing dumps or failed probes",
         builds.len(),
         t.pass.len(),
         t.fail.len(),
@@ -342,6 +346,15 @@ fn run_all(builds: &[PathBuf], no_breakdown: bool, title: &str) -> Tally {
     };
     show("FAIL", &t.fail);
     show("BLOCKED", &t.blocked);
+    // CK3 (CCR-0148): with the inputs there (`ready`), a failed or empty probe and a run that
+    // compared nothing fail; they are not a missing input
+    assert!(
+        t.missing.is_empty(),
+        "DF-G {title}: {} builds without their dumps: {:?}",
+        t.missing.len(),
+        t.missing
+    );
+    assert!(ran > 0, "DF-G {title}: no build compared");
     t
 }
 
@@ -370,6 +383,10 @@ fn ready() -> bool {
         skip("no .parity directory");
         return false;
     }
+    if let Err(why) = testkit::probe_inputs() {
+        skip(&why);
+        return false;
+    }
     true
 }
 
@@ -380,10 +397,11 @@ fn dfg_l4_slice5() {
         return;
     }
     let builds = curated();
-    let t = run_all(&builds, false, "L4 slice5+unit");
-    if t.pass.len() + t.fail.len() + t.blocked.len() == 0 {
-        return skip("no dumps for slice5 (see the missing lines above)");
+    if builds.is_empty() && std::env::var_os("DFG_BUILDS").is_some() {
+        eprintln!("DF-G L4 slice5+unit: no curated build selected by DFG_BUILDS");
+        return;
     }
+    let t = run_all(&builds, false, "L4 slice5+unit");
     assert!(t.fail.is_empty(), "{} curated builds fail L4", t.fail.len());
     assert!(
         t.blocked.is_empty() || !require_helpers(),
@@ -399,11 +417,10 @@ fn dfg_l4_all57() {
         return;
     }
     let builds = all57();
-    let t = run_all(&builds, false, "L4 all57");
-    let ran = t.pass.len() + t.fail.len() + t.blocked.len();
-    if ran == 0 {
-        return skip("no dumps for all57 (see the missing lines above)");
+    if builds.is_empty() {
+        return skip("no .parity/builds/*.xml (or none selected by DFG_BUILDS)");
     }
+    let t = run_all(&builds, false, "L4 all57");
     let judged = t.pass.len() + t.fail.len();
     if judged > 0 {
         let rate = t.pass.len() as f64 / judged as f64;
@@ -424,10 +441,11 @@ fn dfg_l4_no_breakdown_all() {
     }
     let mut builds = curated();
     builds.extend(all57());
-    let t = run_all(&builds, true, "no-breakdown all");
-    if t.pass.len() + t.fail.len() + t.blocked.len() == 0 {
-        return skip("no dumps (see the missing lines above)");
+    if builds.is_empty() && std::env::var_os("DFG_BUILDS").is_some() {
+        eprintln!("DF-G no-breakdown all: no build selected by DFG_BUILDS");
+        return;
     }
+    let t = run_all(&builds, true, "no-breakdown all");
     assert!(
         t.fail.is_empty(),
         "{} builds fail the no-breakdown diff",

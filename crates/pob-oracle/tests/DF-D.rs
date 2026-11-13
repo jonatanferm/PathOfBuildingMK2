@@ -25,8 +25,10 @@
 //! patched source, the build's bytes, the selection and the probe code; probed here when absent;
 //! this replaced the hand-filled, never invalidated `target/tmp/dfd-probe/<stem>/state/`), so the
 //! `:in` and `:out` of a hit come from the same PoB process (CCR-0067 §3). Knobs: `DFD_BUILDS=stem1,stem2`, `DFD_VERBOSE=1` (print
-//! every mismatch). A corpus without dumps skips with a message; with
-//! `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! every mismatch). A missing input (`data/dump`, `.parity`, the PoB checkout) skips with a
+//! message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead. CK3 (CCR-0148): once the
+//! inputs are there, a build whose probe fails or dumps no hit pair fails the test, and so does
+//! a corpus with no hit compared; the report gives the number of hits compared.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -43,10 +45,22 @@ const STAGE_OUT: &str = "buildDefenceEstimations:2153";
 static SERIAL: Mutex<()> = Mutex::new(());
 
 fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
+    assert!(!testkit::oracle_required(), "required input missing: {why}");
     eprintln!("SKIPPED: {why}");
+}
+
+/// The inputs a run needs (`data/dump`, and what probing needs: `testkit::probe_inputs`);
+/// `false` after skipping (a missing input, module docs).
+fn inputs() -> bool {
+    if !testkit::init_default_data() {
+        skip("no data dump (data/dump)");
+        return false;
+    }
+    if let Err(why) = testkit::probe_inputs() {
+        skip(&why);
+        return false;
+    }
+    true
 }
 
 fn stem(p: &Path) -> &str {
@@ -74,6 +88,8 @@ fn xmls(dir: &Path) -> Vec<PathBuf> {
 struct Tally {
     builds_with_dumps: usize,
     builds_without: Vec<String>,
+    /// CK3: `<stem>: <error>` of builds whose probe failed.
+    probe_failed: Vec<String>,
     hits: usize,
     clean: usize,
     failed: Vec<(String, Vec<String>)>,
@@ -88,9 +104,10 @@ impl Tally {
     fn report(&self, name: &str) {
         let verbose = std::env::var_os("DFD_VERBOSE").is_some();
         eprintln!(
-            "DF-D L4 {name}: builds with dumps {} (without {}), hits {}, judged {}, clean {}, failed {}, blocked by other units' stubs {}",
+            "DF-D L4 {name}: builds with dumps {} (without {}, probe failed {}), hits compared {}, judged {}, clean {}, failed {}, blocked by other units' stubs {}",
             self.builds_with_dumps,
             self.builds_without.len(),
+            self.probe_failed.len(),
             self.hits,
             self.judged(),
             self.clean,
@@ -99,6 +116,9 @@ impl Tally {
         );
         if !self.builds_without.is_empty() {
             eprintln!("  no dumps: {}", self.builds_without.join(", "));
+        }
+        for f in &self.probe_failed {
+            eprintln!("  PROBE FAILED {f}");
         }
         for (what, mm) in &self.failed {
             eprintln!("  FAIL {what}: {} mismatches", mm.len());
@@ -195,7 +215,7 @@ fn run_corpus(builds: &[PathBuf]) -> Tally {
         let held = match dfd_dumps(xml) {
             Ok(d) => d,
             Err(e) => {
-                t.builds_without.push(format!("{st} (probe failed: {e})"));
+                t.probe_failed.push(format!("{st}: {e}"));
                 continue;
             }
         };
@@ -237,11 +257,20 @@ fn run_corpus(builds: &[PathBuf]) -> Tally {
 
 fn gate(t: &Tally, name: &str, min_clean: f64) {
     t.report(name);
-    if t.hits == 0 {
-        return skip(&format!(
-            "{name}: no {STAGE_IN}/{STAGE_OUT} dumps (see the builds without dumps above)"
-        ));
-    }
+    // CK3 (CCR-0148): with the inputs there (checked before the run), a failed or empty probe
+    // and a vacuous corpus fail; they are not a missing input
+    assert!(
+        t.probe_failed.is_empty(),
+        "{name}: {} builds' probes failed (first: {:?})",
+        t.probe_failed.len(),
+        t.probe_failed.first()
+    );
+    assert!(
+        t.builds_without.is_empty(),
+        "{name}: the probe dumped no {STAGE_IN}/{STAGE_OUT} pair for {:?}",
+        t.builds_without
+    );
+    assert!(t.hits > 0, "{name}: no hit compared");
     // the only stub this segment reaches (DF-A's `calcs.armourReduction`) is ported: a hit
     // that reaches any `unported!` site now is a regression, not a pending dependency
     assert!(
@@ -266,8 +295,8 @@ fn dfd_l4_all57() {
     let _g = SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if !inputs() {
+        return;
     }
     let Some(parity) = find_parity_dir() else {
         return skip("no .parity directory");
@@ -285,8 +314,8 @@ fn dfd_l4_unit_corpus() {
     let _g = SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if !inputs() {
+        return;
     }
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/DF-D");
     let builds = xmls(&dir);
@@ -303,10 +332,16 @@ fn dfd_l4_slice5() {
     let _g = SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if !inputs() {
+        return;
     }
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/U0/slice5");
-    let t = run_corpus(&xmls(&dir));
+    let builds = xmls(&dir);
+    if builds.is_empty() && std::env::var_os("DFD_BUILDS").is_some() {
+        eprintln!("DF-D L4 slice5: no slice5 build selected by DFD_BUILDS");
+        return;
+    }
+    assert!(!builds.is_empty(), "corpus/U0/slice5 has no builds");
+    let t = run_corpus(&builds);
     gate(&t, "slice5", 1.0);
 }
