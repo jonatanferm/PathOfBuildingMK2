@@ -290,7 +290,7 @@ fn rust_stubs() {
     // U38 stand-in (module notes)
     slot_helper::set_items_hooks(|h| {
         *h = slot_helper::default_items_hooks();
-        h.add_item_tooltip = Rc::new(|cx, tt, item, slot, db_mode| {
+        h.add_item_tooltip = Rc::new(|cx, _build, tt, item, slot, db_mode| {
             tt.add_line(cx, 16.0, &format!("^7{}", item.name.get()));
             let slot_name = slot
                 .and_then(|s| s.str(pob_lua::n!("slotName")))

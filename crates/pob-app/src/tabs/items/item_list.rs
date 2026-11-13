@@ -840,7 +840,8 @@ impl ItemListControl {
                 it.unwrap_or_else(|| lua_error!("attempt to index local 'item' (a nil value)"));
             // L275
             let f = items_hooks().add_item_tooltip;
-            f(cx, tooltip, &it, None, false);
+            let b = cx.build().model.clone();
+            f(cx, &b, tooltip, &it, None, false);
         }
     }
 

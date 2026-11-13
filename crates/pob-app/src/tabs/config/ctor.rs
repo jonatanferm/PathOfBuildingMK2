@@ -33,6 +33,18 @@
 //!   the default `UpdateControls` hook. U42's Draw should run it first (a BuildModList run
 //!   elsewhere, e.g. SyncLoadouts or Init, changes the tables without the controls).
 //!
+//! # Another build's ConfigTab (FUP6, CCR-0137 §2)
+//!
+//! [`ConfigTab::new_for`] constructs the tab for a build other than the open one (a comparison
+//! entry's, CompareEntry.lua:112). The code here reads `self.build` as `cx.build()`; the
+//! [`ForBuild`] caller runs the constructor and every option `tooltipFunc` with that build
+//! swapped in (`compare::entry::with_entry_as_build`), and `self.build:AddStatComparesToTooltip`
+//! is the build's own ([`ForBuild::add_stat_compares`]). The tab's other closures (callbacks,
+//! `shown`, labels, borders) are not reached: CompareTab never draws its controls and copies
+//! only `tooltipText`/`tooltipFunc` (CompareTab.lua:1170-1173). A copied `tooltipText` drawn
+//! without a `tooltipFunc` (the one `hideIfInvalid` option) is evaluated with the open build:
+//! its text is static unless `launch.devModeAlt` (DIVERGENCE(other-build-tooltip-text)).
+//!
 //! # Seams to U42 (CCR-0110 §1)
 //!
 //! `self:UpdateControls()`, `self:AddUndoState()`, `self:OpenConfigSetManagePopup()`,
@@ -143,6 +155,22 @@ pub struct State {
     pub custom_section: Option<CtrlId>,
     /// `self.customModsBlockControls` (L827, UpdateCustomModsControls)
     pub custom_mods_block_controls: Option<Vec<CtrlId>>,
+    /// `self.build` when it is not the open build ([`ConfigTab::new_for`]); `None`: the open
+    /// build (`cx.build()`)
+    pub for_build: Option<ForBuild>,
+}
+
+/// The build a ConfigTab is constructed for when it is not the open build (a comparison entry's
+/// ConfigTab, CompareEntry.lua:112; FUP6, CCR-0137 §2). The constructor runs inside `run`, and
+/// so do the option controls' `tooltipFunc`s (the only closures of such a tab that run: its
+/// controls are not drawn; CompareTab copies their tooltips, CompareTab.lua:1170-1173).
+#[derive(Clone)]
+pub struct ForBuild {
+    /// run the closure with `self.build` as `cx.build()` (its model, calc facade and
+    /// `self.calcFunc`/`self.calcBase` home swapped in)
+    pub run: Rc<dyn Fn(&mut Cx, &mut dyn FnMut(&mut Cx))>,
+    /// `self.build:AddStatComparesToTooltip(tooltip, baseOutput, compareOutput, header)`
+    pub add_stat_compares: Rc<dyn Fn(&mut Cx, &mut Tooltip, &Output, &Output, &str) -> f64>,
 }
 
 /// The fields of a section control (L262-265).
@@ -997,6 +1025,26 @@ impl ConfigTab {
         .init(|cx, me| ConfigTab::ctor_init(cx, me.id()))
     }
 
+    /// lua: ConfigTab.lua:133-832 ConfigTab(build) for a build other than the open one
+    /// (`for_build`, see [`ForBuild`]): [`ConfigTab::new`] with `self.build` set. The caller
+    /// constructs it inside `for_build.run`; the option tooltips run inside it.
+    pub fn new_for(build: CtrlId, for_build: ForBuild) -> New<ConfigTab> {
+        New::new(
+            Base::new(Anchor::NONE, rect(0, 0, 0, 0)),
+            ConfigTab {
+                ctor: State {
+                    // L138
+                    build,
+                    for_build: Some(for_build),
+                    ..State::default()
+                },
+                core: Default::default(),
+            },
+        )
+        .host()
+        .init(|cx, me| ConfigTab::ctor_init(cx, me.id()))
+    }
+
     /// The `ConfigTab` widget state of `me`.
     fn st(cx: &Cx, me: CtrlId) -> &State {
         &cx.w::<ConfigTab>(me).ctor
@@ -1801,6 +1849,7 @@ impl ConfigTab {
             let f = f.clone();
             Self::set_tooltip_func(
                 cx,
+                me,
                 control,
                 class,
                 Rc::new(move |cx, tooltip, args| call_option_tooltip_func(cx, &f, tooltip, &args)),
@@ -1958,6 +2007,7 @@ impl ConfigTab {
             let inner_shown = inner_shown.clone();
             Self::set_tooltip_func(
                 cx,
+                me,
                 control,
                 class,
                 Rc::new(move |cx, tooltip, args| {
@@ -2158,13 +2208,25 @@ impl ConfigTab {
     }
 
     /// `control.tooltipFunc = f` on the control's TooltipHost, with the arguments its class
-    /// passes.
+    /// passes (for a [`ForBuild`] tab, `f` runs inside its `run`).
     fn set_tooltip_func(
         cx: &mut Cx,
+        me: CtrlId,
         control: CtrlId,
         class: VarClass,
         f: Rc<dyn Fn(&mut Cx, &mut Tooltip, TipArgs)>,
     ) {
+        let f: Rc<dyn Fn(&mut Cx, &mut Tooltip, TipArgs)> = match Self::st(cx, me).for_build.clone() {
+            Some(fb) => Rc::new(move |cx: &mut Cx, tt: &mut Tooltip, args: TipArgs| {
+                let mut args = Some(args);
+                (fb.run)(cx, &mut |cx| {
+                    if let Some(args) = args.take() {
+                        f(cx, tt, args);
+                    }
+                });
+            }),
+            None => f,
+        };
         match class {
             VarClass::CheckBox => {
                 cx.w_mut::<CheckBoxControl>(control).tt.tooltip_func = Some(Rc::new(
@@ -2227,7 +2289,6 @@ impl ConfigTab {
         tooltip: &mut Tooltip,
         args: &TipArgs,
     ) {
-        let _ = me;
         let var = var_data.var;
         let ty = var_data.r#type.map(|t| t.as_str());
         // L735
@@ -2349,14 +2410,18 @@ impl ConfigTab {
                     let cached = output_cache.borrow().get(&key).cloned();
                     let base = cx.build().calc_base.clone();
                     if let (Some(base), Some(out)) = (base, cached) {
-                        crate::build::stats::add_stat_compares_to_tooltip(
-                            cx,
-                            tooltip,
-                            &base,
-                            &out,
-                            &format!("{prefix} option will give you:"),
-                            None,
-                        );
+                        let header = format!("{prefix} option will give you:");
+                        match Self::st(cx, me).for_build.clone() {
+                            // `self.build` another build's (CompareEntry.lua:427-442)
+                            Some(fb) => {
+                                (fb.add_stat_compares)(cx, tooltip, &base, &out, &header);
+                            }
+                            None => {
+                                crate::build::stats::add_stat_compares_to_tooltip(
+                                    cx, tooltip, &base, &out, &header, None,
+                                );
+                            }
+                        }
                     }
                     // clear tooltip if it only has our separator
                     // L792

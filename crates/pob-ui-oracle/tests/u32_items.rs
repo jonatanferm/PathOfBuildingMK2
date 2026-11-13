@@ -710,7 +710,7 @@ fn rust_stubs() {
             let me = tab(cx);
             cx.w_mut::<U32ItemsTab>(me).mod_flag = v;
         });
-        h.add_item_tooltip = Rc::new(|cx, tooltip, item, slot, db| {
+        h.add_item_tooltip = Rc::new(|cx, _build, tooltip, item, slot, db| {
             let l1 = item_label(cx, item);
             tooltip.add_line(cx, 16.0, &l1);
             let slot_name = slot

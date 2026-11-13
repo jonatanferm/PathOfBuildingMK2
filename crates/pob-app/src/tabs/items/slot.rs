@@ -322,7 +322,8 @@ impl ItemSlotControl {
                             ) {
                                 // L64
                                 let f = items_hooks().add_item_tooltip;
-                                f(cx, tooltip, &item, Some(&slot), false);
+                                let b = cx.build().model.clone();
+                                f(cx, &b, tooltip, &item, Some(&slot), false);
                             }
                         }
                         // L62

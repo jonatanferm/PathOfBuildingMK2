@@ -181,7 +181,8 @@ pub(crate) fn calc_rep(
 /// `self:AddItemTooltip(tooltip, item, slot, dbMode)` (U38, through U32's hook table).
 fn add_item_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, item: &model::ItemRef, dbMode: bool) {
     let f = items_hooks().add_item_tooltip;
-    f(cx, tooltip, item, None, dbMode);
+    let b = cx.build().model.clone();
+    f(cx, &b, tooltip, item, None, dbMode);
 }
 
 /// `data.<root>` of an untyped dump root (`Data::other`).

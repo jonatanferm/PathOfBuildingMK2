@@ -1,6 +1,6 @@
 # CCR-0143: U49 CompareTab D seams (TradeHelpers copies, drawing another build's tree, the cursor patch, the entry's item tooltips, the hook install)
 
-**Status: applied (CCRDOC, 2026-11-12; code `2de5161` Merge port/U49): §1 (the TradeHelpers copies; U51 is deferred), §2 `with_entry_as_build`, §3 `with_cursor_origin`, §5 and §6; §7 Buy raises until U51; §8 was fixed by U53 (CCR-0145 §5). Not built: §2 `PassiveTreeView::draw_for`, §3 `Sys::set_cursor_offset` and §4 (the comparison build's item tooltip uses the open build's ItemsTab; FOLLOWUPS "CCRDOC" 4).**
+**Status: applied (CCRDOC, 2026-11-12; code `2de5161` Merge port/U49): §1 (the TradeHelpers copies; U51 is deferred), §2 `with_entry_as_build`, §3 `with_cursor_origin`, §5 and §6; §7 Buy raises until U51; §8 was fixed by U53 (CCR-0145 §5). Not built: §2 `PassiveTreeView::draw_for`, §3 `Sys::set_cursor_offset` and §4 (the comparison build's item tooltip uses the open build's ItemsTab; FOLLOWUPS "CCRDOC" 4). §4 built by FUP6 (2026-11-13): `AddItemTooltip` with `ItemsTabSelf::Entry`; `with_entry_as_build` moved to `compare/entry.rs` (it also swaps the ConfigTab's `calc_func`/`calc_base`).**
 
 Unit: **U49** (`Classes/CompareTab.lua:3162-4048`: DrawSummary, DrawStatList, DrawTree,
 DrawItemExpanded, ShouldShowRing3, AddAbyssSockets, DrawItems; file

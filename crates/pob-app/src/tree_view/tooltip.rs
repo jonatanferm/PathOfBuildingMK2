@@ -12,10 +12,10 @@
 //! Calls into other units:
 //! * `build.itemsTab:AddItemTooltip(tooltip, item, slot)` (U38) and the compare spec's
 //!   `self.compareSpec.build.itemsTab:AddItemTooltip` go through U32's
-//!   `ItemsTabHooks::add_item_tooltip`, which takes no build: the hook is the open build's
-//!   ItemsTab. TreeTab's compare spec (TreeTab.lua:451) is a spec of the open build, so this is
-//!   PoB's call; CompareTab's (CompareTab.lua:3421, U46) is another build's, and that build's
-//!   ItemsTab has to be reached through the hook (CCR-0122 §2).
+//!   `ItemsTabHooks::add_item_tooltip` with the model build meant: `build` (the drawn build,
+//!   `cx.build().model`) or `compareSpec.build` (the spec's `Weak` build). TreeTab's compare spec
+//!   (TreeTab.lua:451) is a spec of the open build; CompareTab's (CompareTab.lua:3421, U46) is a
+//!   comparison entry's, whose ItemsTab the hook selects (FUP6, CCR-0122 §2).
 //! * `socket:IsEnabled()` (L1517): the socket is the ItemSlotControl whose model table
 //!   `GetSocketAndJewelForNodeID` returns (calc:BM-A); its `enabled` (ItemSlotControl.lua:31-33,
 //!   U32) is `#self.items > 1` over that table's `items`.
@@ -173,9 +173,14 @@ impl PassiveTreeView {
                     // L1490
                     tooltip.add_line(cx, 14.0, &format!("{}Compared build:", cx.main.cc.DEXTERITY));
                 }
-                // L1492 (CCR-0122 §2: the hook is the open build's ItemsTab)
+                // L1492 (`self.compareSpec.build`: the compare spec's own build, FUP6)
+                let c_build = view
+                    .compare_spec
+                    .as_ref()
+                    .and_then(|cs| cs.build.upgrade())
+                    .unwrap_or_else(|| lua_error!("attempt to index field 'build' (a nil value)"));
                 let h = items_hooks().add_item_tooltip;
-                h(cx, tooltip, &c_jewel, socket, false);
+                h(cx, &c_build, tooltip, &c_jewel, socket, false);
                 // L1493
                 true
             };
@@ -196,7 +201,7 @@ impl PassiveTreeView {
             if let Some(jewel) = &jewel {
                 // L1501
                 let h = items_hooks().add_item_tooltip;
-                h(cx, tooltip, jewel, socket.as_ref(), false);
+                h(cx, &build, tooltip, jewel, socket.as_ref(), false);
                 // L1502
                 if !compare_jewels_equal(Some(jewel), c_jewel.as_ref()) {
                     // L1503
@@ -848,13 +853,13 @@ impl PassiveTreeView {
             let Some(compare_spec) = self.compare_spec.as_ref() else {
                 lua_error!("attempt to index field 'compareSpec' (a nil value)")
             };
-            let c_items_tab = compare_spec.build.upgrade().is_some();
+            let c_build = compare_spec.build.upgrade();
             // L1782
-            match c_jewel.filter(|_| c_items_tab) {
-                Some(c_jewel) => {
-                    // L1783 (CCR-0122 §2: the hook is the open build's ItemsTab)
+            match c_jewel.zip(c_build) {
+                Some((c_jewel, c_build)) => {
+                    // L1783 (`cItemsTab`: the compare spec's own build's ItemsTab, FUP6)
                     let h = items_hooks().add_item_tooltip;
-                    h(cx, tooltip, &c_jewel, None, false);
+                    h(cx, &c_build, tooltip, &c_jewel, None, false);
                 }
                 None => {
                     // L1785

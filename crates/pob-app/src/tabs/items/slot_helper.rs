@@ -85,10 +85,12 @@ pub struct ItemsTabHooks {
     /// `itemsTab:AddItemSetTooltip(tooltip, itemSet)` (L3982-3991)
     pub add_item_set_tooltip: Rc<dyn Fn(&mut Cx, &mut Tooltip, &model::Table)>,
     // ---- U38 (ItemsTab.lua:3993-5055, the UndoHandler state) ----
-    /// `itemsTab:AddItemTooltip(tooltip, item, slot, dbMode)` (L4214-4662); `slot` is the
-    /// ItemSlotControl's model table
-    pub add_item_tooltip:
-        Rc<dyn Fn(&mut Cx, &mut Tooltip, &model::ItemRef, Option<&model::Table>, bool)>,
+    /// `build.itemsTab:AddItemTooltip(tooltip, item, slot, dbMode)` (L4214-4662): `build` is the
+    /// model build whose ItemsTab is meant (the open build's, or a comparison entry's: FUP6,
+    /// CCR-0122 §2); `slot` is the ItemSlotControl's model table
+    pub add_item_tooltip: Rc<
+        dyn Fn(&mut Cx, &model::BuildRef, &mut Tooltip, &model::ItemRef, Option<&model::Table>, bool),
+    >,
     /// `itemsTab:AddUndoState()` (UndoHandler.lua:31-40 with ItemsTab:CreateUndoState,
     /// L5021-5036)
     pub add_undo_state: ItemsHook,

@@ -206,7 +206,8 @@ impl SharedItemListControl {
         if tooltip.check_for_update(cx, &keys) {
             // L44
             let f = items_hooks().add_item_tooltip;
-            f(cx, tooltip, &item, None, false);
+            let b = cx.build().model.clone();
+            f(cx, &b, tooltip, &item, None, false);
         }
     }
 

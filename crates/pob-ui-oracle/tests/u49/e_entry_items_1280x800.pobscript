@@ -1,0 +1,26 @@
+# U49 e (FUP6): Items view with allflame_exp_048, compact mode, hovering the comparison build's
+# item boxes: `hoverItemsTab:AddItemTooltip` with `compareEntry.itemsTab` (CompareTab.lua:3988),
+# whose "Removing / Equipping this item" blocks are the entry's (its calc and its slots: Weapon 1
+# removed, Weapon 2 replacing the entry's shield; Helmet) and the entry's Large Cluster Jewel in
+# the jewel rows (its stat differences against the entry's sockets: PoB shows no block here).
+#! u49-import allflame_exp_048.xml
+#! u49-expect-text ^7Removing this item from Weapon 1 will give you:
+#! u49-expect-text ^7Removing this item from Helmet will give you:
+#! u49-expect-text (replacing ^xAF6025Perepiteia, Ezomyte Spiked Shield^7)
+screen 1280 800 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 580 138
+click LEFTBUTTON
+frames 3
+move 1000 254
+frames 2
+move 1000 338
+frames 2
+move 1000 684
+frames 2

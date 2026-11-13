@@ -2454,7 +2454,7 @@ arms (CCR-0106 §2). Once the callee is ported, other callers call its `pub fn` 
 | `ImportHooks` (`tabs/import/core.rs`, U43) | U44's ImportTab methods, `compareTab:ImportBuild` | U44, U46 | 0109 §5, 0136 §4 |
 | `TabSeams` (`tabs/import/character.rs`, U44) | the other tabs' UI methods the character import calls | U34, U38, U30, U31 (U53) | 0117 §1, 0145 §5 |
 | `SiteHooks` (`tabs/party.rs`, U45) | `buildSites.websiteList`, `DownloadBuild`, `UrlDecode` | U43's functions | 0114 §2 |
-| `CompareHooks` (`tabs/compare/init.rs`, U46) | CompareEntry's fields and methods, the power report list | U47, U48 (`entry_config_var_control` is always `None`, CCR-0137 §2) | 0136 §1, 0137 §4, 0138 §4 |
+| `CompareHooks` (`tabs/compare/init.rs`, U46) | CompareEntry's fields and methods, the power report list | U47, U48 (`entry_config_var_control`: the entry ConfigTab's controls since FUP6, CCR-0137 §2) | 0136 §1, 0137 §4, 0138 §4 |
 | `CompareDrawHooks` (`tabs/compare/layout.rs`, U47) | `DrawTree`/`DrawSummary`/`DrawItems` (U49), `DrawSkills`/`DrawCalcs`/`DrawConfig` (U50) | U49, U50 | 0137 §3, 0143 §6, 0144 §4 |
 
 Single-entry seams: `stats::set_estimate_player_progress` (U21 → U20's `loadouts::estimate_player_progress`
@@ -2483,11 +2483,14 @@ Rules the units built on:
   `TreeTab:SetActiveSpec`'s window title and class dropdowns (CCR-0098 §6, CCR-0123 §8).
 - **Provenance of split functions.** A UI port of lines whose `@pob` marker is a calc unit's
   carries `/// lua:` notes and no second marker (CCR-0110 §5, CCR-0121 §1, CCR-0129 §1).
-- **Another build's tabs.** A CompareEntry has the model halves only (CCR-0137 §2). Code that
-  must draw or query the comparison build either swaps it in for the call
-  (`compare::draw_a::with_entry_as_build`, CCR-0143 §2) or repeats the UI method on the entry's
-  model (`entry_row_icon`, CCR-0144 §1). Item tooltips and config controls of the comparison build
-  still use the open build (CCR-0122 §2, CCR-0137 §2, CCR-0143 §4; FOLLOWUPS "CCRDOC").
+- **Another build's tabs.** A CompareEntry has the model halves of its tabs, plus a UI ConfigTab
+  (FUP6: U41's `ConfigTab::new_for` with a `ForBuild`, `entry::new_config_tab`). Code that must
+  draw or query the comparison build either swaps it in for the call
+  (`compare::entry::with_entry_as_build`: model, calc facade, `build_name`, the ConfigTab's
+  `calc_func`/`calc_base`; CCR-0143 §2) or repeats the UI method on the entry's model
+  (`entry_row_icon`, CCR-0144 §1). The entry's ItemsTab is `tabs::items::tooltip::ItemsTabSelf::
+  Entry` (its slots the model's slot tables); `ItemsTabHooks::add_item_tooltip` takes the model
+  build it is called for and selects that build's ItemsTab (FUP6; CCR-0122 §2, CCR-0143 §4).
 
 ---
 ## 11. Verification: "looks the same"

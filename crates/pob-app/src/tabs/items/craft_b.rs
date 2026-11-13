@@ -1666,7 +1666,8 @@ pub fn CorruptDisplayItem(cx: &mut Cx, me: CtrlId) {
                     let shown = cx.base(ctl(cx, p, "implicit1")).shown.raw();
                     let item = corruptItem(cx, &l2, p, shown);
                     let f = items_hooks().add_item_tooltip;
-                    f(cx, tooltip, &item, None, false);
+                    let b = cx.build().model.clone();
+                    f(cx, &b, tooltip, &item, None, false);
                 }));
             // L3507
             cx.add(
@@ -2689,7 +2690,8 @@ pub fn AddCustomModifierToDisplayItem(cx: &mut Cx, me: CtrlId) {
                     // L3861
                     let item = custom_add_modifier(cx, &l2, p);
                     let f = items_hooks().add_item_tooltip;
-                    f(cx, tooltip, &item, None, false);
+                    let b = cx.build().model.clone();
+                    f(cx, &b, tooltip, &item, None, false);
                 }));
             // L3863
             cx.add(
@@ -2979,7 +2981,8 @@ pub fn AddCrucibleModifierToDisplayItem(cx: &mut Cx, me: CtrlId) {
                     // L3973
                     let item = crucible_add_modifier(cx, me, p, &ml);
                     let f = items_hooks().add_item_tooltip;
-                    f(cx, tooltip, &item, None, false);
+                    let b = cx.build().model.clone();
+                    f(cx, &b, tooltip, &item, None, false);
                 }));
             // L3975
             cx.add(

@@ -1,0 +1,29 @@
+# U49 g (FUP6): Config view against Sub/allflame_exp_030, hovering the comparison build's config
+# controls: their tooltipText/tooltipFunc are the entry ConfigTab's (CompareTab.lua:1170-1173,
+# 1208; CompareEntry.lua:112): the option help read from the entry build (Low Life: the entry's
+# LowLifePercentage), the stat comparison of toggling it on the entry's calc (the entry ConfigTab's
+# own calcFunc), an option without a tooltip, the bandit list tooltip (the entry's Alira); then the
+# primary build's Low Life control for contrast.
+#! u49-import Sub/allflame_exp_030.xml
+#! u49-expect-text You will automatically be considered to be on Low
+#! u49-expect-text ^8+15% to all Elemental Resistances
+#! u49-expect-text ^7Toggling this option will give you:
+screen 1280 800 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 732 138
+click LEFTBUTTON
+frames 3
+move 730 446
+frames 2
+move 730 424
+frames 2
+move 790 358
+frames 2
+move 565 446
+frames 2

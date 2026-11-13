@@ -638,7 +638,8 @@ pub fn UpdateDisplayItemTooltip(cx: &mut Cx, me: CtrlId) {
             // L2119 (AddItemTooltip indexes its nil item)
             let item =
                 item.unwrap_or_else(|| lua_error!("attempt to index local 'item' (a nil value)"));
-            add(cx, tt, &item, None, false);
+            let b = cx.build().model.clone();
+            add(cx, &b, tt, &item, None, false);
             // L2120
             tt.center = true;
         },

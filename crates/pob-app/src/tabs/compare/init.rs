@@ -349,8 +349,8 @@ pub fn default_compare_hooks() -> CompareHooks {
         entry_set_main_socket_group: Rc::new(entry::entry_set_main_socket_group),
         entry_config_set_active_config_set: Rc::new(entry::entry_config_set_active_config_set),
         entry_config_update_controls: Rc::new(entry::entry_config_update_controls),
-        // CCR-0137 §2: the entry has no ConfigTab controls
-        entry_config_var_control: Rc::new(|_, _, _| None),
+        // FUP6 (CCR-0137 §2): the entry's ConfigTab controls
+        entry_config_var_control: Rc::new(entry::entry_config_var_control),
         entry_set_viewer_search_str: Rc::new(entry::entry_set_viewer_search_str),
         entry_open_version_convert_popup: Rc::new(entry::entry_open_version_convert_popup),
         power_report_list: Rc::new(super::power_list::ctor_hook), // U48 (CCR-0136 §1)

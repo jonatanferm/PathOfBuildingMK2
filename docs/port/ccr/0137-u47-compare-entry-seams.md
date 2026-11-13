@@ -1,6 +1,6 @@
 # CCR-0137: U47 CompareTab B seams (CompareEntry's tab halves, the entry's ConfigTab controls, the Draw* passes, the power list placeholder)
 
-**Status: applied (CCRDOC, 2026-11-12; code `0ab9e51` Merge port/U47): §3 `CompareDrawHooks` (filled by U49/U50) and §4. Not built: §1 (BM-A's three helpers stay private; `entry.rs` repeats them) and §2 (`CompareHooks::entry_config_var_control` is always `None`: the comparison build's config controls have no tooltip; FOLLOWUPS "CCRDOC" 5).**
+**Status: applied (CCRDOC, 2026-11-12; code `0ab9e51` Merge port/U47): §3 `CompareDrawHooks` (filled by U49/U50) and §4. Not built: §1 (BM-A's three helpers stay private; `entry.rs` repeats them) and §2 (`CompareHooks::entry_config_var_control` is always `None`: the comparison build's config controls have no tooltip; FOLLOWUPS "CCRDOC" 5). §2 built by FUP6 (2026-11-13): `ConfigTab::new_for` with a `ForBuild`, one per entry (`entry::new_config_tab`), `entry_config_var_control` answers from it.**
 
 Unit: **U47** (`Classes/CompareTab.lua:1650-2515`, `Classes/CompareEntry.lua` 1-552; files
 `pob-app/src/tabs/compare/{layout.rs,entry.rs}`).

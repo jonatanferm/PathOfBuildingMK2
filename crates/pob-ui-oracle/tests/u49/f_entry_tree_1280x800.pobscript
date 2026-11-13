@@ -1,0 +1,36 @@
+# U49 f (FUP6): Tree view with Sub/allflame_exp_030, hovering allocated jewel sockets. Overlay
+# mode: the primary viewer with compareSpec = the entry's spec, whose jewel section is
+# `self.compareSpec.build.itemsTab:AddItemTooltip` (PassiveTreeView.lua:1492: the entry's
+# ItemsTab, its stat differences the entry's). Side by side: the entry's own viewer drawn with
+# the entry as `build`, `build.itemsTab:AddItemTooltip` (L1501) the entry's ItemsTab.
+#! u49-import Sub/allflame_exp_030.xml
+#! u49-expect-text ^x70FF70Compared build:
+#! u49-expect-text ^xAF6025The Light of Meaning
+screen 1280 800 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 428 138
+click LEFTBUTTON
+frames 3
+move 718 354
+frames 2
+move 887 364
+frames 2
+move 1067 414
+frames 2
+move 1064 578
+frames 2
+move 476 215
+click LEFTBUTTON
+frames 3
+move 1045 264
+frames 2
+move 970 369
+frames 2
+move 1120 378
+frames 2

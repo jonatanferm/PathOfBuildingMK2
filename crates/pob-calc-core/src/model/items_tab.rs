@@ -174,7 +174,8 @@ fn new_ItemSlotControl(slotName: &str, slotLabel: Option<&str>, nodeId: Option<f
 
 /// `slot:IsShown()` (Control.lua:125-127; `anchor.collapse` is set on every item slot, so it
 /// is `slot.shown`): the `shown` closures of ItemsTab.lua 158-208 and ItemSlotControl.lua 33.
-fn slot_IsShown(build: &BuildRef, slot: &Table) -> bool {
+/// `pub` for the UI's slots of another build (CCR-0138 §2; FUP6: a comparison entry's ItemsTab).
+pub fn slot_IsShown(build: &BuildRef, slot: &Table) -> bool {
     let useSecond = || activeItemSet(&build.itemsTab).truthy(n!("useSecondWeaponSet"));
     match slot.str(n!("$shown")).as_deref() {
         // ItemsTab.lua:159-161
