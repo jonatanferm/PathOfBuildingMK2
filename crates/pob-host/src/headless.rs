@@ -116,6 +116,10 @@ pub struct HeadlessState {
     pub restart_requested: Cell<bool>,
     overlay: RefCell<Overlay>,
     net: RefCell<NetState>,
+    /// The script path's index when it is the asset bundle (VENDOR, [`crate::bundle`]; detected
+    /// by [`HeadlessState::new`]).
+    #[cfg(not(target_arch = "wasm32"))]
+    bundle: Option<std::sync::Arc<crate::bundle::Bundle>>,
 }
 
 /// A handle to the shared state.
@@ -135,6 +139,8 @@ impl HeadlessState {
             restart_requested: Cell::new(false),
             overlay: RefCell::new(Overlay::default()),
             net: RefCell::new(NetState::default()),
+            #[cfg(not(target_arch = "wasm32"))]
+            bundle: crate::bundle::Bundle::detect(Path::new(script_path)),
         })
     }
 
@@ -149,7 +155,16 @@ impl HeadlessState {
 
     /// Lexically normalised absolute path (relative paths resolve against the script path,
     /// SG's working directory during Lua calls).
+    /// VENDOR: a logical path of the asset bundle resolves to the bundle file that holds it.
     fn resolve(&self, path: &str) -> PathBuf {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(p) = self
+            .bundle
+            .as_deref()
+            .and_then(|b| crate::fs_native::bundle_file(b, path))
+        {
+            return normalize(&p);
+        }
         let p = Path::new(path);
         let joined = if p.is_absolute() {
             p.to_path_buf()
@@ -157,6 +172,20 @@ impl HeadlessState {
             Path::new(&*self.script_path.borrow()).join(p)
         };
         normalize(&joined)
+    }
+
+    /// VENDOR: a change at or below the asset bundle's root is refused (read-only, as on the
+    /// desktop, [`crate::bundle::read_only`]); else the overlay path of `path`.
+    fn resolve_mut(&self, path: &str) -> std::io::Result<PathBuf> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self
+            .bundle
+            .as_deref()
+            .is_some_and(|b| crate::fs_native::in_read_only_bundle(b, path))
+        {
+            return Err(crate::bundle::read_only(path));
+        }
+        Ok(self.resolve(path))
     }
 
     fn virtual_mtime(&self) -> i64 {
@@ -353,7 +382,7 @@ impl Fs for HeadlessFs {
         Self::read_merged(&self.0.overlay.borrow(), &p)
     }
     fn write(&mut self, path: &str, data: &[u8]) -> std::io::Result<()> {
-        let p = self.0.resolve(path);
+        let p = self.0.resolve_mut(path)?;
         let mtime = self.0.virtual_mtime();
         {
             let mut o = self.0.overlay.borrow_mut();
@@ -372,6 +401,20 @@ impl Fs for HeadlessFs {
         let Some((dir, pattern)) = crate::search_split_spec(spec) else {
             return Vec::new();
         };
+        // VENDOR: a logical directory of the asset bundle lists its index (read-only; disk
+        // modification times are reported as 0, see the module docs)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(mut found) = self
+            .0
+            .bundle
+            .as_deref()
+            .and_then(|b| crate::fs_native::bundle_search(b, dir, pattern, find_dirs))
+        {
+            for e in &mut found {
+                e.modified = 0;
+            }
+            return found;
+        }
         let d = self.0.resolve(dir);
         let o = self.0.overlay.borrow();
         let mut out: Vec<FileEntry> = Self::children(&o, &d)
@@ -390,7 +433,7 @@ impl Fs for HeadlessFs {
         out
     }
     fn make_dir(&mut self, path: &str) -> std::io::Result<()> {
-        let p = self.0.resolve(path);
+        let p = self.0.resolve_mut(path)?;
         let mut o = self.0.overlay.borrow_mut();
         if Self::is_dir(&o, &p) || Self::is_file(&o, &p) {
             return Err(std::io::Error::new(
@@ -405,7 +448,7 @@ impl Fs for HeadlessFs {
         Ok(())
     }
     fn remove_dir(&mut self, path: &str, recursive: bool) -> std::io::Result<()> {
-        let p = self.0.resolve(path);
+        let p = self.0.resolve_mut(path)?;
         let mut o = self.0.overlay.borrow_mut();
         if !Self::is_dir(&o, &p) {
             return Err(not_found(&p));
@@ -417,7 +460,7 @@ impl Fs for HeadlessFs {
         Ok(())
     }
     fn rename(&mut self, from: &str, to: &str) -> std::io::Result<()> {
-        let (src, dst) = (self.0.resolve(from), self.0.resolve(to));
+        let (src, dst) = (self.0.resolve_mut(from)?, self.0.resolve_mut(to)?);
         let mut o = self.0.overlay.borrow_mut();
         if !Self::parent_exists(&o, &dst) {
             return Err(not_found(&dst));
@@ -454,7 +497,7 @@ impl Fs for HeadlessFs {
         Ok(())
     }
     fn remove(&mut self, path: &str) -> std::io::Result<()> {
-        let p = self.0.resolve(path);
+        let p = self.0.resolve_mut(path)?;
         let mut o = self.0.overlay.borrow_mut();
         if !Self::is_file(&o, &p) {
             return Err(not_found(&p));

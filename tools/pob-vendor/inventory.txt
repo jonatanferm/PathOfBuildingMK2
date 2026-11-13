@@ -1,0 +1,949 @@
+# The files of the PoB checkout the shipped apps read (VENDOR), as logical paths: `script<TAB><path>`
+# is relative to PoB's src/ (GetScriptPath), `runtime<TAB><path>` to runtime/SimpleGraphic/; an
+# optional third (tab-separated) column is the source relative to the checkout root when it is not there.
+#
+# Recorded 2026-11-13 from PoB v2.67.2 @16de4b82d: every file the Rust app opened (inotify on a
+# copy of the checkout, plus the AssetSource reads) while running the 15 U53 e2e scenarios, building
+# the images of every tree version (main:LoadTree) and loading every timeless jewel table; plus
+# every file of src/Assets (the code names all of them; Assets/ascendants/*.jpeg by a pattern) and
+# the release-mode changelog.txt/help.txt the About popup reads (at the checkout root in a git
+# checkout). Lua files are not listed: their data is the dump's (gamedata/).
+
+script	Assets/ShadedInnerRing.png
+script	Assets/ShadedInnerRingFlipped.png
+script	Assets/ShadedOuterRing.png
+script	Assets/ShadedOuterRingFlipped.png
+script	Assets/ascendancypassiveheaderleft.png
+script	Assets/ascendancypassiveheadermiddle.png
+script	Assets/ascendancypassiveheaderright.png
+script	Assets/ascendants/ascendant.jpeg
+script	Assets/ascendants/assassin.jpeg
+script	Assets/ascendants/berserker.jpeg
+script	Assets/ascendants/champion.jpeg
+script	Assets/ascendants/chieftain.jpeg
+script	Assets/ascendants/deadeye.jpeg
+script	Assets/ascendants/duelist.jpeg
+script	Assets/ascendants/elementalist.jpeg
+script	Assets/ascendants/gladiator.jpeg
+script	Assets/ascendants/guardian.jpeg
+script	Assets/ascendants/hierophant.jpeg
+script	Assets/ascendants/inquisitor.jpeg
+script	Assets/ascendants/juggernaut.jpeg
+script	Assets/ascendants/marauder.jpeg
+script	Assets/ascendants/necromancer.jpeg
+script	Assets/ascendants/occultist.jpeg
+script	Assets/ascendants/pathfinder.jpeg
+script	Assets/ascendants/raider.jpeg
+script	Assets/ascendants/ranger.jpeg
+script	Assets/ascendants/saboteur.jpeg
+script	Assets/ascendants/scion.jpeg
+script	Assets/ascendants/shadow.jpeg
+script	Assets/ascendants/slayer.jpeg
+script	Assets/ascendants/templar.jpeg
+script	Assets/ascendants/trickster.jpeg
+script	Assets/ascendants/warden.jpeg
+script	Assets/ascendants/witch.jpeg
+script	Assets/breachicon.png
+script	Assets/crusadericon.png
+script	Assets/eatericon.png
+script	Assets/eldericon.png
+script	Assets/exarchicon.png
+script	Assets/experimentedicon.png
+script	Assets/fracturedicon.png
+script	Assets/game_ui_small.png
+script	Assets/huntericon.png
+script	Assets/icon_amulet.png
+script	Assets/icon_belt.png
+script	Assets/icon_body_armour.png
+script	Assets/icon_boots.png
+script	Assets/icon_bow.png
+script	Assets/icon_gloves.png
+script	Assets/icon_helmet.png
+script	Assets/icon_quiver.png
+script	Assets/icon_ring_left.png
+script	Assets/icon_ring_right.png
+script	Assets/icon_shield.png
+script	Assets/icon_shield_swap.png
+script	Assets/icon_weapon.png
+script	Assets/icon_weapon_2.png
+script	Assets/icon_weapon_2_swap.png
+script	Assets/icon_weapon_swap.png
+script	Assets/intangibilitybg.png
+script	Assets/itemsheaderfoilleft.png
+script	Assets/itemsheaderfoilmiddle.png
+script	Assets/itemsheaderfoilright.png
+script	Assets/itemsheadergemleft.png
+script	Assets/itemsheadergemmiddle.png
+script	Assets/itemsheadergemright.png
+script	Assets/itemsheadermagicleft.png
+script	Assets/itemsheadermagicmiddle.png
+script	Assets/itemsheadermagicright.png
+script	Assets/itemsheaderrareleft.png
+script	Assets/itemsheaderraremiddle.png
+script	Assets/itemsheaderrareright.png
+script	Assets/itemsheaderuniqueleft.png
+script	Assets/itemsheaderuniquemiddle.png
+script	Assets/itemsheaderuniqueright.png
+script	Assets/itemsheaderwhiteleft.png
+script	Assets/itemsheaderwhitemiddle.png
+script	Assets/itemsheaderwhiteright.png
+script	Assets/itemsseparatorfoil.png
+script	Assets/itemsseparatorgem.png
+script	Assets/itemsseparatormagic.png
+script	Assets/itemsseparatorrare.png
+script	Assets/itemsseparatorunique.png
+script	Assets/itemsseparatorwhite.png
+script	Assets/jewelpassiveheaderleft.png
+script	Assets/jewelpassiveheadermiddle.png
+script	Assets/jewelpassiveheaderright.png
+script	Assets/keystonepassiveheaderleft.png
+script	Assets/keystonepassiveheadermiddle.png
+script	Assets/keystonepassiveheaderright.png
+script	Assets/masteryheaderallocatedleft.png
+script	Assets/masteryheaderallocatedmiddle.png
+script	Assets/masteryheaderallocatedright.png
+script	Assets/masteryheaderunallocatedleft.png
+script	Assets/masteryheaderunallocatedmiddle.png
+script	Assets/masteryheaderunallocatedright.png
+script	Assets/memorybg.png
+script	Assets/memoryicon.png
+script	Assets/normalpassiveheaderleft.png
+script	Assets/normalpassiveheadermiddle.png
+script	Assets/normalpassiveheaderright.png
+script	Assets/notablepassiveheaderleft.png
+script	Assets/notablepassiveheadermiddle.png
+script	Assets/notablepassiveheaderright.png
+script	Assets/range_guide.png
+script	Assets/redeemericon.png
+script	Assets/ring.png
+script	Assets/shapericon.png
+script	Assets/small_ring.png
+script	Assets/synthesisicon.png
+script	Assets/veiledicon.png
+script	Assets/vestigialicon.png
+script	Assets/warlordicon.png
+script	Data/TimelessJewelData/AbyssAmanamu.zip.part0
+script	Data/TimelessJewelData/AbyssAmanamu.zip.part1
+script	Data/TimelessJewelData/AbyssAmanamu.zip.part2
+script	Data/TimelessJewelData/AbyssAmanamu.zip.part3
+script	Data/TimelessJewelData/AbyssAmanamu.zip.part4
+script	Data/TimelessJewelData/AbyssAmanamu.zip.part5
+script	Data/TimelessJewelData/AbyssKurgal.zip.part0
+script	Data/TimelessJewelData/AbyssKurgal.zip.part1
+script	Data/TimelessJewelData/AbyssKurgal.zip.part2
+script	Data/TimelessJewelData/AbyssKurgal.zip.part3
+script	Data/TimelessJewelData/AbyssKurgal.zip.part4
+script	Data/TimelessJewelData/AbyssKurgal.zip.part5
+script	Data/TimelessJewelData/AbyssTecrod.zip.part0
+script	Data/TimelessJewelData/AbyssTecrod.zip.part1
+script	Data/TimelessJewelData/AbyssTecrod.zip.part2
+script	Data/TimelessJewelData/AbyssTecrod.zip.part3
+script	Data/TimelessJewelData/AbyssTecrod.zip.part4
+script	Data/TimelessJewelData/AbyssTecrod.zip.part5
+script	Data/TimelessJewelData/AbyssUlaman.zip.part0
+script	Data/TimelessJewelData/AbyssUlaman.zip.part1
+script	Data/TimelessJewelData/AbyssUlaman.zip.part2
+script	Data/TimelessJewelData/AbyssUlaman.zip.part3
+script	Data/TimelessJewelData/AbyssUlaman.zip.part4
+script	Data/TimelessJewelData/AbyssUlaman.zip.part5
+script	Data/TimelessJewelData/AbyssZorath.zip.part0
+script	Data/TimelessJewelData/AbyssZorath.zip.part1
+script	Data/TimelessJewelData/AbyssZorath.zip.part2
+script	Data/TimelessJewelData/AbyssZorath.zip.part3
+script	Data/TimelessJewelData/AbyssZorath.zip.part4
+script	Data/TimelessJewelData/AbyssZorath.zip.part5
+script	Data/TimelessJewelData/BrutalRestraint.zip
+script	Data/TimelessJewelData/ElegantHubris.zip
+script	Data/TimelessJewelData/GloriousVanity.zip.part0
+script	Data/TimelessJewelData/GloriousVanity.zip.part1
+script	Data/TimelessJewelData/GloriousVanity.zip.part2
+script	Data/TimelessJewelData/GloriousVanity.zip.part3
+script	Data/TimelessJewelData/GloriousVanity.zip.part4
+script	Data/TimelessJewelData/HeroicTragedy.zip
+script	Data/TimelessJewelData/LethalPride.zip
+script	Data/TimelessJewelData/MilitantFaith.zip
+script	TreeData/2_6/skill_sprite-3-32f639bbfc42783ca7ec218a787dd918.jpg
+script	TreeData/2_6/skill_sprite-active-3-3e73c4c4534433ecfc340c7287093bd5.png
+script	TreeData/2_6/skill_sprite-active-3-7798fabab8a21829831293c20ac9c414.jpg
+script	TreeData/3_10/groups-3.png
+script	TreeData/3_10/skills-3.jpg
+script	TreeData/3_10/skills-disabled-3.jpg
+script	TreeData/3_11/groups-3.png
+script	TreeData/3_11/skills-3.jpg
+script	TreeData/3_11/skills-disabled-3.jpg
+script	TreeData/3_12/groups-3.png
+script	TreeData/3_12/skills-3.jpg
+script	TreeData/3_12/skills-disabled-3.jpg
+script	TreeData/3_13/groups-3.png
+script	TreeData/3_13/skills-3.jpg
+script	TreeData/3_13/skills-disabled-3.jpg
+script	TreeData/3_14/groups-3.png
+script	TreeData/3_14/skills-3.jpg
+script	TreeData/3_14/skills-disabled-3.jpg
+script	TreeData/3_15/groups-3.png
+script	TreeData/3_15/skills-3.jpg
+script	TreeData/3_15/skills-disabled-3.jpg
+script	TreeData/3_16/mastery-active-effect-3.png
+script	TreeData/3_16/mastery-active-selected-3.png
+script	TreeData/3_16/mastery-connected-3.png
+script	TreeData/3_16/mastery-disabled-3.png
+script	TreeData/3_16/skills-3.jpg
+script	TreeData/3_16/skills-disabled-3.jpg
+script	TreeData/3_17/mastery-active-effect-3.png
+script	TreeData/3_17/mastery-active-selected-3.png
+script	TreeData/3_17/mastery-connected-3.png
+script	TreeData/3_17/mastery-disabled-3.png
+script	TreeData/3_17/skills-3.jpg
+script	TreeData/3_17/skills-disabled-3.jpg
+script	TreeData/3_18/mastery-3.png
+script	TreeData/3_18/mastery-active-effect-3.png
+script	TreeData/3_18/mastery-active-selected-3.png
+script	TreeData/3_18/mastery-connected-3.png
+script	TreeData/3_18/mastery-disabled-3.png
+script	TreeData/3_18/skills-3.jpg
+script	TreeData/3_18/skills-disabled-3.jpg
+script	TreeData/3_19/mastery-3.png
+script	TreeData/3_19/mastery-active-effect-3.png
+script	TreeData/3_19/mastery-active-selected-3.png
+script	TreeData/3_19/mastery-connected-3.png
+script	TreeData/3_19/mastery-disabled-3.png
+script	TreeData/3_19/skills-3.jpg
+script	TreeData/3_19/skills-disabled-3.jpg
+script	TreeData/3_20/PassiveMasteryConnectedButton.png
+script	TreeData/3_20/ascendancy-3.png
+script	TreeData/3_20/ascendancy-background-3.jpg
+script	TreeData/3_20/background-3.png
+script	TreeData/3_20/frame-3.png
+script	TreeData/3_20/group-background-3.png
+script	TreeData/3_20/jewel-3.png
+script	TreeData/3_20/jewel-radius.png
+script	TreeData/3_20/line-3.png
+script	TreeData/3_20/mastery-3.png
+script	TreeData/3_20/mastery-active-effect-3.png
+script	TreeData/3_20/mastery-active-selected-3.png
+script	TreeData/3_20/mastery-connected-3.png
+script	TreeData/3_20/mastery-disabled-3.png
+script	TreeData/3_20/skills-3.jpg
+script	TreeData/3_20/skills-disabled-3.jpg
+script	TreeData/3_21/PassiveMasteryConnectedButton.png
+script	TreeData/3_21/ascendancy-3.png
+script	TreeData/3_21/ascendancy-background-3.jpg
+script	TreeData/3_21/background-3.png
+script	TreeData/3_21/frame-3.png
+script	TreeData/3_21/group-background-3.png
+script	TreeData/3_21/jewel-3.png
+script	TreeData/3_21/jewel-radius.png
+script	TreeData/3_21/line-3.png
+script	TreeData/3_21/mastery-3.png
+script	TreeData/3_21/mastery-active-effect-3.png
+script	TreeData/3_21/mastery-active-selected-3.png
+script	TreeData/3_21/mastery-connected-3.png
+script	TreeData/3_21/mastery-disabled-3.png
+script	TreeData/3_21/skills-3.jpg
+script	TreeData/3_21/skills-disabled-3.jpg
+script	TreeData/3_22/PassiveMasteryConnectedButton.png
+script	TreeData/3_22/ascendancy-3.png
+script	TreeData/3_22/ascendancy-background-3.jpg
+script	TreeData/3_22/background-3.png
+script	TreeData/3_22/frame-3.png
+script	TreeData/3_22/group-background-3.png
+script	TreeData/3_22/jewel-3.png
+script	TreeData/3_22/jewel-radius.png
+script	TreeData/3_22/line-3.png
+script	TreeData/3_22/mastery-3.png
+script	TreeData/3_22/mastery-active-effect-3.png
+script	TreeData/3_22/mastery-active-selected-3.png
+script	TreeData/3_22/mastery-connected-3.png
+script	TreeData/3_22/mastery-disabled-3.png
+script	TreeData/3_22/skills-3.jpg
+script	TreeData/3_22/skills-disabled-3.jpg
+script	TreeData/3_22/tattoo-active-effect-3.png
+script	TreeData/3_22_ruthless/ascendancy-3.png
+script	TreeData/3_22_ruthless/ascendancy-background-3.jpg
+script	TreeData/3_22_ruthless/background-3.png
+script	TreeData/3_22_ruthless/frame-3.png
+script	TreeData/3_22_ruthless/group-background-3.png
+script	TreeData/3_22_ruthless/jewel-3.png
+script	TreeData/3_22_ruthless/jewel-radius.png
+script	TreeData/3_22_ruthless/line-3.png
+script	TreeData/3_22_ruthless/mastery-3.png
+script	TreeData/3_22_ruthless/mastery-active-effect-3.png
+script	TreeData/3_22_ruthless/mastery-active-selected-3.png
+script	TreeData/3_22_ruthless/mastery-connected-3.png
+script	TreeData/3_22_ruthless/mastery-disabled-3.png
+script	TreeData/3_22_ruthless/skills-3.jpg
+script	TreeData/3_22_ruthless/skills-disabled-3.jpg
+script	TreeData/3_22_ruthless/tattoo-active-effect-3.png
+script	TreeData/3_23/PassiveMasteryConnectedButton.png
+script	TreeData/3_23/ascendancy-3.png
+script	TreeData/3_23/ascendancy-background-3.png
+script	TreeData/3_23/background-3.png
+script	TreeData/3_23/frame-3.png
+script	TreeData/3_23/group-background-3.png
+script	TreeData/3_23/jewel-3.png
+script	TreeData/3_23/jewel-radius.png
+script	TreeData/3_23/line-3.png
+script	TreeData/3_23/mastery-3.png
+script	TreeData/3_23/mastery-active-effect-3.png
+script	TreeData/3_23/mastery-active-selected-3.png
+script	TreeData/3_23/mastery-connected-3.png
+script	TreeData/3_23/mastery-disabled-3.png
+script	TreeData/3_23/skills-3.jpg
+script	TreeData/3_23/skills-disabled-3.jpg
+script	TreeData/3_23/tattoo-active-effect-3.png
+script	TreeData/3_23_ruthless/ascendancy-3.png
+script	TreeData/3_23_ruthless/ascendancy-background-3.png
+script	TreeData/3_23_ruthless/background-3.png
+script	TreeData/3_23_ruthless/frame-3.png
+script	TreeData/3_23_ruthless/group-background-3.png
+script	TreeData/3_23_ruthless/jewel-3.png
+script	TreeData/3_23_ruthless/jewel-radius.png
+script	TreeData/3_23_ruthless/line-3.png
+script	TreeData/3_23_ruthless/mastery-3.png
+script	TreeData/3_23_ruthless/mastery-active-effect-3.png
+script	TreeData/3_23_ruthless/mastery-active-selected-3.png
+script	TreeData/3_23_ruthless/mastery-connected-3.png
+script	TreeData/3_23_ruthless/mastery-disabled-3.png
+script	TreeData/3_23_ruthless/skills-3.jpg
+script	TreeData/3_23_ruthless/skills-disabled-3.jpg
+script	TreeData/3_23_ruthless/tattoo-active-effect-3.png
+script	TreeData/3_24/PassiveMasteryConnectedButton.png
+script	TreeData/3_24/ascendancy-3.png
+script	TreeData/3_24/ascendancy-background-3.png
+script	TreeData/3_24/background-3.png
+script	TreeData/3_24/frame-3.png
+script	TreeData/3_24/group-background-3.png
+script	TreeData/3_24/jewel-3.png
+script	TreeData/3_24/jewel-radius.png
+script	TreeData/3_24/line-3.png
+script	TreeData/3_24/mastery-3.png
+script	TreeData/3_24/mastery-active-effect-3.png
+script	TreeData/3_24/mastery-active-selected-3.png
+script	TreeData/3_24/mastery-connected-3.png
+script	TreeData/3_24/mastery-disabled-3.png
+script	TreeData/3_24/skills-3.jpg
+script	TreeData/3_24/skills-disabled-3.jpg
+script	TreeData/3_24/tattoo-active-effect-3.png
+script	TreeData/3_24_ruthless/ascendancy-3.png
+script	TreeData/3_24_ruthless/ascendancy-background-3.png
+script	TreeData/3_24_ruthless/background-3.png
+script	TreeData/3_24_ruthless/frame-3.png
+script	TreeData/3_24_ruthless/group-background-3.png
+script	TreeData/3_24_ruthless/jewel-3.png
+script	TreeData/3_24_ruthless/jewel-radius.png
+script	TreeData/3_24_ruthless/line-3.png
+script	TreeData/3_24_ruthless/mastery-3.png
+script	TreeData/3_24_ruthless/mastery-active-effect-3.png
+script	TreeData/3_24_ruthless/mastery-active-selected-3.png
+script	TreeData/3_24_ruthless/mastery-connected-3.png
+script	TreeData/3_24_ruthless/mastery-disabled-3.png
+script	TreeData/3_24_ruthless/skills-3.jpg
+script	TreeData/3_24_ruthless/skills-disabled-3.jpg
+script	TreeData/3_24_ruthless/tattoo-active-effect-3.png
+script	TreeData/3_25/ascendancy-3.png
+script	TreeData/3_25/ascendancy-background-3.png
+script	TreeData/3_25/background-3.png
+script	TreeData/3_25/frame-3.png
+script	TreeData/3_25/group-background-3.png
+script	TreeData/3_25/jewel-3.png
+script	TreeData/3_25/jewel-radius.png
+script	TreeData/3_25/line-3.png
+script	TreeData/3_25/mastery-3.png
+script	TreeData/3_25/mastery-active-effect-3.png
+script	TreeData/3_25/mastery-active-selected-3.png
+script	TreeData/3_25/mastery-connected-3.png
+script	TreeData/3_25/mastery-disabled-3.png
+script	TreeData/3_25/skills-3.jpg
+script	TreeData/3_25/skills-disabled-3.jpg
+script	TreeData/3_25/tattoo-active-effect-3.png
+script	TreeData/3_25_alternate/ascendancy-3.png
+script	TreeData/3_25_alternate/ascendancy-background-3.png
+script	TreeData/3_25_alternate/background-3.png
+script	TreeData/3_25_alternate/frame-3.png
+script	TreeData/3_25_alternate/group-background-3.png
+script	TreeData/3_25_alternate/jewel-3.png
+script	TreeData/3_25_alternate/line-3.png
+script	TreeData/3_25_alternate/mastery-3.png
+script	TreeData/3_25_alternate/mastery-active-effect-3.png
+script	TreeData/3_25_alternate/mastery-active-selected-3.png
+script	TreeData/3_25_alternate/mastery-connected-3.png
+script	TreeData/3_25_alternate/mastery-disabled-3.png
+script	TreeData/3_25_alternate/skills-3.jpg
+script	TreeData/3_25_alternate/skills-disabled-3.jpg
+script	TreeData/3_25_alternate/tattoo-active-effect-3.png
+script	TreeData/3_25_ruthless/ascendancy-3.png
+script	TreeData/3_25_ruthless/ascendancy-background-3.png
+script	TreeData/3_25_ruthless/background-3.png
+script	TreeData/3_25_ruthless/frame-3.png
+script	TreeData/3_25_ruthless/group-background-3.png
+script	TreeData/3_25_ruthless/jewel-3.png
+script	TreeData/3_25_ruthless/jewel-radius.png
+script	TreeData/3_25_ruthless/line-3.png
+script	TreeData/3_25_ruthless/mastery-3.png
+script	TreeData/3_25_ruthless/mastery-active-effect-3.png
+script	TreeData/3_25_ruthless/mastery-active-selected-3.png
+script	TreeData/3_25_ruthless/mastery-connected-3.png
+script	TreeData/3_25_ruthless/mastery-disabled-3.png
+script	TreeData/3_25_ruthless/skills-3.jpg
+script	TreeData/3_25_ruthless/skills-disabled-3.jpg
+script	TreeData/3_25_ruthless/tattoo-active-effect-3.png
+script	TreeData/3_25_ruthless_alternate/ascendancy-3.png
+script	TreeData/3_25_ruthless_alternate/ascendancy-background-3.png
+script	TreeData/3_25_ruthless_alternate/background-3.png
+script	TreeData/3_25_ruthless_alternate/frame-3.png
+script	TreeData/3_25_ruthless_alternate/group-background-3.png
+script	TreeData/3_25_ruthless_alternate/jewel-3.png
+script	TreeData/3_25_ruthless_alternate/line-3.png
+script	TreeData/3_25_ruthless_alternate/mastery-3.png
+script	TreeData/3_25_ruthless_alternate/mastery-active-effect-3.png
+script	TreeData/3_25_ruthless_alternate/mastery-active-selected-3.png
+script	TreeData/3_25_ruthless_alternate/mastery-connected-3.png
+script	TreeData/3_25_ruthless_alternate/mastery-disabled-3.png
+script	TreeData/3_25_ruthless_alternate/skills-3.jpg
+script	TreeData/3_25_ruthless_alternate/skills-disabled-3.jpg
+script	TreeData/3_25_ruthless_alternate/tattoo-active-effect-3.png
+script	TreeData/3_26/ascendancy-3.png
+script	TreeData/3_26/ascendancy-background-3.png
+script	TreeData/3_26/background-3.png
+script	TreeData/3_26/frame-3.png
+script	TreeData/3_26/group-background-3.png
+script	TreeData/3_26/jewel-3.png
+script	TreeData/3_26/jewel-radius.png
+script	TreeData/3_26/line-3.png
+script	TreeData/3_26/mastery-3.png
+script	TreeData/3_26/mastery-active-effect-3.png
+script	TreeData/3_26/mastery-active-selected-3.png
+script	TreeData/3_26/mastery-connected-3.png
+script	TreeData/3_26/mastery-disabled-3.png
+script	TreeData/3_26/skills-3.jpg
+script	TreeData/3_26/skills-disabled-3.jpg
+script	TreeData/3_26/tattoo-active-effect-3.png
+script	TreeData/3_26_alternate/ascendancy-3.png
+script	TreeData/3_26_alternate/ascendancy-background-3.png
+script	TreeData/3_26_alternate/background-3.png
+script	TreeData/3_26_alternate/frame-3.png
+script	TreeData/3_26_alternate/group-background-3.png
+script	TreeData/3_26_alternate/jewel-3.png
+script	TreeData/3_26_alternate/jewel-radius.png
+script	TreeData/3_26_alternate/line-3.png
+script	TreeData/3_26_alternate/mastery-3.png
+script	TreeData/3_26_alternate/mastery-active-effect-3.png
+script	TreeData/3_26_alternate/mastery-active-selected-3.png
+script	TreeData/3_26_alternate/mastery-connected-3.png
+script	TreeData/3_26_alternate/mastery-disabled-3.png
+script	TreeData/3_26_alternate/skills-3.jpg
+script	TreeData/3_26_alternate/skills-disabled-3.jpg
+script	TreeData/3_26_alternate/tattoo-active-effect-3.png
+script	TreeData/3_26_ruthless/ascendancy-3.png
+script	TreeData/3_26_ruthless/ascendancy-background-3.png
+script	TreeData/3_26_ruthless/background-3.png
+script	TreeData/3_26_ruthless/frame-3.png
+script	TreeData/3_26_ruthless/group-background-3.png
+script	TreeData/3_26_ruthless/jewel-3.png
+script	TreeData/3_26_ruthless/jewel-radius.png
+script	TreeData/3_26_ruthless/line-3.png
+script	TreeData/3_26_ruthless/mastery-3.png
+script	TreeData/3_26_ruthless/mastery-active-effect-3.png
+script	TreeData/3_26_ruthless/mastery-active-selected-3.png
+script	TreeData/3_26_ruthless/mastery-connected-3.png
+script	TreeData/3_26_ruthless/mastery-disabled-3.png
+script	TreeData/3_26_ruthless/skills-3.jpg
+script	TreeData/3_26_ruthless/skills-disabled-3.jpg
+script	TreeData/3_26_ruthless/tattoo-active-effect-3.png
+script	TreeData/3_26_ruthless_alternate/ascendancy-3.png
+script	TreeData/3_26_ruthless_alternate/ascendancy-background-3.png
+script	TreeData/3_26_ruthless_alternate/background-3.png
+script	TreeData/3_26_ruthless_alternate/frame-3.png
+script	TreeData/3_26_ruthless_alternate/group-background-3.png
+script	TreeData/3_26_ruthless_alternate/jewel-3.png
+script	TreeData/3_26_ruthless_alternate/jewel-radius.png
+script	TreeData/3_26_ruthless_alternate/line-3.png
+script	TreeData/3_26_ruthless_alternate/mastery-3.png
+script	TreeData/3_26_ruthless_alternate/mastery-active-effect-3.png
+script	TreeData/3_26_ruthless_alternate/mastery-active-selected-3.png
+script	TreeData/3_26_ruthless_alternate/mastery-connected-3.png
+script	TreeData/3_26_ruthless_alternate/mastery-disabled-3.png
+script	TreeData/3_26_ruthless_alternate/skills-3.jpg
+script	TreeData/3_26_ruthless_alternate/skills-disabled-3.jpg
+script	TreeData/3_26_ruthless_alternate/tattoo-active-effect-3.png
+script	TreeData/3_27/ascendancy-3.webp
+script	TreeData/3_27/background-3.png
+script	TreeData/3_27/bloodline-3.webp
+script	TreeData/3_27/frame-3.png
+script	TreeData/3_27/group-background-3.png
+script	TreeData/3_27/jewel-3.png
+script	TreeData/3_27/jewel-radius.png
+script	TreeData/3_27/line-3.png
+script	TreeData/3_27/mastery-3.png
+script	TreeData/3_27/mastery-active-effect-3.png
+script	TreeData/3_27/mastery-active-selected-3.png
+script	TreeData/3_27/mastery-connected-3.png
+script	TreeData/3_27/mastery-disabled-3.png
+script	TreeData/3_27/skills-3.jpg
+script	TreeData/3_27/skills-disabled-3.jpg
+script	TreeData/3_27/tattoo-active-effect-3.png
+script	TreeData/3_27_alternate/ascendancy-3.webp
+script	TreeData/3_27_alternate/background-3.png
+script	TreeData/3_27_alternate/bloodline-3.webp
+script	TreeData/3_27_alternate/frame-3.png
+script	TreeData/3_27_alternate/group-background-3.png
+script	TreeData/3_27_alternate/jewel-3.png
+script	TreeData/3_27_alternate/jewel-radius.png
+script	TreeData/3_27_alternate/line-3.png
+script	TreeData/3_27_alternate/mastery-3.png
+script	TreeData/3_27_alternate/mastery-active-effect-3.png
+script	TreeData/3_27_alternate/mastery-active-selected-3.png
+script	TreeData/3_27_alternate/mastery-connected-3.png
+script	TreeData/3_27_alternate/mastery-disabled-3.png
+script	TreeData/3_27_alternate/skills-3.jpg
+script	TreeData/3_27_alternate/skills-disabled-3.jpg
+script	TreeData/3_27_alternate/tattoo-active-effect-3.png
+script	TreeData/3_27_ruthless/ascendancy-3.webp
+script	TreeData/3_27_ruthless/background-3.png
+script	TreeData/3_27_ruthless/bloodline-3.webp
+script	TreeData/3_27_ruthless/frame-3.png
+script	TreeData/3_27_ruthless/group-background-3.png
+script	TreeData/3_27_ruthless/jewel-3.png
+script	TreeData/3_27_ruthless/jewel-radius.png
+script	TreeData/3_27_ruthless/line-3.png
+script	TreeData/3_27_ruthless/mastery-3.png
+script	TreeData/3_27_ruthless/mastery-active-effect-3.png
+script	TreeData/3_27_ruthless/mastery-active-selected-3.png
+script	TreeData/3_27_ruthless/mastery-connected-3.png
+script	TreeData/3_27_ruthless/mastery-disabled-3.png
+script	TreeData/3_27_ruthless/skills-3.jpg
+script	TreeData/3_27_ruthless/skills-disabled-3.jpg
+script	TreeData/3_27_ruthless/tattoo-active-effect-3.png
+script	TreeData/3_27_ruthless_alternate/ascendancy-3.webp
+script	TreeData/3_27_ruthless_alternate/background-3.png
+script	TreeData/3_27_ruthless_alternate/bloodline-3.webp
+script	TreeData/3_27_ruthless_alternate/frame-3.png
+script	TreeData/3_27_ruthless_alternate/group-background-3.png
+script	TreeData/3_27_ruthless_alternate/jewel-3.png
+script	TreeData/3_27_ruthless_alternate/jewel-radius.png
+script	TreeData/3_27_ruthless_alternate/line-3.png
+script	TreeData/3_27_ruthless_alternate/mastery-3.png
+script	TreeData/3_27_ruthless_alternate/mastery-active-effect-3.png
+script	TreeData/3_27_ruthless_alternate/mastery-active-selected-3.png
+script	TreeData/3_27_ruthless_alternate/mastery-connected-3.png
+script	TreeData/3_27_ruthless_alternate/mastery-disabled-3.png
+script	TreeData/3_27_ruthless_alternate/skills-3.jpg
+script	TreeData/3_27_ruthless_alternate/skills-disabled-3.jpg
+script	TreeData/3_27_ruthless_alternate/tattoo-active-effect-3.png
+script	TreeData/3_28/ascendancy-3.webp
+script	TreeData/3_28/background-3.png
+script	TreeData/3_28/bloodline-3.webp
+script	TreeData/3_28/frame-3.png
+script	TreeData/3_28/group-background-3.png
+script	TreeData/3_28/jewel-3.png
+script	TreeData/3_28/jewel-radius.png
+script	TreeData/3_28/line-3.png
+script	TreeData/3_28/mastery-3.png
+script	TreeData/3_28/mastery-active-effect-3.png
+script	TreeData/3_28/mastery-active-selected-3.png
+script	TreeData/3_28/mastery-connected-3.png
+script	TreeData/3_28/mastery-disabled-3.png
+script	TreeData/3_28/skills-3.jpg
+script	TreeData/3_28/skills-disabled-3.jpg
+script	TreeData/3_28/tattoo-active-effect-3.png
+script	TreeData/3_28_alternate/ascendancy-3.webp
+script	TreeData/3_28_alternate/background-3.png
+script	TreeData/3_28_alternate/bloodline-3.webp
+script	TreeData/3_28_alternate/frame-3.png
+script	TreeData/3_28_alternate/group-background-3.png
+script	TreeData/3_28_alternate/jewel-3.png
+script	TreeData/3_28_alternate/jewel-radius.png
+script	TreeData/3_28_alternate/line-3.png
+script	TreeData/3_28_alternate/mastery-3.png
+script	TreeData/3_28_alternate/mastery-active-effect-3.png
+script	TreeData/3_28_alternate/mastery-active-selected-3.png
+script	TreeData/3_28_alternate/mastery-connected-3.png
+script	TreeData/3_28_alternate/mastery-disabled-3.png
+script	TreeData/3_28_alternate/skills-3.jpg
+script	TreeData/3_28_alternate/skills-disabled-3.jpg
+script	TreeData/3_28_alternate/tattoo-active-effect-3.png
+script	TreeData/3_28_ruthless/ascendancy-3.webp
+script	TreeData/3_28_ruthless/background-3.png
+script	TreeData/3_28_ruthless/bloodline-3.webp
+script	TreeData/3_28_ruthless/frame-3.png
+script	TreeData/3_28_ruthless/group-background-3.png
+script	TreeData/3_28_ruthless/jewel-3.png
+script	TreeData/3_28_ruthless/jewel-radius.png
+script	TreeData/3_28_ruthless/line-3.png
+script	TreeData/3_28_ruthless/mastery-3.png
+script	TreeData/3_28_ruthless/mastery-active-effect-3.png
+script	TreeData/3_28_ruthless/mastery-active-selected-3.png
+script	TreeData/3_28_ruthless/mastery-connected-3.png
+script	TreeData/3_28_ruthless/mastery-disabled-3.png
+script	TreeData/3_28_ruthless/skills-3.jpg
+script	TreeData/3_28_ruthless/skills-disabled-3.jpg
+script	TreeData/3_28_ruthless/tattoo-active-effect-3.png
+script	TreeData/3_28_ruthless_alternate/ascendancy-3.webp
+script	TreeData/3_28_ruthless_alternate/background-3.png
+script	TreeData/3_28_ruthless_alternate/bloodline-3.webp
+script	TreeData/3_28_ruthless_alternate/frame-3.png
+script	TreeData/3_28_ruthless_alternate/group-background-3.png
+script	TreeData/3_28_ruthless_alternate/jewel-3.png
+script	TreeData/3_28_ruthless_alternate/jewel-radius.png
+script	TreeData/3_28_ruthless_alternate/line-3.png
+script	TreeData/3_28_ruthless_alternate/mastery-3.png
+script	TreeData/3_28_ruthless_alternate/mastery-active-effect-3.png
+script	TreeData/3_28_ruthless_alternate/mastery-active-selected-3.png
+script	TreeData/3_28_ruthless_alternate/mastery-connected-3.png
+script	TreeData/3_28_ruthless_alternate/mastery-disabled-3.png
+script	TreeData/3_28_ruthless_alternate/skills-3.jpg
+script	TreeData/3_28_ruthless_alternate/skills-disabled-3.jpg
+script	TreeData/3_28_ruthless_alternate/tattoo-active-effect-3.png
+script	TreeData/3_29/ascendancy-3.webp
+script	TreeData/3_29/background-3.png
+script	TreeData/3_29/bloodline-3.webp
+script	TreeData/3_29/frame-3.png
+script	TreeData/3_29/group-background-3.png
+script	TreeData/3_29/jewel-3.png
+script	TreeData/3_29/jewel-radius.png
+script	TreeData/3_29/line-3.png
+script	TreeData/3_29/mastery-3.png
+script	TreeData/3_29/mastery-active-effect-3.png
+script	TreeData/3_29/mastery-active-selected-3.png
+script	TreeData/3_29/mastery-connected-3.png
+script	TreeData/3_29/mastery-disabled-3.png
+script	TreeData/3_29/skills-3.jpg
+script	TreeData/3_29/skills-disabled-3.jpg
+script	TreeData/3_29/tattoo-active-effect-3.png
+script	TreeData/3_29_ruthless/ascendancy-3.webp
+script	TreeData/3_29_ruthless/background-3.png
+script	TreeData/3_29_ruthless/bloodline-3.webp
+script	TreeData/3_29_ruthless/frame-3.png
+script	TreeData/3_29_ruthless/group-background-3.png
+script	TreeData/3_29_ruthless/jewel-3.png
+script	TreeData/3_29_ruthless/jewel-radius.png
+script	TreeData/3_29_ruthless/line-3.png
+script	TreeData/3_29_ruthless/mastery-3.png
+script	TreeData/3_29_ruthless/mastery-active-effect-3.png
+script	TreeData/3_29_ruthless/mastery-active-selected-3.png
+script	TreeData/3_29_ruthless/mastery-connected-3.png
+script	TreeData/3_29_ruthless/mastery-disabled-3.png
+script	TreeData/3_29_ruthless/skills-3.jpg
+script	TreeData/3_29_ruthless/skills-disabled-3.jpg
+script	TreeData/3_29_ruthless/tattoo-active-effect-3.png
+script	TreeData/3_6/groups-3.png
+script	TreeData/3_6/skills-3.jpg
+script	TreeData/3_6/skills-disabled-3.jpg
+script	TreeData/3_7/groups-3.png
+script	TreeData/3_7/skills-3.jpg
+script	TreeData/3_7/skills-disabled-3.jpg
+script	TreeData/3_8/groups-3.png
+script	TreeData/3_8/skills-3.jpg
+script	TreeData/3_8/skills-disabled-3.jpg
+script	TreeData/3_9/groups-3.png
+script	TreeData/3_9/skills-3.jpg
+script	TreeData/3_9/skills-disabled-3.jpg
+script	TreeData/AmberOil.png
+script	TreeData/AscendancyButton.png
+script	TreeData/AscendancyButtonHighlight.png
+script	TreeData/AscendancyButtonPressed.png
+script	TreeData/AscendancyFrameLargeAllocated.png
+script	TreeData/AscendancyFrameLargeCanAllocate.png
+script	TreeData/AscendancyFrameLargeNormal.png
+script	TreeData/AscendancyFrameSmallAllocated.png
+script	TreeData/AscendancyFrameSmallCanAllocate.png
+script	TreeData/AscendancyFrameSmallNormal.png
+script	TreeData/AscendancyMiddle.png
+script	TreeData/AzmeriAscendancyFrameLargeAllocated.png
+script	TreeData/AzmeriAscendancyFrameLargeCanAllocate.png
+script	TreeData/AzmeriAscendancyFrameLargeNormal.png
+script	TreeData/AzmeriAscendancyFrameSmallAllocated.png
+script	TreeData/AzmeriAscendancyFrameSmallCanAllocate.png
+script	TreeData/AzmeriAscendancyFrameSmallNormal.png
+script	TreeData/AzmeriAscendancyMiddle.png
+script	TreeData/AzmeriJewelFrameAllocated.png
+script	TreeData/AzmeriJewelFrameCanAllocate.png
+script	TreeData/AzmeriJewelFrameUnallocated.png
+script	TreeData/AzureOil.png
+script	TreeData/Background1.png
+script	TreeData/Background2.png
+script	TreeData/BackgroundDex.png
+script	TreeData/BackgroundDexInt.png
+script	TreeData/BackgroundInt.png
+script	TreeData/BackgroundStr.png
+script	TreeData/BackgroundStrDex.png
+script	TreeData/BackgroundStrInt.png
+script	TreeData/BlackOil.png
+script	TreeData/BlightedNotableFrameAllocated.png
+script	TreeData/BlightedNotableFrameCanAllocate.png
+script	TreeData/BlightedNotableFrameUnallocated.png
+script	TreeData/CharmSocketActiveDex.png
+script	TreeData/CharmSocketActiveInt.png
+script	TreeData/CharmSocketActiveStr.png
+script	TreeData/ClassesAscendant.png
+script	TreeData/ClassesAssassin.png
+script	TreeData/ClassesBerserker.png
+script	TreeData/ClassesChampion.png
+script	TreeData/ClassesChieftain.png
+script	TreeData/ClassesDeadeye.png
+script	TreeData/ClassesElementalist.png
+script	TreeData/ClassesGladiator.png
+script	TreeData/ClassesGuardian.png
+script	TreeData/ClassesHierophant.png
+script	TreeData/ClassesInquisitor.png
+script	TreeData/ClassesJuggernaut.png
+script	TreeData/ClassesNecromancer.png
+script	TreeData/ClassesOccultist.png
+script	TreeData/ClassesPathfinder.png
+script	TreeData/ClassesPrimalist.png
+script	TreeData/ClassesRaider.png
+script	TreeData/ClassesSaboteur.png
+script	TreeData/ClassesSlayer.png
+script	TreeData/ClassesTrickster.png
+script	TreeData/ClassesWarden.png
+script	TreeData/ClassesWarlock.png
+script	TreeData/ClearOil.png
+script	TreeData/CrimsonOil.png
+script	TreeData/EternalEmpireJewelCircle1.png
+script	TreeData/EternalEmpireJewelCircle2.png
+script	TreeData/GoldenOil.png
+script	TreeData/GroupBackgroundLargeHalfAlt.png
+script	TreeData/GroupBackgroundMediumAlt.png
+script	TreeData/GroupBackgroundSmallAlt.png
+script	TreeData/IndigoOil.png
+script	TreeData/JewelCircle1.png
+script	TreeData/JewelCircle1Inverse.png
+script	TreeData/JewelFrameAllocated.png
+script	TreeData/JewelFrameCanAllocate.png
+script	TreeData/JewelFrameUnallocated.png
+script	TreeData/JewelSocketActiveAbyss.png
+script	TreeData/JewelSocketActiveAbyssAlt.png
+script	TreeData/JewelSocketActiveAltBlue.png
+script	TreeData/JewelSocketActiveAltPurple.png
+script	TreeData/JewelSocketActiveAltRed.png
+script	TreeData/JewelSocketActiveBlue.png
+script	TreeData/JewelSocketActiveBlueAlt.png
+script	TreeData/JewelSocketActiveGreen.png
+script	TreeData/JewelSocketActiveGreenAlt.png
+script	TreeData/JewelSocketActiveLegion.png
+script	TreeData/JewelSocketActiveLegionAlt.png
+script	TreeData/JewelSocketActivePrismatic.png
+script	TreeData/JewelSocketActivePrismaticAlt.png
+script	TreeData/JewelSocketActiveRed.png
+script	TreeData/JewelSocketActiveRedAlt.png
+script	TreeData/JewelSocketActiveTimeless.png
+script	TreeData/JewelSocketAltActive.png
+script	TreeData/JewelSocketAltCanAllocate.png
+script	TreeData/JewelSocketAltNormal.png
+script	TreeData/JewelSocketClusterAltCanAllocate1Large.png
+script	TreeData/JewelSocketClusterAltCanAllocate1Medium.png
+script	TreeData/JewelSocketClusterAltCanAllocate1Small.png
+script	TreeData/JewelSocketClusterAltNormal1Large.png
+script	TreeData/JewelSocketClusterAltNormal1Medium.png
+script	TreeData/JewelSocketClusterAltNormal1Small.png
+script	TreeData/KaruiJewelCircle1.png
+script	TreeData/KaruiJewelCircle2.png
+script	TreeData/KeystoneFrameAllocated.png
+script	TreeData/KeystoneFrameCanAllocate.png
+script	TreeData/KeystoneFrameUnallocated.png
+script	TreeData/LineConnectorActive.png
+script	TreeData/LineConnectorIntermediate.png
+script	TreeData/LineConnectorNormal.png
+script	TreeData/MarakethJewelCircle1.png
+script	TreeData/MarakethJewelCircle2.png
+script	TreeData/NotableFrameAllocated.png
+script	TreeData/NotableFrameCanAllocate.png
+script	TreeData/NotableFrameUnallocated.png
+script	TreeData/OpalescentOil.png
+script	TreeData/Orbit1Active.png
+script	TreeData/Orbit1Intermediate.png
+script	TreeData/Orbit1Normal.png
+script	TreeData/Orbit2Active.png
+script	TreeData/Orbit2Intermediate.png
+script	TreeData/Orbit2Normal.png
+script	TreeData/Orbit3Active.png
+script	TreeData/Orbit3Intermediate.png
+script	TreeData/Orbit3Normal.png
+script	TreeData/Orbit4Active.png
+script	TreeData/Orbit4Intermediate.png
+script	TreeData/Orbit4Normal.png
+script	TreeData/Orbit5Active.png
+script	TreeData/Orbit5Intermediate.png
+script	TreeData/Orbit5Normal.png
+script	TreeData/Orbit6Active.png
+script	TreeData/Orbit6Intermediate.png
+script	TreeData/Orbit6Normal.png
+script	TreeData/PSGroupBackground1.png
+script	TreeData/PSGroupBackground2.png
+script	TreeData/PSGroupBackground3.png
+script	TreeData/PSLineDeco.png
+script	TreeData/PSLineDecoHighlighted.png
+script	TreeData/PSPointsFrame.png
+script	TreeData/PSSkillFrame.png
+script	TreeData/PSSkillFrameActive.png
+script	TreeData/PSSkillFrameHighlighted.png
+script	TreeData/PSStartNodeBackgroundInactive.png
+script	TreeData/PassiveSkillScreenAscendancyButton.png
+script	TreeData/PassiveSkillScreenAscendancyButtonHighlight.png
+script	TreeData/PassiveSkillScreenAscendancyButtonPressed.png
+script	TreeData/PassiveSkillScreenAscendancyFrameLargeAllocated.png
+script	TreeData/PassiveSkillScreenAscendancyFrameLargeCanAllocate.png
+script	TreeData/PassiveSkillScreenAscendancyFrameLargeNormal.png
+script	TreeData/PassiveSkillScreenAscendancyFrameSmallAllocated.png
+script	TreeData/PassiveSkillScreenAscendancyFrameSmallCanAllocate.png
+script	TreeData/PassiveSkillScreenAscendancyFrameSmallNormal.png
+script	TreeData/PassiveSkillScreenAscendancyMiddle.png
+script	TreeData/PassiveSkillScreenEternalEmpireJewelCircle1.png
+script	TreeData/PassiveSkillScreenEternalEmpireJewelCircle2.png
+script	TreeData/PassiveSkillScreenJewelCircle1.png
+script	TreeData/PassiveSkillScreenKalguuranJewelCircle1.png
+script	TreeData/PassiveSkillScreenKalguuranJewelCircle2.png
+script	TreeData/PassiveSkillScreenKaruiJewelCircle1.png
+script	TreeData/PassiveSkillScreenKaruiJewelCircle2.png
+script	TreeData/PassiveSkillScreenMarakethJewelCircle1.png
+script	TreeData/PassiveSkillScreenMarakethJewelCircle2.png
+script	TreeData/PassiveSkillScreenTemplarJewelCircle1.png
+script	TreeData/PassiveSkillScreenTemplarJewelCircle2.png
+script	TreeData/PassiveSkillScreenVaalJewelCircle1.png
+script	TreeData/PassiveSkillScreenVaalJewelCircle2.png
+script	TreeData/PrismaticOil.png
+script	TreeData/SepiaOil.png
+script	TreeData/SilverOil.png
+script	TreeData/TealOil.png
+script	TreeData/TemplarJewelCircle1.png
+script	TreeData/TemplarJewelCircle2.png
+script	TreeData/VaalJewelCircle1.png
+script	TreeData/VaalJewelCircle2.png
+script	TreeData/VerdantOil.png
+script	TreeData/VioletOil.png
+script	TreeData/centerduelist.png
+script	TreeData/centermarauder.png
+script	TreeData/centerranger.png
+script	TreeData/centerscion.png
+script	TreeData/centershadow.png
+script	TreeData/centertemplar.png
+script	TreeData/centerwitch.png
+script	TreeData/imgPSFadeCorner.png
+script	TreeData/imgPSFadeSide.png
+script	TreeData/legion/abyss-line-connector-active.png
+script	TreeData/legion/abyss-line-connector-intermediate.png
+script	TreeData/legion/abyss-line-connector-normal.png
+script	TreeData/legion/legion-active.png
+script	TreeData/legion/legion-art.png
+script	TreeData/legion/legion-inactive.png
+script	changelog.txt	changelog.txt
+script	help.txt	help.txt
+runtime	Fonts/Bitstream Vera Sans Mono.10.tga
+runtime	Fonts/Bitstream Vera Sans Mono.12.tga
+runtime	Fonts/Bitstream Vera Sans Mono.14.tga
+runtime	Fonts/Bitstream Vera Sans Mono.16.tga
+runtime	Fonts/Bitstream Vera Sans Mono.18.tga
+runtime	Fonts/Bitstream Vera Sans Mono.20.tga
+runtime	Fonts/Bitstream Vera Sans Mono.22.tga
+runtime	Fonts/Bitstream Vera Sans Mono.24.tga
+runtime	Fonts/Bitstream Vera Sans Mono.26.tga
+runtime	Fonts/Bitstream Vera Sans Mono.28.tga
+runtime	Fonts/Bitstream Vera Sans Mono.32.tga
+runtime	Fonts/Bitstream Vera Sans Mono.36.tga
+runtime	Fonts/Bitstream Vera Sans Mono.40.tga
+runtime	Fonts/Bitstream Vera Sans Mono.48.tga
+runtime	Fonts/Bitstream Vera Sans Mono.56.tga
+runtime	Fonts/Bitstream Vera Sans Mono.64.tga
+runtime	Fonts/Bitstream Vera Sans Mono.tgf
+runtime	Fonts/Fontin Italic.10.tga
+runtime	Fonts/Fontin Italic.12.tga
+runtime	Fonts/Fontin Italic.14.tga
+runtime	Fonts/Fontin Italic.16.tga
+runtime	Fonts/Fontin Italic.18.tga
+runtime	Fonts/Fontin Italic.20.tga
+runtime	Fonts/Fontin Italic.22.tga
+runtime	Fonts/Fontin Italic.24.tga
+runtime	Fonts/Fontin Italic.26.tga
+runtime	Fonts/Fontin Italic.28.tga
+runtime	Fonts/Fontin Italic.32.tga
+runtime	Fonts/Fontin Italic.36.tga
+runtime	Fonts/Fontin Italic.40.tga
+runtime	Fonts/Fontin Italic.48.tga
+runtime	Fonts/Fontin Italic.56.tga
+runtime	Fonts/Fontin Italic.64.tga
+runtime	Fonts/Fontin Italic.tgf
+runtime	Fonts/Fontin SmallCaps Italic.10.tga
+runtime	Fonts/Fontin SmallCaps Italic.12.tga
+runtime	Fonts/Fontin SmallCaps Italic.14.tga
+runtime	Fonts/Fontin SmallCaps Italic.16.tga
+runtime	Fonts/Fontin SmallCaps Italic.18.tga
+runtime	Fonts/Fontin SmallCaps Italic.20.tga
+runtime	Fonts/Fontin SmallCaps Italic.22.tga
+runtime	Fonts/Fontin SmallCaps Italic.24.tga
+runtime	Fonts/Fontin SmallCaps Italic.26.tga
+runtime	Fonts/Fontin SmallCaps Italic.28.tga
+runtime	Fonts/Fontin SmallCaps Italic.32.tga
+runtime	Fonts/Fontin SmallCaps Italic.36.tga
+runtime	Fonts/Fontin SmallCaps Italic.40.tga
+runtime	Fonts/Fontin SmallCaps Italic.48.tga
+runtime	Fonts/Fontin SmallCaps Italic.56.tga
+runtime	Fonts/Fontin SmallCaps Italic.64.tga
+runtime	Fonts/Fontin SmallCaps Italic.tgf
+runtime	Fonts/Fontin SmallCaps.10.tga
+runtime	Fonts/Fontin SmallCaps.12.tga
+runtime	Fonts/Fontin SmallCaps.14.tga
+runtime	Fonts/Fontin SmallCaps.16.tga
+runtime	Fonts/Fontin SmallCaps.18.tga
+runtime	Fonts/Fontin SmallCaps.20.tga
+runtime	Fonts/Fontin SmallCaps.22.tga
+runtime	Fonts/Fontin SmallCaps.24.tga
+runtime	Fonts/Fontin SmallCaps.26.tga
+runtime	Fonts/Fontin SmallCaps.28.tga
+runtime	Fonts/Fontin SmallCaps.32.tga
+runtime	Fonts/Fontin SmallCaps.36.tga
+runtime	Fonts/Fontin SmallCaps.40.tga
+runtime	Fonts/Fontin SmallCaps.48.tga
+runtime	Fonts/Fontin SmallCaps.56.tga
+runtime	Fonts/Fontin SmallCaps.64.tga
+runtime	Fonts/Fontin SmallCaps.tgf
+runtime	Fonts/Fontin.10.tga
+runtime	Fonts/Fontin.12.tga
+runtime	Fonts/Fontin.14.tga
+runtime	Fonts/Fontin.16.tga
+runtime	Fonts/Fontin.18.tga
+runtime	Fonts/Fontin.20.tga
+runtime	Fonts/Fontin.22.tga
+runtime	Fonts/Fontin.24.tga
+runtime	Fonts/Fontin.26.tga
+runtime	Fonts/Fontin.28.tga
+runtime	Fonts/Fontin.32.tga
+runtime	Fonts/Fontin.36.tga
+runtime	Fonts/Fontin.40.tga
+runtime	Fonts/Fontin.48.tga
+runtime	Fonts/Fontin.56.tga
+runtime	Fonts/Fontin.64.tga
+runtime	Fonts/Fontin.tgf
+runtime	Fonts/Liberation Sans Bold.10.tga
+runtime	Fonts/Liberation Sans Bold.12.tga
+runtime	Fonts/Liberation Sans Bold.14.tga
+runtime	Fonts/Liberation Sans Bold.16.tga
+runtime	Fonts/Liberation Sans Bold.18.tga
+runtime	Fonts/Liberation Sans Bold.20.tga
+runtime	Fonts/Liberation Sans Bold.22.tga
+runtime	Fonts/Liberation Sans Bold.24.tga
+runtime	Fonts/Liberation Sans Bold.26.tga
+runtime	Fonts/Liberation Sans Bold.28.tga
+runtime	Fonts/Liberation Sans Bold.32.tga
+runtime	Fonts/Liberation Sans Bold.36.tga
+runtime	Fonts/Liberation Sans Bold.40.tga
+runtime	Fonts/Liberation Sans Bold.48.tga
+runtime	Fonts/Liberation Sans Bold.56.tga
+runtime	Fonts/Liberation Sans Bold.64.tga
+runtime	Fonts/Liberation Sans Bold.tgf
+runtime	Fonts/Liberation Sans.10.tga
+runtime	Fonts/Liberation Sans.12.tga
+runtime	Fonts/Liberation Sans.14.tga
+runtime	Fonts/Liberation Sans.16.tga
+runtime	Fonts/Liberation Sans.18.tga
+runtime	Fonts/Liberation Sans.20.tga
+runtime	Fonts/Liberation Sans.22.tga
+runtime	Fonts/Liberation Sans.24.tga
+runtime	Fonts/Liberation Sans.26.tga
+runtime	Fonts/Liberation Sans.28.tga
+runtime	Fonts/Liberation Sans.32.tga
+runtime	Fonts/Liberation Sans.36.tga
+runtime	Fonts/Liberation Sans.40.tga
+runtime	Fonts/Liberation Sans.48.tga
+runtime	Fonts/Liberation Sans.56.tga
+runtime	Fonts/Liberation Sans.64.tga
+runtime	Fonts/Liberation Sans.tgf

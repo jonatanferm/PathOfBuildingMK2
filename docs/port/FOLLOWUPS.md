@@ -848,3 +848,26 @@ only for `POB_UI_CALC=lua` runs.
    `crates/pob-calc/tests/ctor_pairs.rs`), name an owner (GOLD1 or GOLD13), and delete only the
    two LuaJIT tests, `table_len_matches_luajit` and `table_len_with_string_keys`. Treat it the
    way luastr's non-LuaJIT parts are already treated.
+
+## VENDOR
+
+Review follow-ups left open by VENDOR (the in-repo asset bundle, `assets/`), 2026-11-13.
+
+1. **Repository size** (owner: the integrator, before `rust-port` is pushed). VENDOR adds about
+   290 MB of plain git blobs: `assets/timeless/*` (10 files duplicate the LFS-tracked
+   `data/timeless/*`) and `assets/gamedata/data.bin` (39.6 MB, the largest; no file exceeds
+   GitHub's 50 MB warning). Tracking `assets/timeless/**` and `assets/gamedata/*.bin` with LFS
+   would follow the existing `.gitattributes` policy. The blobs are already in the history of
+   `port/VENDOR`, so this needs `git lfs migrate import --include=...` over the unpushed
+   commits (a history rewrite of the unit branch), which a fix round does not do.
+2. **Trunk build unverified** (owner: pob-web / U54). Trunk was not installed when VENDOR ran, so
+   the `copy-dir`/`copy-file` lines of `app/pob-web/index.html` were never run; the web proof used
+   a hand-assembled `dist/`. Close: `trunk build` and check `dist/assets/` against
+   `web-prefetch.txt`.
+3. **Web: older tree versions** (owner: pob-web). The web page fetches the `.sprites` file of the
+   latest tree version only, so opening a build on an older tree reaches `lua_error` "module not
+   found" in `tree_view/assets.rs` `read_tree_data`, which is fatal on wasm32. The limit predates
+   VENDOR. Close: fetch the tree version's game data files on demand (or prefetch all of them).
+4. **Cut-over** (owner: the cut-over unit). `pob-gamedata` still includes
+   `crates/pob-dump/generated` at compile time; the bundle's `gamedata/` is what the apps load at
+   run time.

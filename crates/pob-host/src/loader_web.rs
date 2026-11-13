@@ -53,6 +53,9 @@ type Fetched = Rc<RefCell<Vec<(String, Option<Vec<u8>>)>>>;
 /// Images from a prefetched VFS, ASYNC ones fetched lazily from `base_url`.
 pub struct WebLoader {
     base_url: String,
+    /// VENDOR: the asset bundle's index ([`crate::bundle`]): a logical key is fetched from the
+    /// bundle file that holds it.
+    bundle: Option<Rc<crate::bundle::Bundle>>,
     vfs: Vfs,
     queue: Vec<Job>,
     fetched: Fetched,
@@ -64,7 +67,8 @@ fn vfs_key(path: &str) -> String {
 }
 
 impl WebLoader {
-    /// `base_url` is where PoB's `src/` is served (e.g. `"pob/src/"`, with the trailing slash).
+    /// `base_url` is where the script dir is served (the asset bundle, e.g. `"assets/"`, with the
+    /// trailing slash).
     pub fn new(base_url: impl Into<String>) -> WebLoader {
         WebLoader::with_vfs(base_url, Vfs::default())
     }
@@ -73,6 +77,7 @@ impl WebLoader {
     pub fn with_vfs(base_url: impl Into<String>, vfs: Vfs) -> WebLoader {
         WebLoader {
             base_url: base_url.into(),
+            bundle: None,
             vfs,
             queue: Vec::new(),
             fetched: Fetched::default(),
@@ -89,8 +94,39 @@ impl WebLoader {
         self.vfs.borrow_mut().insert(vfs_key(path), bytes);
     }
 
+    /// Resolve logical keys through the asset bundle's index (VENDOR).
+    pub fn set_bundle(&mut self, bundle: Rc<crate::bundle::Bundle>) {
+        self.bundle = Some(bundle);
+    }
+
     fn url(&self, key: &str) -> String {
-        format!("{}{}", self.base_url, key)
+        let file = self
+            .bundle
+            .as_deref()
+            .and_then(|b| b.script_file(key))
+            .unwrap_or(key);
+        format!("{}{}", self.base_url, file)
+    }
+
+    /// Fetch bundle files (paths relative to the bundle root) into the VFS under every logical
+    /// key the index gives each (VENDOR: [`crate::bundle::WEB_PREFETCH_FILE`]); concurrently,
+    /// one request per file. Without a bundle this is [`WebLoader::prefetch`].
+    pub async fn prefetch_bundle_files(&self, files: &[String]) {
+        let Some(b) = self.bundle.clone() else {
+            return self.prefetch(files).await;
+        };
+        let pending: Vec<_> = files
+            .iter()
+            .map(|f| (f.clone(), start_fetch(&format!("{}{f}", self.base_url))))
+            .collect();
+        for (f, started) in pending {
+            if let Some(bytes) = finish_fetch(started).await {
+                let mut vfs = self.vfs.borrow_mut();
+                for key in b.script_paths_of(&f) {
+                    vfs.insert(key.to_owned(), bytes.clone());
+                }
+            }
+        }
     }
 
     /// Fetch `paths` (relative to `src/`) into the VFS, concurrently; files that fail to fetch are
@@ -119,6 +155,15 @@ impl WebLoader {
             .iter()
             .any(|j| j.key == key && j.state == JobState::Fetching)
         {
+            return;
+        }
+        // VENDOR: a path the bundle's index does not list does not exist: fail without a request
+        if self
+            .bundle
+            .as_deref()
+            .is_some_and(|b| b.script_file(key).is_none())
+        {
+            self.fetched.borrow_mut().push((key.to_owned(), None));
             return;
         }
         let started = start_fetch(&self.url(key));

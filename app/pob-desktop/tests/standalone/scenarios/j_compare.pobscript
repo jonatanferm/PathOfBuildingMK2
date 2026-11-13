@@ -1,0 +1,18 @@
+# U53 e2e: allflame_exp_001: the Compare button (no comparison build yet: the constructor's top bar), hover Import..., then back to the tree.
+fixture userdir=../user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 842 48
+frames 2
+move 718 48
+frames 2
+key-down CTRL
+press 1
+key-up CTRL
+frames 2
+#! expect-src Classes/TreeTab.lua
+#! expect-src Classes/PassiveTreeView.lua

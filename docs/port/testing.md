@@ -19,9 +19,9 @@ and `scripts/parity/run.sh`); parity against PoB is only the oracle suites below
   (test-input locator) is dev-only too, without `mlua`.
   `mlua` also appears as a dev-dependency of `pob-lua`, `pob-calc` and `pob-ui-core` (L0/HYG1
   tests against real LuaJIT).
-- **The one opt-in path** from a shipping package to LuaJIT is `pob-desktop`'s non-default feature
-  `lua-calc` (`pob-ui-oracle`'s `LuaCalcBridge`; `POB_UI_CALC=lua` selects the bridge's Lua side
-  in the UI harnesses, which are dev-only too).
+- **No opt-in path** from a shipping package to LuaJIT remains: `pob-desktop`'s former
+  non-default feature `lua-calc` was removed by VENDOR (`pob-ui-oracle`'s `LuaCalcBridge` stays;
+  `POB_UI_CALC=lua` selects the bridge's Lua side in the UI harnesses, which are dev-only).
 - **Gates** (CI's calc job runs the first two):
 
   ```sh
@@ -32,7 +32,6 @@ and `scripts/parity/run.sh`); parity against PoB is only the oracle suites below
       -p pob-modparser -p pob-calc-core -p pob-calc-setup -p pob-calc-config -p pob-calc-defence \
       -p pob-calc-offence -p pob-calc-perform -p pob-calc -p pob-sg -p pob-sg-wgpu -p pob-host \
       -p pob-ui-core -p pob-app -p pob-web
-  scripts/port/cargo.sh tree -p pob-desktop -e normal --features lua-calc | grep -c mlua   # 3: opt-in
   ```
 
 ## Runners

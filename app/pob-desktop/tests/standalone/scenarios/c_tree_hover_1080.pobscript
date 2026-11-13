@@ -1,0 +1,26 @@
+# U53 e2e (1920x1080 @1.5, the twin of c_tree_hover; the tree's viewport differs, so do its node positions): open allflame_exp_001 on the tree, hover Pain Attunement, Written in Blood and the unallocated Intelligence node 51923, allocate 51923 by clicking (a recalc through the Rust calc), undo it (Ctrl+Z), then the build XML before, after the click and after the undo; the guards fail the run when the click misses or the undo changes nothing (see c_tree_hover for why undone is not before).
+screen 1920 1080 dpi 1.5
+fixture userdir=../user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+snapshot before
+move 920 150
+frames 2
+move 1070 120
+frames 2
+move 890 190
+frames 2
+click LEFTBUTTON
+frames 3
+snapshot allocated
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+move 640 400
+frames 1
+snapshot undone
+#! expect-snapshot allocated
+#! expect-snapshot-differs before allocated
+#! expect-snapshot-differs allocated undone

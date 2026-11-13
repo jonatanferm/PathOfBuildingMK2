@@ -7,11 +7,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-default = []
-# Dev only: inject pob-ui-oracle's LuaCalcBridge as the calc (ui doc D14, §10.4).
-lua-calc = ["dep:pob-ui-oracle"]
-
 [dependencies]
 pob-host.workspace = true
 pob-app.workspace = true
@@ -19,11 +14,20 @@ pob-gamedata.workspace = true
 pob-sg.workspace = true
 pob-sg-wgpu.workspace = true
 pob-ui-core.workspace = true
-pob-ui-oracle = { workspace = true, optional = true }
 anyhow.workspace = true
 image.workspace = true
 pollster.workspace = true
 wgpu = { version = "=30.0.1", features = ["webgl"] }
+
+[dev-dependencies]
+# VENDOR's standalone tests read the bundle's index.json and check its sha256s.
+serde_json.workspace = true
+sha2 = "0.10"
+
+# VENDOR: the start-up shared by the binaries and the standalone tests (asset bundle, game data).
+[lib]
+name = "pob_desktop"
+path = "src/lib.rs"
 
 [[bin]]
 name = "pob-desktop"

@@ -1,0 +1,24 @@
+# U53 e2e: allflame_exp_030: the Party tab (Ctrl+7), then the Import/Export tab (Ctrl+I: the export code is generated from the Rust model), then back to the tree (Ctrl+1) and the build XML.
+fixture userdir=../user1
+frames 2
+load-build "Builds/allflame_exp_030.xml"
+frames 2
+key-down CTRL
+press 7
+key-up CTRL
+frames 3
+move 300 200
+frames 2
+key-down CTRL
+press i
+key-up CTRL
+frames 3
+move 300 200
+frames 2
+key-down CTRL
+press 1
+key-up CTRL
+frames 2
+snapshot back
+#! expect-src Classes/TreeTab.lua
+#! expect-src Classes/PassiveTreeView.lua

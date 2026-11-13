@@ -1,0 +1,21 @@
+# U53 e2e: allflame_exp_048 in the Skills tab (Ctrl+2): the socket group list, select a group (its gems), hover a gem row (the gem tooltip with the Rust calc's comparison), then the build XML.
+fixture userdir=../user1
+frames 2
+load-build "Builds/allflame_exp_048.xml"
+frames 2
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+move 400 112
+frames 3
+click LEFTBUTTON
+frames 3
+move 600 140
+frames 3
+move 400 96
+frames 2
+snapshot skills
+#! expect-text ^7Socket Groups:
+#! expect-text Gem Options
+#! expect-src Classes/Tooltip.lua

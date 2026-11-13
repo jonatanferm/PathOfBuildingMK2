@@ -53,6 +53,8 @@ fn lock(sh: &Shared) -> MutexGuard<'_, Queue> {
 /// Reads images from disk relative to PoB's `src/`.
 pub struct NativeLoader {
     base: PathBuf,
+    /// `base`'s index when it is the asset bundle (VENDOR, [`crate::bundle`]).
+    bundle: Option<std::sync::Arc<crate::bundle::Bundle>>,
     deterministic: bool,
     sh: Arc<Shared>,
     workers: Vec<std::thread::JoinHandle<()>>,
@@ -89,8 +91,10 @@ fn pick(jobs: &[Job]) -> Option<usize> {
 impl NativeLoader {
     /// `base` is the script dir (PoB `src/`); `deterministic` makes ASYNC loads synchronous.
     pub fn new(base: impl Into<PathBuf>, deterministic: bool) -> NativeLoader {
+        let base = base.into();
         NativeLoader {
-            base: base.into(),
+            bundle: crate::bundle::Bundle::detect(&base),
+            base,
             deterministic,
             sh: Arc::new(Shared {
                 q: Mutex::new(Queue::default()),
@@ -101,7 +105,15 @@ impl NativeLoader {
     }
 
     /// `scriptWorkDir / fileName` unless `fileName` is absolute (ui_api.cpp:402-405).
+    /// VENDOR: through the bundle's index when `base` is the asset bundle.
     fn resolve(&self, path: &str) -> PathBuf {
+        if let Some(p) = self
+            .bundle
+            .as_deref()
+            .and_then(|b| crate::fs_native::bundle_file(b, path))
+        {
+            return p;
+        }
         let p = Path::new(path);
         if p.is_absolute() {
             p.to_path_buf()

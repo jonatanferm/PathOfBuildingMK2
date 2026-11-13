@@ -945,9 +945,9 @@ mod web {
 
     use super::{protocol, Rc, Reply, Sink, Spawner, WorkerEvent, WorkerPort};
 
-    /// Where `pob-dump compile`'s `data.bin` and `trees/<ver>.bin` are served by default
-    /// (relative to the page).
-    pub const DEFAULT_DATA_BASE: &str = "pob/dump";
+    /// Where the game data (`data.bin` and `trees/<name>.bin`) is served by default (relative to
+    /// the page): the asset bundle's `gamedata/` (VENDOR).
+    pub const DEFAULT_DATA_BASE: &str = "assets/gamedata";
 
     /// The worker's script. It is started from a Blob URL, so the module URLs it imports are
     /// absolute ([`WebWorkerConfig::resolve`]); they come in through the worker's `name`.
@@ -1176,8 +1176,8 @@ self.onmessage = (e) => { if (handle) handle(e.data); else queue.push(e.data); }
     }
 
     /// The game data on the web: fetch `<data_base>/data.bin`, `pob_gamedata::init`, serve the
-    /// trees from [`TREES`] and fetch the latest tree version. Both the page and its calc
-    /// workers call it.
+    /// trees from [`TREES`] and fetch the latest tree version (the page: and the tree UI files
+    /// of it). Both the page and its calc workers call it.
     pub async fn init_web_data(data_base: &str) -> Result<(), JsValue> {
         if let Ok(mut b) = DATA_BASE.lock() {
             data_base.clone_into(&mut b);
@@ -1188,7 +1188,20 @@ self.onmessage = (e) => { if (handle) handle(e.data); else queue.push(e.data); }
             pob_gamedata::init(&bytes).map_err(|e| JsValue::from_str(&format!("data.bin: {e}")))?;
         }
         let latest = pob_gamedata::data().gameVersions.latestTreeVersion.to_string();
-        ensure_trees(&[latest]).await;
+        if in_worker() {
+            ensure_trees(&[latest]).await;
+        } else {
+            // VENDOR: the page's tree view also reads the tree UI files (sprites, the shared 3.19
+            // asset table, the legion sprites; tree_view/assets.rs), which the calc never reads
+            let sprites = pob_gamedata::data::tree_sprites_file(&latest);
+            ensure_trees(&[
+                latest,
+                sprites,
+                pob_gamedata::data::tree_assets_file("3_19"),
+                pob_gamedata::data::TREE_LEGION_FILE.to_owned(),
+            ])
+            .await;
+        }
         Ok(())
     }
 

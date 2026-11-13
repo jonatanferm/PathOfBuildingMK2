@@ -30,7 +30,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-use crate::fs_native::{DirAssets, NativeFs};
+use crate::fs_native::{dir_or_bundle_assets, NativeFs};
 use crate::loader_native::NativeLoader;
 use crate::net_native::NativeNet;
 use crate::platform_native::{HostRequests, NativePlatform};
@@ -43,20 +43,18 @@ pub fn build_parts(
     deterministic_images: bool,
 ) -> anyhow::Result<(PlatformParts, Rc<RefCell<HostRequests>>)> {
     let mut images = ImageRegistry::new(Box::new(NativeLoader::new(
-        &cfg.pob_src,
+        &cfg.script_dir,
         deterministic_images,
     )));
-    let assets = DirAssets {
-        src: PathBuf::from(&cfg.pob_src),
-        runtime: PathBuf::from(&cfg.sg_runtime),
-    };
-    let fonts = FontSet::load(&assets, &mut images)
+    // VENDOR: the asset bundle's index when the script dir is the bundle
+    let assets = dir_or_bundle_assets(Path::new(&cfg.script_dir), Path::new(&cfg.sg_runtime));
+    let fonts = FontSet::load(&*assets, &mut images)
         .map_err(|e| anyhow::anyhow!("loading fonts from {}: {e}", cfg.sg_runtime))?;
     let sg = Sg::new(Rc::new(fonts), images);
-    let platform = NativePlatform::new(cfg.pob_src.clone(), cfg.sg_runtime.clone());
+    let platform = NativePlatform::new(cfg.script_dir.clone(), cfg.sg_runtime.clone());
     let requests = platform.requests.clone();
     let net = NativeNet::with_clipboard(platform.clipboard());
-    let fs = NativeFs::new(&cfg.pob_src);
+    let fs = NativeFs::new(&cfg.script_dir);
     let sys = Sys::new(Box::new(platform), Box::new(fs), Box::new(net));
     Ok((PlatformParts { sg, sys }, requests))
 }
@@ -84,13 +82,25 @@ pub fn screenshot_stamp(unix_secs: i64) -> String {
     )
 }
 
+/// Where screenshots go: SimpleGraphic's `<runtime>/SimpleGraphic/Screenshots` (`CFG_DATAPATH`);
+/// VENDOR: with the asset bundle as the runtime dir (read-only, part of the install), the user
+/// data folder's `Path of Building/Screenshots` instead.
+pub fn screenshot_dir(sg_runtime: &Path) -> PathBuf {
+    if sg_runtime.join(crate::bundle::INDEX_FILE).is_file() {
+        if let Ok(user) = crate::platform_native::find_user_path() {
+            return Path::new(&user).join("Path of Building/Screenshots");
+        }
+    }
+    sg_runtime.join("Screenshots")
+}
+
 /// lua: r_main.cpp `DoScreenshot`: the frame as RGB JPEG (`r_screenshotFormat` defaults to
-/// `jpg`) at `<runtime>/SimpleGraphic/Screenshots/<MMDDYY_HHMMSS>.jpg` (`CFG_DATAPATH`).
+/// `jpg`) at `<screenshot_dir>/<MMDDYY_HHMMSS>.jpg`.
 fn save_screenshot(sg_runtime: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<PathBuf, String> {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
-    let dir = sg_runtime.join("Screenshots");
+    let dir = screenshot_dir(sg_runtime);
     std::fs::create_dir_all(&dir).map_err(|_| "Couldn't create screenshot folder!".to_owned())?;
     let path = dir.join(format!("{}.jpg", screenshot_stamp(secs)));
     let rgb: Vec<u8> = rgba

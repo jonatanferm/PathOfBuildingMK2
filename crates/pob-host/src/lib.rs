@@ -18,6 +18,7 @@
 
 use pob_sg::Key;
 
+pub mod bundle;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod desktop;
 pub mod headless;
@@ -114,9 +115,11 @@ pub struct HostConfig {
     /// Initial inner size in logical px.
     pub size: (u32, u32),
     pub min_size: (u32, u32),
-    /// PoB's `src/` (script dir; relative image paths resolve here).
-    pub pob_src: String,
-    /// `runtime/SimpleGraphic/` (fonts).
+    /// The script directory (`GetScriptPath`; relative file and image paths resolve here): the
+    /// asset bundle (`assets/`, [`bundle`]), or a directory laid out as PoB's `src/`.
+    pub script_dir: String,
+    /// SimpleGraphic's runtime directory (`Fonts/`): the asset bundle, or PoB's
+    /// `runtime/SimpleGraphic/`.
     pub sg_runtime: String,
 }
 
