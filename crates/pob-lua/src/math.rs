@@ -376,6 +376,8 @@ mod tests {
     /// `math.randomseed(1700000000); print(string.format("%.17g", math.random(2^32-1)))` then
     /// `for i=1,4 do io.write(math.random(0, 15), " ") end`;
     /// `math.randomseed(0); print(string.format("%.17g", math.random()))`, `math.random(10, 20)`.
+    /// None of these seeds rounds differently under FMA, so the aarch64 /usr/bin/luajit (which
+    /// fuses `random_seed`'s `d*PI+E`) prints the x64 stream for them.
     /// `l0_math.rs` compares random seeds and arguments against the oracle's LuaJIT.
     #[test]
     fn random_matches_luajit() {

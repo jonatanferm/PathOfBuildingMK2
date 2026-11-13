@@ -428,13 +428,16 @@ pub fn install_natives(lua: &Lua) -> mlua::Result<()> {
     let g = lua.globals();
     // SimpleGraphic's `l_Inflate` / `l_Deflate` (ui_api.cpp): the shared port
     // `pob_gamedata::sg_zlib`, which the Rust side calls too (FUP7; CCR-0109 §8, CCR-0114 §3).
-    // `Inflate` returns `nil, zError(err)` unless the zlib stream ends; `Deflate` is level 9.
+    // `Inflate` returns the one string, or `nil, zError(err)` unless the zlib stream ends;
+    // `Deflate` is level 9.
     g.set(
         "Inflate",
         lua.create_function(|lua, data: mlua::String| {
             Ok(match pob_gamedata::sg_zlib::Inflate(&data.as_bytes()) {
-                Ok(out) => (Some(lua.create_string(out)?), None),
-                Err(msg) => (None, Some(msg)),
+                Ok(out) => MultiValue::from_iter([Value::String(lua.create_string(out)?)]),
+                Err(msg) => {
+                    MultiValue::from_iter([Value::Nil, Value::String(lua.create_string(msg)?)])
+                }
             })
         })?,
     )?;

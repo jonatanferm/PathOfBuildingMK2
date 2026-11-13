@@ -700,8 +700,14 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
    1038-1079 under LuaJIT, 0 mismatches). `pob_lua::math::{m_random, m_randomseed}` is the one
    PRNG (one per-thread state, as LuaJIT's one per Lua state; L0 `l0_math.rs` `lj_math_random`:
    12,800 draws, 0 mismatches, of which 7,600 on seeds whose `random_seed` rounds differently
-   under FMA are checked against an FMA-seeded model, because the vendored aarch64 oracle's C
-   compiler fuses `d*PI+E`; the x64 values are the ones /usr/bin/luajit prints). SimpleGraphic's
+   under FMA are checked against an FMA-seeded model, because this host is aarch64 and both the
+   oracle's vendored LuaJIT and /usr/bin/luajit (2.1.1788856981) fuse `d*PI+E` in `random_seed`:
+   `math.randomseed(-3.3)` then five `math.random(1,1000000)` print `854163 235769 441195 408577
+   471319` under both, the FMA model's stream, where the port gives `853552 235769 458773 408577
+   440069`. So the port's unfused (x64, CCR-0001) stream for FMA-sensitive seeds is checked only
+   against the model (resting on the reasoning that baseline x86-64 has no FMA contraction),
+   never against a real x64 LuaJIT; seeds that round the same either way (0, 12.5, 1.7e9, ...) match both LuaJITs
+   bit-exactly). SimpleGraphic's
    `Inflate`/`Deflate` are `pob_gamedata::sg_zlib` (the `l_Inflate` loop on miniz_oxide's
    stream API, `nil, zError(err)`; level 9), used by the timeless LUT loader,
    `tabs/import/core.rs`'s adapters (ImportTab, PartyTab, CompareTab) and pob-oracle's LuaJIT
