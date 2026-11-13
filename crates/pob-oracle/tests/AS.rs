@@ -968,7 +968,11 @@ fn as_oracle() {
     // every non-support granted effect
     if pob_testpaths::quick_corpus() {
         // quick corpus (14 builds): only the synthetic half has a fixed count
-        assert_eq!(cases.len() - corpus_n, AS_CASES.1, "AS synthetic case count");
+        assert_eq!(
+            cases.len() - corpus_n,
+            AS_CASES.1,
+            "AS synthetic case count"
+        );
         assert!(corpus_n > 0, "AS: no corpus cases on the quick corpus");
     } else {
         assert_eq!(
@@ -1328,7 +1332,9 @@ fn as_l4_corpus() {
                     let order = m.kind == pob_oracle::diff::MismatchKind::LuaOrder
                         && testkit::buff_mod_list_path(&m.path) == Some(m.path.as_str());
                     if order {
-                        why.push("buff modList in stat-map `pairs` order (LUA-ORDER, calc doc §9.5)");
+                        why.push(
+                            "buff modList in stat-map `pairs` order (LUA-ORDER, calc doc §9.5)",
+                        );
                     }
                     !order
                 })
@@ -1369,12 +1375,12 @@ fn as_l4_corpus() {
             }
         }
     }
-    assert!(probe_failed.is_empty(), "AS L4: probes failed: {probe_failed:?}");
+    assert!(
+        probe_failed.is_empty(),
+        "AS L4: probes failed: {probe_failed:?}"
+    );
     if pairs == 0 {
-        let _ = pob_testpaths::require(
-            None::<()>,
-            "no buildActiveSkillModList probe dumps",
-        );
+        let _ = pob_testpaths::require(None::<()>, "no buildActiveSkillModList probe dumps");
         return; // POB_ALLOW_SKIP=1
     }
     eprintln!("AS L4: {pass}/{pairs} buildActiveSkillModList in→out dumps match");

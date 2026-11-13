@@ -239,7 +239,8 @@ fn ofg_l4_prelude_and_bleed_poison() {
             // CK1: the quick corpus (`POB_QUICK_CORPUS=1`) is a deliberate subset of all57, so a
             // build of BUILDS outside it is filtered out, not a missing input
             if pob_testpaths::quick_corpus() {
-                t.lines.push(format!("note    {stem}: not in the quick corpus"));
+                t.lines
+                    .push(format!("note    {stem}: not in the quick corpus"));
             } else {
                 missing.push(format!("{stem}: build xml"));
             }

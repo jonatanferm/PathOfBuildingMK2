@@ -232,7 +232,10 @@ fn config_draw_stand_in(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
     // L1100
     for (index, config_set_id) in order.iter().enumerate() {
         // L1101
-        let config_set = model.configTab.configSet(f64::from(*config_set_id)).unwrap();
+        let config_set = model
+            .configTab
+            .configSet(f64::from(*config_set_id))
+            .unwrap();
         // L1102
         let title = config_set
             .str(pob_lua::n!("title"))
@@ -830,7 +833,6 @@ fn lua_run(
         &[
             &format!("{script:?}"),
             &format!("{screen:?}"),
-            
             &saved.join("\n"),
         ],
     );

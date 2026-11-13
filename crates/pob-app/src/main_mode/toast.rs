@@ -158,13 +158,7 @@ pub fn update(cx: &mut Cx, id: &str, message: &str) -> bool {
 pub fn remove(cx: &mut Cx, id: &str, immediate: bool) -> bool {
     let now = cx.sys.time_ms() as f64;
     // L90
-    let pos = cx
-        .app()
-        .main
-        .toasts
-        .toasts
-        .iter()
-        .position(|t| t.id == id);
+    let pos = cx.app().main.toasts.toasts.iter().position(|t| t.id == id);
     // L91
     if let Some(i) = pos {
         // L92
@@ -277,11 +271,9 @@ fn on_dismiss(cx: &mut Cx, id: &str) {
 
 /// `screenH` in arithmetic (nil is a Lua error).
 fn screen_h(cx: &Cx) -> f64 {
-    cx.app()
-        .main
-        .toasts
-        .screen_h
-        .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on upvalue 'screenH' (a nil value)"))
+    cx.app().main.toasts.screen_h.unwrap_or_else(|| {
+        lua_error!("attempt to perform arithmetic on upvalue 'screenH' (a nil value)")
+    })
 }
 
 /// lua: ToastNotification.lua:166-252 ToastNotification:Render(): the total toast height.
@@ -384,7 +376,8 @@ pub fn render(cx: &mut Cx) -> f64 {
 
             // L216-218 Toast background
             cx.sg.set_draw_color(0.85, 0.85, 0.85);
-            cx.sg.draw_image(None, 0.0, toast_y, 312.0, t.current_height);
+            cx.sg
+                .draw_image(None, 0.0, toast_y, 312.0, t.current_height);
             // L219-220
             cx.sg.set_draw_color(0.1, 0.1, 0.1);
             cx.sg

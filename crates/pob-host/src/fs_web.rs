@@ -214,7 +214,9 @@ impl WebFs {
         };
         let mut out: Vec<FileEntry> = Vec::new();
         for (key, data) in self.vfs.borrow().iter() {
-            let Some(rest) = key.strip_prefix(rel) else { continue };
+            let Some(rest) = key.strip_prefix(rel) else {
+                continue;
+            };
             let (name, is_dir) = match rest.split_once('/') {
                 Some((d, _)) => (d, true),
                 None => (rest, false),

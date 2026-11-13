@@ -149,7 +149,9 @@ fn native_scan(args: Vec<Val>) -> Result<Vec<Val>, LuaError> {
                 Ok(e) => LuaError::msg(e.0),
                 Err(other) => std::panic::resume_unwind(other),
             })?;
-            let Some((f_start, f_end, f_caps)) = found else { continue };
+            let Some((f_start, f_end, f_caps)) = found else {
+                continue;
+            };
             let better = match &best {
                 None => true,
                 Some((bs, be, bl, _, _)) => {
@@ -311,7 +313,11 @@ fn lua_to_json(v: &Val) -> J {
                     }
                     Val::Str(s) => {
                         let key = s.to_str().into_owned();
-                        let key = if key.starts_with('$') { format!("${key}") } else { key };
+                        let key = if key.starts_with('$') {
+                            format!("${key}")
+                        } else {
+                            key
+                        };
                         o.insert(key, lua_to_json(&val));
                     }
                     _ => {}
@@ -321,7 +327,10 @@ fn lua_to_json(v: &Val) -> J {
                 return J::Array(arr.iter().map(lua_to_json).collect());
             }
             if n > 0 {
-                o.insert("$seq".into(), J::Array(arr.iter().map(lua_to_json).collect()));
+                o.insert(
+                    "$seq".into(),
+                    J::Array(arr.iter().map(lua_to_json).collect()),
+                );
             }
             if !num.is_empty() {
                 o.insert("$num".into(), J::Object(num));

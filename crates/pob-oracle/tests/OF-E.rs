@@ -71,7 +71,12 @@ fn corpus(parity: &Path) -> Vec<PathBuf> {
 
 /// The `n` of every `offence:2607#n` dump present for a build.
 /// The probe selection (OF-F's, module docs).
-const SELECT: &[&str] = &["offence:2607*", "offence:3346*", "offence:3957*", "offence:4155*"];
+const SELECT: &[&str] = &[
+    "offence:2607*",
+    "offence:3346*",
+    "offence:3957*",
+    "offence:4155*",
+];
 
 fn pass_hits(dirs: &[PathBuf]) -> Vec<u64> {
     let mut ns = std::collections::BTreeSet::new();

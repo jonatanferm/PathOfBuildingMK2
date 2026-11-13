@@ -17,7 +17,10 @@ use serde_json::{Map, Value as J};
 fn short(j: &J) -> String {
     let s = j.to_string();
     if s.len() > 160 {
-        format!("{}…", &s[..s.char_indices().nth(160).map_or(s.len(), |(i, _)| i)])
+        format!(
+            "{}…",
+            &s[..s.char_indices().nth(160).map_or(s.len(), |(i, _)| i)]
+        )
     } else {
         s
     }
@@ -35,18 +38,80 @@ fn unescape(k: &str) -> Option<&str> {
 
 /// The Tag fields (`pob_gamedata::Tag`), i.e. the keys serde decodes.
 const TAG_KEYS: &[&str] = &[
-    "type", "var", "varList", "neg", "actor", "stat", "statList", "div", "divVar", "base",
-    "noFloor", "invert", "floor", "limit", "limitVar", "limitStat", "limitTotal",
-    "limitNegTotal", "limitActor", "percent", "percentVar", "threshold", "thresholdVar",
-    "thresholdStat", "thresholdActor", "thresholdPercent", "thresholdPercentVar", "upper",
-    "equals", "ramp", "itemSlot", "allSlots", "bothSlots", "excludeSelf", "searchCond",
-    "rarityCond", "corruptedCond", "shaperCond", "elderCond", "nameCond", "slotName",
-    "slotNameList", "keyword", "socketColor", "sockets", "skillName", "skillNameList",
-    "includeTransfigured", "summonSkill", "skillId", "skillPart", "skillPartList", "skillType",
-    "skillTypeList", "baseFlag", "modFlags", "keywordFlags", "monsterTag", "monsterTagList",
-    "globalLimit", "globalLimitKey", "num", "effectType", "effectName", "effectCond",
-    "effectEnemyCond", "effectStackVar", "effectStackLimit", "modCond", "unscalable",
-    "allowTotemBuff", "applyNotPlayer", "applyMinions", "excludeItemType",
+    "type",
+    "var",
+    "varList",
+    "neg",
+    "actor",
+    "stat",
+    "statList",
+    "div",
+    "divVar",
+    "base",
+    "noFloor",
+    "invert",
+    "floor",
+    "limit",
+    "limitVar",
+    "limitStat",
+    "limitTotal",
+    "limitNegTotal",
+    "limitActor",
+    "percent",
+    "percentVar",
+    "threshold",
+    "thresholdVar",
+    "thresholdStat",
+    "thresholdActor",
+    "thresholdPercent",
+    "thresholdPercentVar",
+    "upper",
+    "equals",
+    "ramp",
+    "itemSlot",
+    "allSlots",
+    "bothSlots",
+    "excludeSelf",
+    "searchCond",
+    "rarityCond",
+    "corruptedCond",
+    "shaperCond",
+    "elderCond",
+    "nameCond",
+    "slotName",
+    "slotNameList",
+    "keyword",
+    "socketColor",
+    "sockets",
+    "skillName",
+    "skillNameList",
+    "includeTransfigured",
+    "summonSkill",
+    "skillId",
+    "skillPart",
+    "skillPartList",
+    "skillType",
+    "skillTypeList",
+    "baseFlag",
+    "modFlags",
+    "keywordFlags",
+    "monsterTag",
+    "monsterTagList",
+    "globalLimit",
+    "globalLimitKey",
+    "num",
+    "effectType",
+    "effectName",
+    "effectCond",
+    "effectEnemyCond",
+    "effectStackVar",
+    "effectStackLimit",
+    "modCond",
+    "unscalable",
+    "allowTotemBuff",
+    "applyNotPlayer",
+    "applyMinions",
+    "excludeItemType",
 ];
 
 /// A tag table (pob-state shape) as a `Tag`. Keys the typed tag cannot hold
@@ -114,7 +179,10 @@ pub fn decode_mod(j: &J) -> Result<(Mod, Option<String>), String> {
         .get("name")
         .and_then(J::as_str)
         .ok_or("mod without a name")?;
-    let ty = m.get("type").and_then(J::as_str).ok_or("mod without a type")?;
+    let ty = m
+        .get("type")
+        .and_then(J::as_str)
+        .ok_or("mod without a type")?;
     let ty = ModType::parse(ty).ok_or_else(|| format!("unknown mod type {ty}"))?;
     let mut extra = ValueTable::new();
     // a non-number `flags` / `keywordFlags` is kept verbatim in `extra`
@@ -123,7 +191,9 @@ pub fn decode_mod(j: &J) -> Result<(Mod, Option<String>), String> {
         match m.get(key) {
             Some(J::Number(n)) => n.as_f64().unwrap_or(0.0) as u32,
             Some(other) => {
-                pob_calc::probe::with_registry(|r| r.fallback(format!("mod.{key}: not a number, kept in mod.extra")));
+                pob_calc::probe::with_registry(|r| {
+                    r.fallback(format!("mod.{key}: not a number, kept in mod.extra"))
+                });
                 extra.set(name, j_to_value(other));
                 0
             }
@@ -180,7 +250,9 @@ pub fn decode_mod(j: &J) -> Result<(Mod, Option<String>), String> {
 /// The function adds `"tags": []` to a mod-shaped object (string `name` and `type`, plus
 /// `value`, `flags` and `keywordFlags`) that has no `tags`, and returns whether it added it.
 pub fn default_empty_tags(o: &mut Map<String, J>) -> bool {
-    let is_mod = ["name", "type"].iter().all(|k| o.get(*k).is_some_and(J::is_string))
+    let is_mod = ["name", "type"]
+        .iter()
+        .all(|k| o.get(*k).is_some_and(J::is_string))
         && o.contains_key("value")
         && o.contains_key("flags")
         && o.contains_key("keywordFlags");
@@ -317,7 +389,11 @@ pub fn j_to_value(j: &J) -> Value {
                     "name" | "type" | "value" | "flags" | "keywordFlags" | "source" | "$seq"
                 )
             });
-            if mod_keys && m.contains_key("name") && m.contains_key("flags") && m.contains_key("keywordFlags") {
+            if mod_keys
+                && m.contains_key("name")
+                && m.contains_key("flags")
+                && m.contains_key("keywordFlags")
+            {
                 if let Ok(md) = serde_json::from_value::<Mod>(j.clone()) {
                     let back = pob_calc::probe::value_json(&Value::Mod(Arc::new(md.clone())));
                     if &back == j {
@@ -348,4 +424,3 @@ pub fn j_to_value(j: &J) -> Value {
         }
     }
 }
-

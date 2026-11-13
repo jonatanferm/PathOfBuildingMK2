@@ -42,7 +42,10 @@ use crate::main_mode::ModeArg;
 /// The About popup's `version` label (L1466). DIVERGENCE(branding): user decision 2026-11-12
 /// (PoB: `"^7Path of Building Community Fork v"..launch.versionNumber`).
 pub fn about_version_text() -> String {
-    format!("^7Path of Building Rust Port v{}", crate::launch::PORT_VERSION)
+    format!(
+        "^7Path of Building Rust Port v{}",
+        crate::launch::PORT_VERSION
+    )
 }
 
 /// `helpSections[helpSectionIndex]` after L1451-1460.
@@ -444,7 +447,10 @@ mod tests {
     fn about_version_line() {
         assert_eq!(
             super::about_version_text(),
-            format!("^7Path of Building Rust Port v{}", crate::launch::PORT_VERSION)
+            format!(
+                "^7Path of Building Rust Port v{}",
+                crate::launch::PORT_VERSION
+            )
         );
         assert!(!super::about_version_text().contains("Community"));
     }

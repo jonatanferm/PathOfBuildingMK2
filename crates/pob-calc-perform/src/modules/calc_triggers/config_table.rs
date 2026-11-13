@@ -206,7 +206,9 @@ fn slot(skill: &ActiveSkillRef) -> Option<Name> {
 
 /// `skill.triggeredBy` where the Lua indexes it (nil raises).
 fn trig_by(skill: &ActiveSkillRef) -> SkillEffectRef {
-    skill.triggeredBy.get()
+    skill
+        .triggeredBy
+        .get()
         .unwrap_or_else(|| lua_error!("attempt to index field 'triggeredBy' (a nil value)"))
 }
 
@@ -2288,7 +2290,10 @@ pub fn triggers(env: &EnvRef, actor: Option<&ActorRef>) {
         // L1604
         let skillName = ge_name(&mainSkill(actor));
         // L1605
-        let triggerName = mainSkill(actor).triggeredBy.get().map(|tb| tb.grantedEffect.get().name);
+        let triggerName = mainSkill(actor)
+            .triggeredBy
+            .get()
+            .map(|tb| tb.grantedEffect.get().name);
         // L1606
         let uniqueName = if isTriggered(&mainSkill(actor)) {
             getUniqueItemTriggerName(&mainSkill(actor))

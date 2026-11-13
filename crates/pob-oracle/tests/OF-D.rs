@@ -96,7 +96,11 @@ fn generalize(path: &str) -> String {
     let mut out = String::new();
     let mut chars = path.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '[' && chars.peek().is_some_and(|d| d.is_ascii_digit() || *d == '-' || *d == '@') {
+        if c == '['
+            && chars
+                .peek()
+                .is_some_and(|d| d.is_ascii_digit() || *d == '-' || *d == '@')
+        {
             out.push_str("[#]");
             for d in chars.by_ref() {
                 if d == ']' {
@@ -248,7 +252,11 @@ fn foreign_skill_store(root: &serde_json::Value) -> bool {
 
 fn run_one(stem: &str, pin: &Path, pout: &Path) -> Outcome {
     let (Ok(din), Ok(dout)) = (StateDump::load(pin), StateDump::load(pout)) else {
-        return Outcome::Failed(format!("unreadable dump {} / {}", pin.display(), pout.display()));
+        return Outcome::Failed(format!(
+            "unreadable dump {} / {}",
+            pin.display(),
+            pout.display()
+        ));
     };
     let model = testkit::empty_build();
     let inj = match pob_oracle::inject::inject(&din, &model) {
@@ -332,7 +340,10 @@ impl Tally {
             });
             e.0 += 1;
             if verbose {
-                eprintln!("  {what}: {} {:?} pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours);
+                eprintln!(
+                    "  {what}: {} {:?} pob={:?} ours={:?}",
+                    m.path, m.kind, m.pob, m.ours
+                );
             }
         }
     }
@@ -342,7 +353,8 @@ impl Tally {
         let ps = pairs(state);
         if ps.is_empty() {
             // the build's main skill never reached the first pass loop (e.g. disabled at 371)
-            self.missing.push(format!("{stem}: no {STAGE_IN}/{STAGE_OUT} pair"));
+            self.missing
+                .push(format!("{stem}: no {STAGE_IN}/{STAGE_OUT} pair"));
             return;
         }
         for (n, pin, pout) in ps {
@@ -351,7 +363,8 @@ impl Tally {
             match run_one(stem, &pin, &pout) {
                 Outcome::Clean => self.clean += 1,
                 Outcome::Mismatch(mm) => {
-                    self.mismatched.push(format!("{what}: {} mismatches", mm.len()));
+                    self.mismatched
+                        .push(format!("{what}: {} mismatches", mm.len()));
                     self.add_mismatches(&what, &mm);
                 }
                 Outcome::Blocked(sites, res) => {
@@ -367,12 +380,17 @@ impl Tally {
                         Err(e) => format!("stopped: {}", clip(e)),
                     };
                     for s in &sites {
-                        *self.blocked_sites.entry(s.split(" x").next().unwrap_or(s).to_owned()).or_default() += 1;
+                        *self
+                            .blocked_sites
+                            .entry(s.split(" x").next().unwrap_or(s).to_owned())
+                            .or_default() += 1;
                     }
-                    self.blocked.push(format!("{what}: {} ({how})", sites.join(", ")));
+                    self.blocked
+                        .push(format!("{what}: {} ({how})", sites.join(", ")));
                 }
                 Outcome::Foreign(mm) => {
-                    self.foreign.push(format!("{what}: {} mismatches", mm.len()));
+                    self.foreign
+                        .push(format!("{what}: {} mismatches", mm.len()));
                     self.add_mismatches(&format!("{what} (foreign)"), &mm);
                 }
                 Outcome::Failed(e) => self.failed.push(format!("{what}: {e}")),
@@ -385,7 +403,10 @@ impl Tally {
         if flag("OFD_STRICT") {
             (self.clean, self.hits)
         } else {
-            (self.clean, self.hits - self.blocked.len() - self.foreign.len())
+            (
+                self.clean,
+                self.hits - self.blocked.len() - self.foreign.len(),
+            )
         }
     }
 
@@ -435,7 +456,9 @@ impl Tally {
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn run_corpus(title: &str, builds: &[PathBuf], all_hits: bool) -> Option<Tally> {
-    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         if info.payload().downcast_ref::<pob_lua::LuaError>().is_none() {
@@ -453,7 +476,9 @@ fn run_corpus(title: &str, builds: &[PathBuf], all_hits: bool) -> Option<Tally> 
         // `$POB_PROBE_DIR/<stem>/state/` (explicit override) also counts
         dirs.extend(testkit::override_dir(stem));
         let Some(state) = dirs.into_iter().find(|d| !pairs(d).is_empty()) else {
-            t.missing.push(format!("{stem}: no {STAGE_IN}/{STAGE_OUT} dumps (probe failed or no hit)"));
+            t.missing.push(format!(
+                "{stem}: no {STAGE_IN}/{STAGE_OUT} dumps (probe failed or no hit)"
+            ));
             continue;
         };
         t.run_build(xml, &state);

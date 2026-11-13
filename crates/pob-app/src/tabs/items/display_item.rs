@@ -1679,7 +1679,10 @@ pub fn UpdateDisplayItemRangeLines(cx: &mut Cx, me: CtrlId) {
 /// lua: ItemsTab.lua:2493-2501 `checkLineForAllocates(line, nodes)` (a module local; `pub` for
 /// U36's crafting code in `craft_b.rs`, FUP7 / CCR-0129 §1).
 /// @pob Classes/ItemsTab.lua:2493-2501 h=df97821d
-pub fn checkLineForAllocates(line: &str, nodes: Option<&model::LjIntMap<model::NodeRef>>) -> String {
+pub fn checkLineForAllocates(
+    line: &str,
+    nodes: Option<&model::LjIntMap<model::NodeRef>>,
+) -> String {
     // L2494
     if let Some(nodes) = nodes.filter(|_| lmatch(line, "Allocates").is_some()) {
         // L2495

@@ -24,9 +24,9 @@ use std::rc::Rc;
 use std::task::Poll;
 use std::time::Duration;
 
+use pob_app::app::CxApp;
 use pob_app::calc::worker_web::protocol::{self, Reply, Request, Stats};
 use pob_app::calc::worker_web::{Sink, Spawner, ThreadHub, WorkerCalc, WorkerEvent, WorkerPort};
-use pob_app::app::CxApp;
 use pob_app::calc::CalcFacade;
 use pob_calc::model::build_xml::loadBuildFromXML;
 use pob_calc::model::BuildRef;
@@ -100,10 +100,8 @@ fn app_shows_numbers_once_the_worker_answers() {
     let Some(root) = root() else { return };
     let src = std::fs::canonicalize(root.join("src")).unwrap();
     let runtime = std::fs::canonicalize(root.join("runtime")).unwrap();
-    let h = pob_host::headless::HeadlessState::new(
-        &src.to_string_lossy(),
-        &runtime.to_string_lossy(),
-    );
+    let h =
+        pob_host::headless::HeadlessState::new(&src.to_string_lossy(), &runtime.to_string_lossy());
     *h.user_path.borrow_mut() = format!("{}/", fixture_user().display());
     let (p, f, n) = pob_host::headless::services(&h);
     let mut parts = pob_host::headless::parts(Rc::new(pob_host::fs_native::DirAssets {
@@ -148,7 +146,10 @@ fn app_shows_numbers_once_the_worker_answers() {
     // the first calc (Build:Init) ran on the main thread (CCR-0134 §4)
     let life0 = life(&model);
     assert!(life0 > 0.0, "Life {life0}");
-    assert!(shown(&last_frame_texts(&mut app), life0), "sidebar shows Life {life0}");
+    assert!(
+        shown(&last_frame_texts(&mut app), life0),
+        "sidebar shows Life {life0}"
+    );
     assert_eq!(status.requests(), 0);
     let epoch0 = status.epoch();
 
@@ -159,9 +160,16 @@ fn app_shows_numbers_once_the_worker_answers() {
     assert_eq!(status.requests(), 1, "one request posted");
     assert!(status.busy());
     assert_eq!(status.epoch(), epoch0, "Pending: no new results");
-    assert_eq!(life(&model), life0, "the old results stay until the worker answers");
+    assert_eq!(
+        life(&model),
+        life0,
+        "the old results stay until the worker answers"
+    );
     frame(&mut app);
-    assert!(shown(&last_frame_texts(&mut app), life0), "the sidebar keeps the old numbers");
+    assert!(
+        shown(&last_frame_texts(&mut app), life0),
+        "the sidebar keeps the old numbers"
+    );
 
     // the worker answers (the browser's event loop: between frames)
     assert!(hub.pump(PUMP) > 0, "the worker answered");
@@ -180,7 +188,10 @@ fn app_shows_numbers_once_the_worker_answers() {
     );
     assert!(status.errors().is_empty(), "{:?}", status.errors());
     let texts = last_frame_texts(&mut app);
-    assert!(shown(&texts, life1), "the sidebar shows the new Life {life1}");
+    assert!(
+        shown(&texts, life1),
+        "the sidebar shows the new Life {life1}"
+    );
     assert_eq!(status.restarts(), 0);
     eprintln!(
         "u54 app: Life {life0} -> {life1}, requests {}, epoch {}, {} texts in the last frame",
@@ -411,9 +422,17 @@ fn client_state_machine() {
     assert_eq!(s.posts.borrow().len(), 3, "B asked again of the new worker");
     assert!(last_xml(&s).contains("level=\"31\""));
     assert!(st.busy());
-    assert_eq!(st.errors(), vec!["calc error: boom".to_owned()], "A's error only");
+    assert_eq!(
+        st.errors(),
+        vec!["calc error: boom".to_owned()],
+        "A's error only"
+    );
     send(&s, 1, &Reply::Ready);
-    assert_eq!(wc2.build_output(&build), Poll::Pending, "B is being calculated");
+    assert_eq!(
+        wc2.build_output(&build),
+        Poll::Pending,
+        "B is being calculated"
+    );
     assert_eq!(s.posts.borrow().len(), 3, "not asked twice");
     build.buildFlag.set(false);
     let mut stats_b = Stats::new();
@@ -454,15 +473,33 @@ fn client_state_machine() {
     );
     assert_eq!(s.sinks.borrow().len(), 4);
     assert!(!st.busy());
-    assert_eq!(wc2.build_output(&build), Poll::Pending, "the verdict: keep the last results");
+    assert_eq!(
+        wc2.build_output(&build),
+        Poll::Pending,
+        "the verdict: keep the last results"
+    );
     assert_eq!(s.posts.borrow().len(), 5, "not retried twice");
-    assert!(st.errors().last().unwrap().contains("calc error: out of memory"));
+    assert!(st
+        .errors()
+        .last()
+        .unwrap()
+        .contains("calc error: out of memory"));
 
     // a worker that dies before it booted does not decide the request: the next worker gets it
     build.characterLevel.set(33.0);
     assert_eq!(wc2.build_output(&build), Poll::Pending);
-    assert_eq!(s.posts.borrow().len(), 6, "posted before the boot (the script queues it)");
-    send(&s, 3, &Reply::BootError { error: "404".into() });
+    assert_eq!(
+        s.posts.borrow().len(),
+        6,
+        "posted before the boot (the script queues it)"
+    );
+    send(
+        &s,
+        3,
+        &Reply::BootError {
+            error: "404".into(),
+        },
+    );
     assert!(st.broken().is_none());
     assert_eq!(s.sinks.borrow().len(), 5);
     assert_eq!(s.posts.borrow().len(), 7);
@@ -484,9 +521,21 @@ fn client_state_machine() {
     let (s, spawn) = scripted();
     let mut wc = WorkerCalc::new(spawn);
     let status = wc.status();
-    send(&s, 0, &Reply::BootError { error: "404".into() });
+    send(
+        &s,
+        0,
+        &Reply::BootError {
+            error: "404".into(),
+        },
+    );
     assert!(status.broken().is_none());
-    send(&s, 1, &Reply::BootError { error: "404".into() });
+    send(
+        &s,
+        1,
+        &Reply::BootError {
+            error: "404".into(),
+        },
+    );
     assert!(status.broken().is_some());
     assert_eq!(s.sinks.borrow().len(), 2, "no third worker");
     build.characterLevel.set(20.0);
@@ -495,7 +544,6 @@ fn client_state_machine() {
     assert_eq!(status.epoch(), epoch + 1);
     assert_eq!(status.requests(), 0);
 }
-
 
 // ---- a Lua error on a worker thread ---------------------------------------------------------
 
@@ -514,10 +562,11 @@ impl WorkerPort for Poisoned {
     fn post(&self, msg: &str) {
         if self.poison.get() {
             let seq = protocol::decode_request(msg).expect("request").seq();
-            self.inner.post(&protocol::encode_request(&Request::BuildOutput {
-                seq,
-                xml: RAISING_XML.into(),
-            }));
+            self.inner
+                .post(&protocol::encode_request(&Request::BuildOutput {
+                    seq,
+                    xml: RAISING_XML.into(),
+                }));
         } else {
             self.inner.post(msg);
         }
@@ -584,9 +633,17 @@ fn thread_worker_lua_error() {
     assert_eq!(wc.build_output(&build), Poll::Pending);
     hub.pump(PUMP);
     assert_eq!(status.restarts(), 1, "{:?}", status.errors());
-    assert!(status.errors().iter().any(|e| e.contains("nil value")), "{:?}", status.errors());
+    assert!(
+        status.errors().iter().any(|e| e.contains("nil value")),
+        "{:?}",
+        status.errors()
+    );
     assert!(!build.buildFlag.get(), "an error does not recalculate");
-    assert_eq!(wc.build_output(&build), Poll::Pending, "the failed model stays Pending");
+    assert_eq!(
+        wc.build_output(&build),
+        Poll::Pending,
+        "the failed model stays Pending"
+    );
     assert_eq!(life(&build), life0, "the last good results stay");
 
     poison.set(false);
@@ -610,16 +667,28 @@ fn thread_worker_lua_error() {
     build.buildFlag.set(false);
     hub.pump(PUMP);
     assert_eq!(status.restarts(), 2, "{:?}", status.errors());
-    assert!(build.buildFlag.get(), "the queued model is answered: {:?}", status.errors());
+    assert!(
+        build.buildFlag.get(),
+        "the queued model is answered: {:?}",
+        status.errors()
+    );
     let life2 = life(&build);
     assert_eq!(wc.build_output(&build), Poll::Ready(()));
     assert_ne!(life(&build), life2);
     assert_eq!(status.mismatches(), 0, "{:?}", status.errors());
     assert_eq!(
-        status.errors().iter().filter(|e| e.contains("calc error")).count(),
+        status
+            .errors()
+            .iter()
+            .filter(|e| e.contains("calc error"))
+            .count(),
         2,
         "one error per raising model: {:?}",
         status.errors()
     );
-    eprintln!("u54 thread worker: {:?}; errors {:?}", replies[1], status.errors());
+    eprintln!(
+        "u54 thread worker: {:?}; errors {:?}",
+        replies[1],
+        status.errors()
+    );
 }

@@ -5,9 +5,9 @@
 mod common;
 
 use common::*;
+use mlua::Table;
 use pob_lua::format::tostring_num;
 use pob_lua::LjIntMap;
-use mlua::Table;
 
 const SEQUENCES: usize = 10_000;
 

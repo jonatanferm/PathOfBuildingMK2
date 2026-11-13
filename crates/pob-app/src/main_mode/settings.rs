@@ -178,7 +178,9 @@ pub fn load_settings(cx: &mut Cx, ignore_build: bool) -> bool {
             // L548
             for child in &node.children {
                 // L549
-                let XmlChild::Node(child) = child else { continue };
+                let XmlChild::Node(child) = child else {
+                    continue;
+                };
                 // L550
                 if &*child.elem == "Arg" {
                     // L551
@@ -212,13 +214,14 @@ pub fn load_settings(cx: &mut Cx, ignore_build: bool) -> bool {
             // L569
             for child in &node.children {
                 // L570
-                let XmlChild::Node(child) = child else { continue };
+                let XmlChild::Node(child) = child else {
+                    continue;
+                };
                 if &*child.elem == "Account" {
                     // L571-573 self.gameAccounts[child.attrib.accountName] = { .. } (a nil key
                     // is a Lua error)
-                    let name = attr_s(child, "accountName").unwrap_or_else(|| {
-                        lua_error!("table index is nil")
-                    });
+                    let name = attr_s(child, "accountName")
+                        .unwrap_or_else(|| lua_error!("table index is nil"));
                     m.game_accounts.insert(
                         name,
                         GameAccount {
@@ -242,7 +245,8 @@ fn load_misc(cx: &mut Cx, node: &XmlNode) {
         cx.app_mut().main.build_sort_mode = v;
     }
     // L580
-    cx.app_mut().launch.connection_protocol = attr(node, "connectionProtocol").and_then(pob_lua::tonumber);
+    cx.app_mut().launch.connection_protocol =
+        attr(node, "connectionProtocol").and_then(pob_lua::tonumber);
     // L581
     cx.app_mut().launch.proxy_url = attr_s(node, "proxyURL");
     // L582
@@ -454,7 +458,9 @@ pub fn load_shared_items(cx: &mut Cx) -> bool {
         if &*node.elem == "SharedItems" {
             // L706
             for child in &node.children {
-                let XmlChild::Node(child) = child else { continue };
+                let XmlChild::Node(child) = child else {
+                    continue;
+                };
                 // L707
                 if &*child.elem == "Item" {
                     // L708-713
@@ -471,7 +477,9 @@ pub fn load_shared_items(cx: &mut Cx) -> bool {
                     };
                     // L718
                     for grand_child in &child.children {
-                        let XmlChild::Node(grand_child) = grand_child else { continue };
+                        let XmlChild::Node(grand_child) = grand_child else {
+                            continue;
+                        };
                         // L719
                         if &*grand_child.elem == "Item" {
                             // L720-725
@@ -607,7 +615,10 @@ pub fn compose_settings(cx: &mut Cx) -> Option<XmlNode> {
         "Misc",
         &[
             ("buildSortMode", s(&m.build_sort_mode)),
-            ("connectionProtocol", Some(tostring_opt_num(l.connection_protocol))),
+            (
+                "connectionProtocol",
+                Some(tostring_opt_num(l.connection_protocol)),
+            ),
             ("proxyURL", l.proxy_url.clone()),
             (
                 "buildPath",
@@ -638,7 +649,9 @@ pub fn compose_settings(cx: &mut Cx) -> Option<XmlNode> {
             ),
             (
                 "defaultItemAffixQuality",
-                Some(pob_lua::tostring_num(m.default_item_affix_quality.unwrap_or(0.5))),
+                Some(pob_lua::tostring_num(
+                    m.default_item_affix_quality.unwrap_or(0.5),
+                )),
             ),
             ("lastExportedWebsite", m.last_exported_website.clone()),
             ("showWarnings", b(m.show_warnings)),
@@ -649,7 +662,10 @@ pub fn compose_settings(cx: &mut Cx) -> Option<XmlNode> {
                 "invertSliderScrollDirection",
                 Some(tostring_opt_bool(m.invert_slider_scroll_direction)),
             ),
-            ("disableDevAutoSave", Some(tostring_opt_bool(m.disable_dev_auto_save))),
+            (
+                "disableDevAutoSave",
+                Some(tostring_opt_bool(m.disable_dev_auto_save)),
+            ),
             ("showPublicBuilds", b(m.show_public_builds)),
             ("showFlavourText", b(mc.show_flavour_text)),
             ("showAnimations", b(m.show_animations)),

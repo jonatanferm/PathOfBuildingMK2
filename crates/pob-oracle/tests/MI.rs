@@ -141,13 +141,15 @@ fn mirage_calls(state: &Path) -> Result<Vec<MirageCall>, String> {
             dir.join(rel)
         }
     };
-    let hits: J = serde_json::from_str(
-        &pob_oracle::schema::read_text(&file("hits.json")).map_err(|e| e.0)?,
-    )
-    .map_err(|e| e.to_string())?;
+    let hits: J =
+        serde_json::from_str(&pob_oracle::schema::read_text(&file("hits.json")).map_err(|e| e.0)?)
+            .map_err(|e| e.to_string())?;
     let main_env = hits["mainEnv"].as_str().unwrap_or_default().to_owned();
     if hits["skipped"].as_u64().unwrap_or(0) > 0 {
-        return Err(format!("{} selected hits skipped (max dumps)", hits["skipped"]));
+        return Err(format!(
+            "{} selected hits skipped (max dumps)",
+            hits["skipped"]
+        ));
     }
     let mut ins: BTreeMap<String, (PathBuf, bool)> = BTreeMap::new();
     let mut outs: BTreeMap<String, PathBuf> = BTreeMap::new();
@@ -158,7 +160,10 @@ fn mirage_calls(state: &Path) -> Result<Vec<MirageCall>, String> {
         let (id, n) = hit.split_once('#').unwrap_or((hit, ""));
         match id {
             "mirages:in" => {
-                ins.insert(n.to_owned(), (file, d["env"].as_str() == Some(main_env.as_str())));
+                ins.insert(
+                    n.to_owned(),
+                    (file, d["env"].as_str() == Some(main_env.as_str())),
+                );
             }
             "mirages:out" => {
                 outs.insert(n.to_owned(), file);
@@ -369,8 +374,8 @@ fn graft_output(mi53: &StateDump, out: &StateDump, base: &str, output: &J) -> Re
         .map(|(id, p)| (p, id))
         .collect();
     let ids_out = id_paths(&out.root);
-    let offset = 1 + ids53.values().copied().max().unwrap_or(0)
-        + ids_out.keys().copied().max().unwrap_or(0);
+    let offset =
+        1 + ids53.values().copied().max().unwrap_or(0) + ids_out.keys().copied().max().unwrap_or(0);
     fn rw(
         v: &J,
         ids53: &BTreeMap<String, u64>,
@@ -387,8 +392,13 @@ fn graft_output(mi53: &StateDump, out: &StateDump, base: &str, output: &J) -> Re
             J::Object(m) => {
                 if m.len() == 1 {
                     if let Some(n) = m.get("$ref").and_then(J::as_u64) {
-                        let p = ids_out.get(&n).ok_or_else(|| format!("dangling $ref {n}"))?;
-                        if p == base || p.starts_with(&format!("{base}.")) || p.starts_with(&format!("{base}[")) {
+                        let p = ids_out
+                            .get(&n)
+                            .ok_or_else(|| format!("dangling $ref {n}"))?;
+                        if p == base
+                            || p.starts_with(&format!("{base}."))
+                            || p.starts_with(&format!("{base}["))
+                        {
                             return Ok(json!({ "$ref": n + offset }));
                         }
                         let alt = p
@@ -464,7 +474,13 @@ fn fmt_mismatch(m: &Mismatch) -> String {
             s
         }
     };
-    format!("{} {:?} pob={} ours={}", m.path, m.kind, clip(&m.pob), clip(&m.ours))
+    format!(
+        "{} {:?} pob={} ours={}",
+        m.path,
+        m.kind,
+        clip(&m.pob),
+        clip(&m.ours)
+    )
 }
 
 // ---- identity-only mismatches ---------------------------------------------------------------------
@@ -492,8 +508,14 @@ fn content_eq(
     depth: usize,
 ) -> bool {
     let deref = |v: &J, t: &HashMap<String, &J>| -> Option<J> {
-        match v.as_object().and_then(|m| m.get("$ref")).and_then(J::as_str) {
-            Some(p) if v.as_object().is_some_and(|m| m.len() == 1) => t.get(p).map(|x| (*x).clone()),
+        match v
+            .as_object()
+            .and_then(|m| m.get("$ref"))
+            .and_then(J::as_str)
+        {
+            Some(p) if v.as_object().is_some_and(|m| m.len() == 1) => {
+                t.get(p).map(|x| (*x).clone())
+            }
             _ => Some(v.clone()),
         }
     };
@@ -516,8 +538,7 @@ fn content_eq(
                 return true;
             }
             x.len() == y.len()
-                && x
-                    .iter()
+                && x.iter()
                     .zip(y)
                     .all(|(v, w)| content_eq(v, w, ta, tb, depth - 1))
         }
@@ -558,7 +579,13 @@ fn split_identity<'m>(
 
 /// Live state (env + the given locals) vs a dump: the non-`LUA-ORDER` mismatches that differ in
 /// content (identity-only ones are counted in the log).
-fn live_vs(d: &StateDump, env: &EnvRef, locals: &[(String, Val)], log: &mut Log, what: &str) -> usize {
+fn live_vs(
+    d: &StateDump,
+    env: &EnvRef,
+    locals: &[(String, Val)],
+    log: &mut Log,
+    what: &str,
+) -> usize {
     let mut all = vec![(
         "env".to_owned(),
         Val::Obj(Rc::clone(env) as Rc<dyn std::any::Any>),
@@ -581,7 +608,8 @@ fn live_vs(d: &StateDump, env: &EnvRef, locals: &[(String, Val)], log: &mut Log,
     log.identity_only = log.identity_only.max(ident);
     if !content.is_empty() && (verbose() || log.first_mismatches.len() < 12) {
         for m in content.iter().take(if verbose() { usize::MAX } else { 12 }) {
-            log.first_mismatches.push(format!("{what}: {}", fmt_mismatch(m)));
+            log.first_mismatches
+                .push(format!("{what}: {}", fmt_mismatch(m)));
         }
     }
     content.len()
@@ -661,7 +689,10 @@ fn placeholder_env(env: &EnvRef, id: &str) -> EnvRef {
 fn mark_output_foreign(e: &EnvRef, id: &str) {
     let out = e.player.output.get();
     pob_calc::probe::with_registry(|r| {
-        r.set_foreign_table(&out, json!({"$foreign": {"env": id, "path": "player.output"}}));
+        r.set_foreign_table(
+            &out,
+            json!({"$foreign": {"env": id, "path": "player.output"}}),
+        );
     });
 }
 
@@ -685,7 +716,12 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
     let line = |id: &str| -> Result<Option<StateDump>, String> {
         c.lines.get(id).map(|p| load(p)).transpose()
     };
-    let (d39, d41, d52, d53) = (line("mi:39")?, line("mi:41")?, line("mi:52")?, line("mi:53")?);
+    let (d39, d41, d52, d53) = (
+        line("mi:39")?,
+        line("mi:41")?,
+        line("mi:52")?,
+        line("mi:53")?,
+    );
     let (d361, d364, d376, d396) = (
         line("mi:361")?,
         line("mi:364")?,
@@ -722,7 +758,12 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
         let mut o = dout.root["env"]["player"]["output"].clone();
         if family == "Tawhoa's Chosen" {
             if let Some(m) = o.as_object_mut() {
-                for k in ["Speed", "TriggerRateCap", "EffectiveSourceRate", "SkillTriggerRate"] {
+                for k in [
+                    "Speed",
+                    "TriggerRateCap",
+                    "EffectiveSourceRate",
+                    "SkillTriggerRate",
+                ] {
                     m.remove(k);
                 }
             }
@@ -774,7 +815,9 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
         let gc_uuid = gc_uuid.clone();
         move || {
             if let (Some(u), Some(t)) = (&gc_uuid, gc_attack_time) {
-                if let Some(e) = pob_calc::global_cache::cachedData(env.mode, pob_lua::Name::from(u.as_str())) {
+                if let Some(e) =
+                    pob_calc::global_cache::cachedData(env.mode, pob_lua::Name::from(u.as_str()))
+                {
                     let out = e.Env.player.output.get();
                     if out.get("HitTime").is_nil() && out.get("Time").is_nil() {
                         out.set("Time", t);
@@ -797,7 +840,8 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
             Call::isTriggered { skill } => Some(Ret::Bool(is_triggered(skill))),
             Call::copyActiveSkill { env, skill, .. } => {
                 let (Some(a), Some(b)) = (&d39, &d41) else {
-                    lg.problems.push("copyActiveSkill called, but PoB did not call it".into());
+                    lg.problems
+                        .push("copyActiveSkill called, but PoB did not call it".into());
                     return None;
                 };
                 let b2 = match with_copy_ret(b) {
@@ -808,7 +852,10 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
                     }
                 };
                 let mut out: Option<Ret> = None;
-                let ms_local = vec![("mirageSkill".to_owned(), Val::Obj(Rc::clone(skill) as Rc<dyn std::any::Any>))];
+                let ms_local = vec![(
+                    "mirageSkill".to_owned(),
+                    Val::Obj(Rc::clone(skill) as Rc<dyn std::any::Any>),
+                )];
                 let before = live_vs(a, env, &ms_local, &mut lg, "before copyActiveSkill");
                 let mut r = Replay::default();
                 r.calls.insert(
@@ -825,9 +872,7 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
                                 .push(format!("copyActiveSkill replay notes: {:?}", applied.notes));
                         }
                         let ret = applied.ret.and_then(|v| v.table());
-                        let skill = ret
-                            .as_ref()
-                            .and_then(|t| t.get(1).obj::<ActiveSkill>());
+                        let skill = ret.as_ref().and_then(|t| t.get(1).obj::<ActiveSkill>());
                         let id = new_env_id41.clone().unwrap_or_default();
                         let new_env = ret
                             .as_ref()
@@ -840,12 +885,20 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
                                 .push("copyActiveSkill replay: newSkill not decoded".into()),
                         }
                     }
-                    Err(e) => lg.problems.push(format!("copyActiveSkill replay failed: {e}")),
+                    Err(e) => lg
+                        .problems
+                        .push(format!("copyActiveSkill replay failed: {e}")),
                 }
                 if let Some(Ret::Copy(s, e)) = &out {
                     let locals = vec![
-                        ("newSkill".to_owned(), Val::Obj(Rc::clone(s) as Rc<dyn std::any::Any>)),
-                        ("newEnv".to_owned(), Val::Obj(Rc::clone(e) as Rc<dyn std::any::Any>)),
+                        (
+                            "newSkill".to_owned(),
+                            Val::Obj(Rc::clone(s) as Rc<dyn std::any::Any>),
+                        ),
+                        (
+                            "newEnv".to_owned(),
+                            Val::Obj(Rc::clone(e) as Rc<dyn std::any::Any>),
+                        ),
                     ];
                     let after = live_vs(b, env, &locals, &mut lg, "after copyActiveSkill");
                     lg.steps.push(("copyActiveSkill".into(), before, after));
@@ -855,7 +908,8 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
             }
             Call::perform { env: new_env } => {
                 let (Some(a), Some(b)) = (&d52, &d53) else {
-                    lg.problems.push("perform called, but PoB did not call it".into());
+                    lg.problems
+                        .push("perform called, but PoB did not call it".into());
                     return None;
                 };
                 let main = Rc::clone(&main_env);
@@ -865,8 +919,14 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
                     return Some(Ret::Unit);
                 };
                 let locals = vec![
-                    ("newSkill".to_owned(), Val::Obj(Rc::clone(&skill) as Rc<dyn std::any::Any>)),
-                    ("newEnv".to_owned(), Val::Obj(Rc::clone(new_env) as Rc<dyn std::any::Any>)),
+                    (
+                        "newSkill".to_owned(),
+                        Val::Obj(Rc::clone(&skill) as Rc<dyn std::any::Any>),
+                    ),
+                    (
+                        "newEnv".to_owned(),
+                        Val::Obj(Rc::clone(new_env) as Rc<dyn std::any::Any>),
+                    ),
                 ];
                 let before = live_vs(a, &main, &locals, &mut lg, "before perform");
                 let (a2, mut b2) = match (with_attached_skill(a), with_attached_skill(b)) {
@@ -889,7 +949,8 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
                         }
                     }
                 }
-                main.extra.set(ATTACH, Val::Obj(Rc::clone(&skill) as Rc<dyn std::any::Any>));
+                main.extra
+                    .set(ATTACH, Val::Obj(Rc::clone(&skill) as Rc<dyn std::any::Any>));
                 let mut r = Replay::default();
                 r.calls.insert(
                     a2.hit.clone(),
@@ -1043,7 +1104,8 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
     // General's Cry: Rust's cooldown before the `m_max` against PoB's (mi:376)
     match (gc_cd_pre, log.gc_cooldown.as_slice()) {
         (None, []) => {}
-        (Some(pob), [ours]) if pob_oracle::diff::num_close(pob, *ours, pob_oracle::diff::REL_TOL) => {}
+        (Some(pob), [ours])
+            if pob_oracle::diff::num_close(pob, *ours, pob_oracle::diff::REL_TOL) => {}
         (pob, ours) => log.problems.push(format!(
             "General's Cry cooldown before m_max: PoB {pob:?} (mi:376), Rust {ours:?}"
         )),
@@ -1130,7 +1192,11 @@ fn mi_l4_mirages_in_to_out() {
         let stem = stem(xml);
         // held while the build's calls read their dumps
         let dumps = probe_dumps(xml);
-        let calls = match dumps.as_ref().map_err(Clone::clone).and_then(|s| mirage_calls(s)) {
+        let calls = match dumps
+            .as_ref()
+            .map_err(Clone::clone)
+            .and_then(|s| mirage_calls(s))
+        {
             Ok(c) => c,
             Err(e) => {
                 failed.push(format!("{stem}: {e}"));
@@ -1138,11 +1204,7 @@ fn mi_l4_mirages_in_to_out() {
             }
         };
         for c in &calls {
-            let tag = format!(
-                "{stem} {}{}",
-                c.hit_in,
-                if c.main { "@main" } else { "" }
-            );
+            let tag = format!("{stem} {}{}", c.hit_in, if c.main { "@main" } else { "" });
             match run_call(c) {
                 Ok(r) => {
                     let real_ms = real(&r.mismatches);

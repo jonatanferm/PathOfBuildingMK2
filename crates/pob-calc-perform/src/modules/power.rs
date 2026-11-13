@@ -213,10 +213,7 @@ pub fn powerStat_table(entry: &pob_gamedata::schema::item_data::PowerStat) -> Ta
             t.set(k, true);
         }
     }
-    t.set(
-        n!("itemField"),
-        entry.itemField.map_or(Val::Nil, Val::from),
-    );
+    t.set(n!("itemField"), entry.itemField.map_or(Val::Nil, Val::from));
     t
 }
 
@@ -277,12 +274,18 @@ pub fn BuildOutput(build: &BuildRef) {
     let mainEnv = crate::modules::calcs::buildOutput(build, Mode::MAIN);
     build.calcsTab.mainEnv.set(Some(mainEnv.clone()));
     // L460
-    build.calcsTab.mainOutput.set(Some(mainEnv.player.output.get()));
+    build
+        .calcsTab
+        .mainOutput
+        .set(Some(mainEnv.player.output.get()));
     // L461
     let calcsEnv = crate::modules::calcs::buildOutput(build, Mode::CALCS);
     build.calcsTab.calcsEnv.set(Some(calcsEnv.clone()));
     // L462
-    build.calcsTab.calcsOutput.set(Some(calcsEnv.player.output.get()));
+    build
+        .calcsTab
+        .calcsOutput
+        .set(Some(calcsEnv.player.output.get()));
 
     // L464-467 UI: if self.displayData then self.controls.breakdown:SetBreakdownData(…) end
     // (the breakdown control is U39/U40's; it re-reads its data on draw)
@@ -388,11 +391,19 @@ enum Phase {
     /// L518-604: the closures are defined; the node collection runs next.
     Collect,
     /// L606-663: `distanceList[di]`, its `ni`-th node.
-    Distance { di: usize, ni: usize },
+    Distance {
+        di: usize,
+        ni: usize,
+    },
     /// L665-710: `masteryNodeList[mi]`, its effect `ei` (1-based, as `ipairs`).
-    Mastery { mi: usize, ei: usize },
+    Mastery {
+        mi: usize,
+        ei: usize,
+    },
     /// L714-736: the `ci`-th `clusterNodeMap` pair.
-    Cluster { ci: usize },
+    Cluster {
+        ci: usize,
+    },
     Done,
 }
 
@@ -456,7 +467,10 @@ pub fn PowerBuilder(
     if state.done {
         return None;
     }
-    let slot = match state.extra.obj::<RefCell<Option<Box<PowerIter>>>>(n!("$iter")) {
+    let slot = match state
+        .extra
+        .obj::<RefCell<Option<Box<PowerIter>>>>(n!("$iter"))
+    {
         Some(s) => s,
         None => {
             let s: Rc<RefCell<Option<Box<PowerIter>>>> = Rc::new(RefCell::new(None));
@@ -656,8 +670,7 @@ impl PowerIter {
                     }
                 }
                 Phase::Collect => {
-                    if options.parallel && !self.dryRun && matches!(self.calcMode, CalcMode::Live)
-                    {
+                    if options.parallel && !self.dryRun && matches!(self.calcMode, CalcMode::Live) {
                         self.calcMode = parallel_precompute(build);
                     }
                     self.collect(build);
@@ -699,11 +712,7 @@ impl PowerIter {
                         // L714 LUA-ORDER: pairs(clusterNodeMap) (string keys: PoB's order is random
                         // per process; each node's power is independent of the order)
                         let tree = build.spec.get().tree.get();
-                        self.clusterList = tree
-                            .clusterNodeMap
-                            .pairs()
-                            .map(|(_, v)| v)
-                            .collect();
+                        self.clusterList = tree.clusterNodeMap.pairs().map(|(_, v)| v).collect();
                         self.phase = Phase::Cluster { ci: 0 };
                         continue;
                     }
@@ -721,8 +730,7 @@ impl PowerIter {
                         continue;
                     }
                     self.phase = Phase::Mastery { mi, ei: ei + 1 };
-                    if self.masteryEffect(build, &node, &masteryEffect) && self.yieldCheck(build)
-                    {
+                    if self.masteryEffect(build, &node, &masteryEffect) && self.yieldCheck(build) {
                         return true;
                     }
                 }
@@ -808,8 +816,7 @@ impl PowerIter {
                         if let Some(me) = node.masteryEffects.get() {
                             for (_, masteryEffect) in me.ipairs() {
                                 // L573
-                                if masteryEffectCanBeAssignedToNode(build, &node, &masteryEffect)
-                                {
+                                if masteryEffectCanBeAssignedToNode(build, &node, &masteryEffect) {
                                     // L574
                                     self.total += 1.0;
                                 }
@@ -828,7 +835,8 @@ impl PowerIter {
                             // L581
                             if leap.alloc.get() {
                                 // L582
-                                dist = m_max(m_min(leap.pathDist.get().unwrap_or(1000.0), dist), 1.0);
+                                dist =
+                                    m_max(m_min(leap.pathDist.get().unwrap_or(1000.0), dist), 1.0);
                             }
                         }
                     }
@@ -974,7 +982,11 @@ impl PowerIter {
                 &|| {
                     // L618
                     // L619
-                    let path = pathNode.path.get().map(|p| p.snapshot()).unwrap_or_default();
+                    let path = pathNode
+                        .path
+                        .get()
+                        .map(|p| p.snapshot())
+                        .unwrap_or_default();
                     // L622
                     node_set(path)
                 },
@@ -1098,7 +1110,11 @@ impl PowerIter {
                     // L679-681
                     let mut list = vec![pathEffect.clone()];
                     // L682
-                    for pathNode in pathTarget.path.get().map(|p| p.snapshot()).unwrap_or_default()
+                    for pathNode in pathTarget
+                        .path
+                        .get()
+                        .map(|p| p.snapshot())
+                        .unwrap_or_default()
                     {
                         // L683
                         if !Rc::ptr_eq(&pathNode, &pathTarget) {
@@ -1283,7 +1299,9 @@ pub fn GetFromOutput(output: &Output, statTable: &Table, skipTransform: bool) ->
             }
             // if the user doesn't have full dps, we default to adding the player and minion dps together
             // L193
-            return Val::Num(or0(output, "CombinedDPS").num() + minion_or0(output, "CombinedDPS").num());
+            return Val::Num(
+                or0(output, "CombinedDPS").num() + minion_or0(output, "CombinedDPS").num(),
+            );
         }
         let Some(stat) = stat.str() else {
             lua_error!(
@@ -1293,11 +1311,14 @@ pub fn GetFromOutput(output: &Output, statTable: &Table, skipTransform: bool) ->
         };
         // minion-only stats
         // L196
-        let minionStat = pob_lua::pattern::r#match(&stat, "^Minion(.+)", None)
-            .and_then(|caps| match caps.into_iter().next() {
-                Some(pob_lua::pattern::Capture::Str(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+        let minionStat = pob_lua::pattern::r#match(&stat, "^Minion(.+)", None).and_then(|caps| {
+            match caps.into_iter().next() {
+                Some(pob_lua::pattern::Capture::Str(b)) => {
+                    Some(String::from_utf8_lossy(b).into_owned())
+                }
                 _ => None,
-            });
+            }
+        });
         // L197
         if let Some(minionStat) = minionStat {
             // L198
@@ -1320,7 +1341,10 @@ pub fn GetFromOutput(output: &Output, statTable: &Table, skipTransform: bool) ->
     let transform = statTable.get(n!("transform"));
     if transform.truthy() && !skipTransform {
         let Some(f) = transform.obj::<LuaFnRef>() else {
-            lua_error!("attempt to call field 'transform' (a {} value)", transform.lua_type())
+            lua_error!(
+                "attempt to call field 'transform' (a {} value)",
+                transform.lua_type()
+            )
         };
         // L210
         return powerStatTransform(&f.id, getEntry()).num();
@@ -1361,7 +1385,12 @@ pub fn powerStatTransform(fnId: &str, value: Val) -> Val {
 /// → `(offence, defence)`: both Lua results (CCR-0101 §2).
 pub fn CalculateCombinedOffDefStat(original: &Output, modified: &Output) -> (f64, f64) {
     // `x.EnergyShieldRecoveryCap or x.EnergyShield`
-    let esCap = |o: &Output| lor(o.get(n!("EnergyShieldRecoveryCap")), || o.get(n!("EnergyShield"))).num();
+    let esCap = |o: &Output| {
+        lor(o.get(n!("EnergyShieldRecoveryCap")), || {
+            o.get(n!("EnergyShield"))
+        })
+        .num()
+    };
     // L749-754
     let defence = (original.num(n!("LifeUnreserved")) - modified.num(n!("LifeUnreserved")))
         / m_max(3000.0, modified.num(n!("Life")))
@@ -1377,7 +1406,10 @@ pub fn CalculateCombinedOffDefStat(original: &Output, modified: &Output) -> (f64
     // `x.Minion and x.Minion.CombinedDPS or 0`
     let minionDps = |o: &Output| {
         let m = o.get(n!("Minion"));
-        lor(land(m.clone(), || m.get(n!("CombinedDPS"))), || Val::Num(0.0)).num()
+        lor(land(m.clone(), || m.get(n!("CombinedDPS"))), || {
+            Val::Num(0.0)
+        })
+        .num()
     };
     // L755
     let modifiedDps = modified.num(n!("CombinedDPS")) + minionDps(modified);
@@ -1509,7 +1541,10 @@ impl Job {
                         .obj::<Node>()
                         .is_some_and(|c| Rc::ptr_eq(&c, &n));
                     if !found {
-                        lua_error!("PowerBuilder (parallel): node {} has no worker identity", n.id)
+                        lua_error!(
+                            "PowerBuilder (parallel): node {} has no worker identity",
+                            n.id
+                        )
                     }
                     NodeSpec::Cluster(name)
                 }
@@ -1684,7 +1719,9 @@ fn parallel_precompute(build: &BuildRef) -> CalcMode {
                 .map(|(j, r)| {
                     (
                         j.key,
-                        r.unwrap_or_else(|| Err("PowerBuilder (parallel): worker failed".to_owned())),
+                        r.unwrap_or_else(|| {
+                            Err("PowerBuilder (parallel): worker failed".to_owned())
+                        }),
                     )
                 })
                 .collect(),
@@ -1700,10 +1737,8 @@ fn worker(
     jobs: &[(usize, Vec<NodeSpec>, bool, Option<bool>)],
     keys: &[String],
 ) -> Result<Vec<(usize, Result<SlimOut, String>)>, String> {
-    let build = pob_lua::error::catch(|| {
-        crate::model::build_xml::loadBuildFromXML(xml, data())
-    })
-    .map_err(|e| format!("PowerBuilder (parallel): worker build: {}", e.0))?;
+    let build = pob_lua::error::catch(|| crate::model::build_xml::loadBuildFromXML(xml, data()))
+        .map_err(|e| format!("PowerBuilder (parallel): worker build: {}", e.0))?;
     let (calcFunc, _) = pob_lua::error::catch(|| GetMiscCalculator(&build))
         .map_err(|e| format!("PowerBuilder (parallel): worker calculator: {}", e.0))?;
     let mut out = Vec::with_capacity(jobs.len());

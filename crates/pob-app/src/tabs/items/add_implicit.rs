@@ -60,7 +60,9 @@ use pob_lua::math::m_max;
 use pob_lua::Name;
 use pob_ui_core::controls::drop_down::{DropTipMode, SelFunc};
 use pob_ui_core::controls::search_host::SearchHost;
-use pob_ui_core::controls::{ButtonControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl};
+use pob_ui_core::controls::{
+    ButtonControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl,
+};
 use pob_ui_core::popups::{self, PopupOpts};
 use pob_ui_core::prelude::*;
 use pob_ui_core::tooltip::tooltip::Tooltip;
@@ -91,7 +93,10 @@ fn buildModSortList() -> (Vec<DropItem>, indexmap::IndexMap<Name, &'static Power
         // L10
         if let Some(stat) = entry.stat.filter(|_| !entry.ignoreForNodes) {
             // L11
-            sortList.push(DropItem::new(entry.label.to_string(), Rc::new(PowerSortValue(Some(entry)))));
+            sortList.push(DropItem::new(
+                entry.label.to_string(),
+                Rc::new(PowerSortValue(Some(entry))),
+            ));
             // L12
             sortStats.insert(stat, entry);
         }
@@ -374,7 +379,11 @@ fn buildMods(cx: &Cx, s: &Imp, sourceId: &str) {
                     .find(|(g, _)| *g == group)
                     .map(|(_, k)| *k)
                     .expect("set above");
-                let typ: &'static str = if sourceId == "EXARCH" { "exarch" } else { "eater" };
+                let typ: &'static str = if sourceId == "EXARCH" {
+                    "exarch"
+                } else {
+                    "eater"
+                };
                 st.modList[gi - 1].borrow_mut().push(Rc::new(ImplicitEntry {
                     // L65
                     label: RefCell::new(modLabel),
@@ -484,9 +493,12 @@ fn buildMods(cx: &Cx, s: &Imp, sourceId: &str) {
         }
     } else if sourceId == "VESTIGIAL" {
         let vestigial = model::data().itemMods.get(&Name::from("Vestigial"));
-        let gamedata::DataValue::Table(mappings) =
-            model::data().resolve(model::data().other.get("data.vestigialModMappings").unwrap_or(&gamedata::DataValue::Nil))
-        else {
+        let gamedata::DataValue::Table(mappings) = model::data().resolve(
+            model::data()
+                .other
+                .get("data.vestigialModMappings")
+                .unwrap_or(&gamedata::DataValue::Nil),
+        ) else {
             lua_error!("bad argument #1 to 'pairs' (table expected, got nil)")
         };
         // L122 (ORDER: sorted below)
@@ -505,13 +517,17 @@ fn buildMods(cx: &Cx, s: &Imp, sourceId: &str) {
                     let ut = unique
                         .base
                         .get()
-                        .unwrap_or_else(|| lua_error!("attempt to index field 'base' (a nil value)"))
+                        .unwrap_or_else(|| {
+                            lua_error!("attempt to index field 'base' (a nil value)")
+                        })
                         .r#type;
                     ut != displayItem.r#type.get()
                         || displayItem
                             .title
                             .get()
-                            .unwrap_or_else(|| lua_error!("attempt to index field 'title' (a nil value)"))
+                            .unwrap_or_else(|| {
+                                lua_error!("attempt to index field 'title' (a nil value)")
+                            })
                             .to_ascii_lowercase()
                             == titleLower
                 }
@@ -525,34 +541,42 @@ fn buildMods(cx: &Cx, s: &Imp, sourceId: &str) {
             let r#mod = vestigial
                 .and_then(|t| t.0.get(&id))
                 .cloned()
-                .unwrap_or_else(|| lua_error!("bad argument #1 to 'pairs' (table expected, got nil)"));
+                .unwrap_or_else(|| {
+                    lua_error!("bad argument #1 to 'pairs' (table expected, got nil)")
+                });
             // L133
             let modLabel = format!(
                 "{}{}",
                 cx.main.cc.VESTIGIAL,
-                r#mod.lines.iter().map(|l| &**l).collect::<Vec<_>>().join("/")
+                r#mod
+                    .lines
+                    .iter()
+                    .map(|l| &**l)
+                    .collect::<Vec<_>>()
+                    .join("/")
             );
             // L134
             let n = st.modList.len();
-            st.modList.push(Rc::new(RefCell::new(vec![Rc::new(ImplicitEntry {
-                // L135
-                label: RefCell::new(modLabel),
-                // L136
-                r#mod: r#mod.clone(),
-                // L139
-                modListIndex: Cell::new(Some(n + 1)),
-                defaultOrder: None,
-                affixType: None,
-                // L137
-                r#type: Some("vestigial"),
-                // L138
-                uniqueTitle: Some(uniqueTitle.to_string()),
-                // L140
-                id: Some(id),
-                defaultSortOrder: Cell::new(None),
-                sortValue: Cell::new(None),
-                sortValues: RefCell::new(None),
-            })])));
+            st.modList
+                .push(Rc::new(RefCell::new(vec![Rc::new(ImplicitEntry {
+                    // L135
+                    label: RefCell::new(modLabel),
+                    // L136
+                    r#mod: r#mod.clone(),
+                    // L139
+                    modListIndex: Cell::new(Some(n + 1)),
+                    defaultOrder: None,
+                    affixType: None,
+                    // L137
+                    r#type: Some("vestigial"),
+                    // L138
+                    uniqueTitle: Some(uniqueTitle.to_string()),
+                    // L140
+                    id: Some(id),
+                    defaultSortOrder: Cell::new(None),
+                    sortValue: Cell::new(None),
+                    sortValues: RefCell::new(None),
+                })])));
             // L142 groupIndexes[mod.group] = #modGroups (never read)
         }
         // L145
@@ -713,7 +737,8 @@ fn by_power(a: &ImplicitEntry, b: &ImplicitEntry) -> bool {
 /// `applySort(stat, selectFirst)` (L226-295).
 fn applySort(cx: &mut Cx, p: CtrlId, s: &Imp, stat: Option<Name>, selectFirst: bool) {
     // L227
-    let (Some(modSelect), Some(modGroupSelect)) = (cx.child(p, "modSelect"), cx.child(p, "modGroupSelect"))
+    let (Some(modSelect), Some(modGroupSelect)) =
+        (cx.child(p, "modSelect"), cx.child(p, "modGroupSelect"))
     else {
         // L228
         return;
@@ -901,7 +926,9 @@ pub fn AddImplicitToDisplayItem(cx: &mut Cx, me: CtrlId, displayItem: Option<mod
     // L26
     let (sortList, sortStats) = buildModSortList();
     // L27
-    let Some(displayItem) = displayItem else { return };
+    let Some(displayItem) = displayItem else {
+        return;
+    };
     // L28 these closures should probably be refactored to be outside this function
     // L29 at some point
     let s: Imp = Rc::new(RefCell::new(ImpState {
@@ -928,12 +955,16 @@ pub fn AddImplicitToDisplayItem(cx: &mut Cx, me: CtrlId, displayItem: Option<mod
                 .get()
                 .unwrap_or_else(|| lua_error!("attempt to index field 'base' (a nil value)"))
                 .r#type;
-            let vestigialBase = match model::data()
-                .resolve(model::data().other.get("data.vestigialUniqueBaseTypes").unwrap_or(&gamedata::DataValue::Nil))
-            {
-                gamedata::DataValue::Table(t) => {
-                    !matches!(model::data().resolve(t.field(&baseType)), gamedata::DataValue::Nil | gamedata::DataValue::Bool(false))
-                }
+            let vestigialBase = match model::data().resolve(
+                model::data()
+                    .other
+                    .get("data.vestigialUniqueBaseTypes")
+                    .unwrap_or(&gamedata::DataValue::Nil),
+            ) {
+                gamedata::DataValue::Table(t) => !matches!(
+                    model::data().resolve(t.field(&baseType)),
+                    gamedata::DataValue::Nil | gamedata::DataValue::Bool(false)
+                ),
                 _ => lua_error!("attempt to index field 'vestigialUniqueBaseTypes' (a nil value)"),
             };
             // L165 the source field should mean that the item comes from a specific
@@ -1005,7 +1036,11 @@ pub fn AddImplicitToDisplayItem(cx: &mut Cx, me: CtrlId, displayItem: Option<mod
             cx.add(
                 p,
                 "sourceLabel",
-                LabelControl::new(Anchor::nil(TopRight, TopLeft), rect(95, 20, 0, 16), "^7Source:"),
+                LabelControl::new(
+                    Anchor::nil(TopRight, TopLeft),
+                    rect(95, 20, 0, 16),
+                    "^7Source:",
+                ),
             );
             // L311
             let s2 = s.clone();
@@ -1065,12 +1100,16 @@ pub fn AddImplicitToDisplayItem(cx: &mut Cx, me: CtrlId, displayItem: Option<mod
             cx.add(
                 p,
                 "sortLabel",
-                LabelControl::new(Anchor::nil(TopRight, TopLeft), rect(350, 20, 0, 16), "^7Sort by:")
-                    // L327
-                    .shown(Prop::f(move |cx, _| {
-                        // L328
-                        cur_source(cx, p, &s2) != "CUSTOM"
-                    })),
+                LabelControl::new(
+                    Anchor::nil(TopRight, TopLeft),
+                    rect(350, 20, 0, 16),
+                    "^7Sort by:",
+                )
+                // L327
+                .shown(Prop::f(move |cx, _| {
+                    // L328
+                    cur_source(cx, p, &s2) != "CUSTOM"
+                })),
             );
             // L330
             let s2 = s.clone();
@@ -1171,7 +1210,8 @@ pub fn AddImplicitToDisplayItem(cx: &mut Cx, me: CtrlId, displayItem: Option<mod
                     // L357
                     tooltip.clear(false);
                     // L358
-                    let value = value.and_then(|v| v.value.clone().downcast::<ImplicitEntry>().ok());
+                    let value =
+                        value.and_then(|v| v.value.clone().downcast::<ImplicitEntry>().ok());
                     if let Some(value) = value.filter(|_| mode != DropTipMode::Out) {
                         // L359-364
                         add_mod_lines(cx, tooltip, &value);
@@ -1241,7 +1281,8 @@ pub fn AddImplicitToDisplayItem(cx: &mut Cx, me: CtrlId, displayItem: Option<mod
                     // L381
                     tooltip.clear(false);
                     // L382
-                    let value = value.and_then(|v| v.value.clone().downcast::<ImplicitEntry>().ok());
+                    let value =
+                        value.and_then(|v| v.value.clone().downcast::<ImplicitEntry>().ok());
                     if let Some(value) = value.filter(|_| mode != DropTipMode::Out) {
                         // L383-388
                         add_mod_lines(cx, tooltip, &value);
@@ -1260,12 +1301,16 @@ pub fn AddImplicitToDisplayItem(cx: &mut Cx, me: CtrlId, displayItem: Option<mod
             cx.add(
                 p,
                 "custom",
-                EditControl::new(Anchor::nil(TopLeft, TopLeft), rect(100, 45, 440, 18), EditArgs::default())
-                    // L393
-                    .shown(Prop::f(move |cx, _| {
-                        // L394
-                        cur_source(cx, p, &s2) == "CUSTOM"
-                    })),
+                EditControl::new(
+                    Anchor::nil(TopLeft, TopLeft),
+                    rect(100, 45, 440, 18),
+                    EditArgs::default(),
+                )
+                // L393
+                .shown(Prop::f(move |cx, _| {
+                    // L394
+                    cur_source(cx, p, &s2) == "CUSTOM"
+                })),
             );
             // L396
             let s2 = s.clone();
@@ -1273,34 +1318,45 @@ pub fn AddImplicitToDisplayItem(cx: &mut Cx, me: CtrlId, displayItem: Option<mod
                 .add(
                     p,
                     "save",
-                    ButtonControl::new(Anchor::nil(BottomRight, Bottom), rect(-4, -8, 80, 20), "Add", move |cx| {
-                        // L397
-                        let item = addModifier(cx, p, &s2);
-                        super::display_item::SetDisplayItem(cx, me, Some(item));
-                        // L398
-                        popups::close_popup(cx);
-                    }),
+                    ButtonControl::new(
+                        Anchor::nil(BottomRight, Bottom),
+                        rect(-4, -8, 80, 20),
+                        "Add",
+                        move |cx| {
+                            // L397
+                            let item = addModifier(cx, p, &s2);
+                            super::display_item::SetDisplayItem(cx, me, Some(item));
+                            // L398
+                            popups::close_popup(cx);
+                        },
+                    ),
                 )
                 .id();
             // L400
             let s2 = s.clone();
-            cx.w_mut::<ButtonControl>(save).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, ()| {
-                // L401
-                tooltip.clear(false);
-                // L402
-                let item = addModifier(cx, p, &s2);
-                let f = items_hooks().add_item_tooltip;
-                let b = cx.build().model.clone();
-                f(cx, &b, tooltip, &item, None, false);
-            }));
+            cx.w_mut::<ButtonControl>(save).tt.tooltip_func =
+                Some(Rc::new(move |cx, tooltip, ()| {
+                    // L401
+                    tooltip.clear(false);
+                    // L402
+                    let item = addModifier(cx, p, &s2);
+                    let f = items_hooks().add_item_tooltip;
+                    let b = cx.build().model.clone();
+                    f(cx, &b, tooltip, &item, None, false);
+                }));
             // L404
             cx.add(
                 p,
                 "close",
-                ButtonControl::new(Anchor::nil(BottomLeft, Bottom), rect(4, -8, 80, 20), "Cancel", |cx| {
-                    // L405
-                    popups::close_popup(cx);
-                }),
+                ButtonControl::new(
+                    Anchor::nil(BottomLeft, Bottom),
+                    rect(4, -8, 80, 20),
+                    "Cancel",
+                    |cx| {
+                        // L405
+                        popups::close_popup(cx);
+                    },
+                ),
             );
         },
         PopupOpts {

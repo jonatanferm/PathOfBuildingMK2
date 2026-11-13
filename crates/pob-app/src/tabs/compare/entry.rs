@@ -164,7 +164,11 @@ fn flush_titles_as(cx: &mut Cx, buildName: &str) {
 /// afterwards, also when `f` raises (`catch_unwind` + `resume_unwind`; wasm32 aborts on panic).
 /// Nested calls for the same entry run `f` directly. CCR-0143 §2 (U49's tree draw), FUP6 (the
 /// entry's ItemsTab and ConfigTab methods).
-pub fn with_entry_as_build<R>(cx: &mut Cx, entry: &CompareEntryRef, f: impl FnOnce(&mut Cx) -> R) -> R {
+pub fn with_entry_as_build<R>(
+    cx: &mut Cx,
+    entry: &CompareEntryRef,
+    f: impl FnOnce(&mut Cx) -> R,
+) -> R {
     if Rc::ptr_eq(&cx.build().model, &entry.model) {
         return f(cx);
     }
@@ -211,14 +215,18 @@ fn new_config_tab(cx: &mut Cx, entry: &CompareEntryRef) -> CtrlId {
     let run_entry = weak.clone();
     let stat_entry = weak;
     let for_build = ForBuild {
-        run: Rc::new(move |cx: &mut Cx, f: &mut dyn FnMut(&mut Cx)| {
-            match run_entry.upgrade() {
+        run: Rc::new(
+            move |cx: &mut Cx, f: &mut dyn FnMut(&mut Cx)| match run_entry.upgrade() {
                 Some(e) => with_entry_as_build(cx, &e, f),
                 None => f(cx),
-            }
-        }),
+            },
+        ),
         add_stat_compares: Rc::new(
-            move |cx: &mut Cx, tooltip: &mut Tooltip, base: &Output, output: &Output, header: &str| {
+            move |cx: &mut Cx,
+                  tooltip: &mut Tooltip,
+                  base: &Output,
+                  output: &Output,
+                  header: &str| {
                 let e = stat_entry
                     .upgrade()
                     .unwrap_or_else(|| lua_error!("CompareEntry: the entry was dropped"));
@@ -227,7 +235,10 @@ fn new_config_tab(cx: &mut Cx, entry: &CompareEntryRef) -> CtrlId {
         ),
     };
     let owner = cx.app().build.as_ref().map(|b| b.node.id());
-    with_entry_as_build(cx, entry, |cx| cx.add_free(owner, ConfigTab::new_for(CtrlId::default(), for_build)).id())
+    with_entry_as_build(cx, entry, |cx| {
+        cx.add_free(owner, ConfigTab::new_for(CtrlId::default(), for_build))
+            .id()
+    })
 }
 
 /// `self.build.spec:SetWindowTitleWithBuildClass()` of the entry's TreeTab:SetActiveSpec
@@ -354,7 +365,8 @@ impl CompareEntry {
         m.viewMode.set(n!("TREE"));
         // L24
         let dcl = cx.app().main.default_char_level;
-        m.characterLevel.set(m_min(m_max(dcl.unwrap_or(1.0), 1.0), 100.0));
+        m.characterLevel
+            .set(m_min(m_max(dcl.unwrap_or(1.0), 1.0), 100.0));
         // L25
         m.targetVersion.set(gv.liveTargetVersion);
         // L26-28
@@ -362,7 +374,10 @@ impl CompareEntry {
         m.pantheonMajorGod.set(n!("None"));
         m.pantheonMinorGod.set(n!("None"));
         // L29
-        extra.set(n!("characterLevelAutoMode"), dcl == Some(1.0) || dcl.is_none());
+        extra.set(
+            n!("characterLevelAutoMode"),
+            dcl == Some(1.0) || dcl.is_none(),
+        );
         // L30
         m.mainSocketGroup.set(1.0);
         // L31 self.notesText = "" (the struct below)
@@ -375,7 +390,9 @@ impl CompareEntry {
         // Shared data (read-only references)
         // L43
         m.latestTree
-            .set(pob_calc::classes::passive_spec::main_LoadTree(gv.latestTreeVersion));
+            .set(pob_calc::classes::passive_spec::main_LoadTree(
+                gv.latestTreeVersion,
+            ));
         // L44 self.data = data (the model's `data`)
 
         // Flags
@@ -482,8 +499,13 @@ impl CompareEntry {
         // Store XML sections for tab loading
         // L94-99
         let xmlSectionList: Vec<XmlNode> = nodes.iter().map(|n| (*n).clone()).collect();
-        entry.ext.borrow_mut().as_mut().and_then(|b| b.downcast_mut::<CompareEntry>()).expect("ext").xmlSectionList =
-            xmlSectionList.clone();
+        entry
+            .ext
+            .borrow_mut()
+            .as_mut()
+            .and_then(|b| b.downcast_mut::<CompareEntry>())
+            .expect("ext")
+            .xmlSectionList = xmlSectionList.clone();
 
         // Version check
         // L102
@@ -579,8 +601,13 @@ impl CompareEntry {
                     if let XmlChild::Text(s) = child {
                         // L166
                         let notes = s.to_string();
-                        entry.ext.borrow_mut().as_mut().and_then(|b| b.downcast_mut::<CompareEntry>()).expect("ext").notesText =
-                            notes;
+                        entry
+                            .ext
+                            .borrow_mut()
+                            .as_mut()
+                            .and_then(|b| b.downcast_mut::<CompareEntry>())
+                            .expect("ext")
+                            .notesText = notes;
                         // L167
                         break;
                     }
@@ -639,7 +666,8 @@ impl CompareEntry {
             m.viewMode.set(Name::from(v));
         }
         // L194
-        m.characterLevel.set(tonum(attr(xml, "level")).unwrap_or(1.0));
+        m.characterLevel
+            .set(tonum(attr(xml, "level")).unwrap_or(1.0));
         // L195
         extra.set(
             n!("characterLevelAutoMode"),
@@ -681,32 +709,50 @@ impl CompareEntry {
             } else if &*child.elem == "TimelessData" {
                 let td = build_xml::timelessData(m);
                 // L207
-                td.set(n!("jewelType"), id_table(n!("id"), tonum(attr(child, "jewelTypeId"))));
+                td.set(
+                    n!("jewelType"),
+                    id_table(n!("id"), tonum(attr(child, "jewelTypeId"))),
+                );
                 // L208
                 td.set(
                     n!("conquerorType"),
                     id_table(n!("id"), tonum(attr(child, "conquerorTypeId"))),
                 );
                 // L209
-                td.set(n!("devotionVariant1"), tonum(attr(child, "devotionVariant1")).unwrap_or(1.0));
+                td.set(
+                    n!("devotionVariant1"),
+                    tonum(attr(child, "devotionVariant1")).unwrap_or(1.0),
+                );
                 // L210
-                td.set(n!("devotionVariant2"), tonum(attr(child, "devotionVariant2")).unwrap_or(1.0));
+                td.set(
+                    n!("devotionVariant2"),
+                    tonum(attr(child, "devotionVariant2")).unwrap_or(1.0),
+                );
                 // L211
-                td.set(n!("jewelSocket"), id_table(n!("id"), tonum(attr(child, "jewelSocketId"))));
+                td.set(
+                    n!("jewelSocket"),
+                    id_table(n!("id"), tonum(attr(child, "jewelSocketId"))),
+                );
                 // L212
                 td.set(
                     n!("fallbackWeightMode"),
                     id_table(n!("idx"), tonum(attr(child, "fallbackWeightModeIdx"))),
                 );
                 // L213
-                td.set(n!("socketFilter"), attr(child, "socketFilter") == Some("true"));
+                td.set(
+                    n!("socketFilter"),
+                    attr(child, "socketFilter") == Some("true"),
+                );
                 // L214
                 td.set(
                     n!("socketFilterDistance"),
                     tonum(attr(child, "socketFilterDistance")).unwrap_or(0.0),
                 );
                 // L215
-                td.set(n!("searchList"), attr(child, "searchList").map_or(Val::Nil, Val::from));
+                td.set(
+                    n!("searchList"),
+                    attr(child, "searchList").map_or(Val::Nil, Val::from),
+                );
                 // L216
                 td.set(
                     n!("searchListFallback"),
@@ -750,13 +796,16 @@ impl CompareEntry {
         let Some(mainGroup) = mainGroup else { return };
 
         // L235
-        mainGroup.mainActiveSkillCalcs.set(mainGroup.mainActiveSkill.get());
+        mainGroup
+            .mainActiveSkillCalcs
+            .set(mainGroup.mainActiveSkill.get());
 
         // L237
         let displaySkillList = mainGroup.displaySkillList.get();
         // L238
-        let activeSkill = displaySkillList
-            .and_then(|l| l.with(|l| at_num(l, opt(mainGroup.mainActiveSkill.get()).unwrap_or(1.0))));
+        let activeSkill = displaySkillList.and_then(|l| {
+            l.with(|l| at_num(l, opt(mainGroup.mainActiveSkill.get()).unwrap_or(1.0)))
+        });
         // L239
         if let Some(activeSkill) = activeSkill {
             if let Some(src) = activeSkill.activeEffect.get().srcInstance.get() {
@@ -770,7 +819,8 @@ impl CompareEntry {
                 // L244
                 src.skillMinionCalcs.set(src.skillMinion.get());
                 // L245
-                src.skillMinionItemSetCalcs.set(src.skillMinionItemSet.get());
+                src.skillMinionItemSetCalcs
+                    .set(src.skillMinionItemSet.get());
                 // L246
                 src.skillMinionSkillCalcs.set(src.skillMinionSkill.get());
             }
@@ -864,9 +914,12 @@ impl CompareEntry {
         // Populate skill select controls
         // L291 (the map always holds mainSocketGroup)
         // L292
-        cx.w_mut::<DropDownControl>(controls.mainSocketGroup).sel_index = mainGroup.opt_num().map_or(0, sel);
+        cx.w_mut::<DropDownControl>(controls.mainSocketGroup)
+            .sel_index = mainGroup.opt_num().map_or(0, sel);
         // L293
-        cx.w_mut::<DropDownControl>(controls.mainSocketGroup).list.clear();
+        cx.w_mut::<DropDownControl>(controls.mainSocketGroup)
+            .list
+            .clear();
         // L294 (ORDER: `pairs` over the group list's array part visits 1..n, (c))
         let groups: Vec<model::SocketGroupRef> = m.skillsTab.socketGroupList.get().snapshot();
         for (i, socketGroup) in groups.iter().enumerate() {
@@ -895,7 +948,11 @@ impl CompareEntry {
         };
 
         // L309
-        if cx.w::<DropDownControl>(controls.mainSocketGroup).list.is_empty() {
+        if cx
+            .w::<DropDownControl>(controls.mainSocketGroup)
+            .list
+            .is_empty()
+        {
             // L310
             cx.w_mut::<DropDownControl>(controls.mainSocketGroup)
                 .list
@@ -944,20 +1001,23 @@ impl CompareEntry {
         for (i, activeSkill) in displaySkillList.iter().enumerate() {
             let activeEffect = activeSkill.activeEffect.get();
             // L330
-            let srcInstance = activeEffect
-                .srcInstance
-                .get()
-                .unwrap_or_else(|| lua_error!("attempt to index field 'srcInstance' (a nil value)"));
+            let srcInstance = activeEffect.srcInstance.get().unwrap_or_else(|| {
+                lua_error!("attempt to index field 'srcInstance' (a nil value)")
+            });
             let explodeSource = srcInstance.extra.get(Name::from("explodeSource"));
             // L331
             let explodeSourceName = if explodeSource.truthy() {
-                lor(source_field(&explodeSource, "name"), || source_field(&explodeSource, "dn"))
+                lor(source_field(&explodeSource, "name"), || {
+                    source_field(&explodeSource, "dn")
+                })
             } else {
                 explodeSource.clone()
             };
             // L332
             let colourCoded = if explodeSourceName.truthy() {
-                let rarity = lor(source_field(&explodeSource, "rarity"), || Val::from("NORMAL"));
+                let rarity = lor(source_field(&explodeSource, "rarity"), || {
+                    Val::from("NORMAL")
+                });
                 let code = match &rarity {
                     Val::Str(r) => cx.main.cc.get(r).cloned(),
                     _ => None,
@@ -968,7 +1028,8 @@ impl CompareEntry {
                 None
             };
             // L333
-            let label = colourCoded.unwrap_or_else(|| activeEffect.grantedEffect.get().name.to_string());
+            let label =
+                colourCoded.unwrap_or_else(|| activeEffect.grantedEffect.get().name.to_string());
             cx.w_mut::<DropDownControl>(controls.mainSkill)
                 .list
                 .push(DropItem::new(label, Rc::new((i + 1) as f64)));
@@ -985,10 +1046,12 @@ impl CompareEntry {
         set_shown(cx, controls.mainSkill, true);
 
         // L341
-        let activeSkill =
-            at_num(&displaySkillList, mainActiveSkill).or_else(|| displaySkillList.first().cloned());
+        let activeSkill = at_num(&displaySkillList, mainActiveSkill)
+            .or_else(|| displaySkillList.first().cloned());
         // L342
-        let Some(activeSkill) = activeSkill else { return };
+        let Some(activeSkill) = activeSkill else {
+            return;
+        };
         // L343
         let activeEffect = activeSkill.activeEffect.get();
         // L344 (`activeEffect` is always set)
@@ -1009,18 +1072,29 @@ impl CompareEntry {
             // L348
             set_shown(cx, controls.mainSkillPart, true);
             // L349
-            cx.w_mut::<DropDownControl>(controls.mainSkillPart).list.clear();
+            cx.w_mut::<DropDownControl>(controls.mainSkillPart)
+                .list
+                .clear();
             // L350
             for (i, part) in parts.iter().enumerate() {
                 // L351
                 cx.w_mut::<DropDownControl>(controls.mainSkillPart)
                     .list
-                    .push(DropItem::new(part.name.to_string(), Rc::new((i + 1) as f64)));
+                    .push(DropItem::new(
+                        part.name.to_string(),
+                        Rc::new((i + 1) as f64),
+                    ));
             }
             // L353
             let src = srcInstance();
-            let part_sel = if calcs { src.skillPartCalcs.get() } else { src.skillPart.get() }.unwrap_or(1.0);
-            cx.w_mut::<DropDownControl>(controls.mainSkillPart).sel_index = sel(part_sel);
+            let part_sel = if calcs {
+                src.skillPartCalcs.get()
+            } else {
+                src.skillPart.get()
+            }
+            .unwrap_or(1.0);
+            cx.w_mut::<DropDownControl>(controls.mainSkillPart)
+                .sel_index = sel(part_sel);
             // L354
             let selectedPart = at_num(parts, part_sel);
             // L355
@@ -1032,7 +1106,11 @@ impl CompareEntry {
                 set_shown(cx, controls.mainSkillStageCount, true);
                 // L357 (`selectedPart.stagesMin` is never set in the data: SkillPart has no
                 // such field)
-                let count = if calcs { src.skillStageCountCalcs.get() } else { src.skillStageCount.get() };
+                let count = if calcs {
+                    src.skillStageCountCalcs.get()
+                } else {
+                    src.skillStageCount.get()
+                };
                 let v = count.map_or(Val::Num(1.0), Val::Num);
                 cx.w_mut::<EditControl>(controls.mainSkillStageCount).buf = tostring_val(&v);
             }
@@ -1045,7 +1123,11 @@ impl CompareEntry {
             set_shown(cx, controls.mainSkillMineCount, true);
             // L364
             let src = srcInstance();
-            let count = if calcs { src.skillMineCountCalcs.get() } else { src.skillMineCount.get() };
+            let count = if calcs {
+                src.skillMineCountCalcs.get()
+            } else {
+                src.skillMineCount.get()
+            };
             let v = count.map_or(Val::from(""), Val::Num);
             cx.w_mut::<EditControl>(controls.mainSkillMineCount).buf = tostring_val(&v);
         }
@@ -1057,7 +1139,11 @@ impl CompareEntry {
             set_shown(cx, controls.mainSkillStageCount, true);
             // L370
             let src = srcInstance();
-            let count = if calcs { src.skillStageCountCalcs.get() } else { src.skillStageCount.get() };
+            let count = if calcs {
+                src.skillStageCountCalcs.get()
+            } else {
+                src.skillStageCount.get()
+            };
             let v = lor(count.map_or(Val::Nil, Val::Num), || {
                 lor(skillData.get(n!("stagesMin")), || Val::Num(1.0))
             });
@@ -1070,7 +1156,8 @@ impl CompareEntry {
         let ge_minion_list_set =
             pob_calc::modules::calc_active_skill::minionList_is_set(&grantedEffect);
         let activeMinionList: Vec<Name> = activeSkill.minionList.get().snapshot();
-        if !skillFlags.truthy(n!("disable")) && (ge_minion_list_set || !activeMinionList.is_empty()) {
+        if !skillFlags.truthy(n!("disable")) && (ge_minion_list_set || !activeMinionList.is_empty())
+        {
             // L375
             Self::RefreshMinionControls(cx, entry, controls, &activeSkill, suffix);
         }
@@ -1108,7 +1195,9 @@ impl CompareEntry {
                     .itemsTab
                     .itemSets
                     .with(|s| s.get(&itemSetId).cloned())
-                    .unwrap_or_else(|| lua_error!("attempt to index local 'itemSet' (a nil value)"));
+                    .unwrap_or_else(|| {
+                        lua_error!("attempt to index local 'itemSet' (a nil value)")
+                    });
                 // L384-387
                 let label = itemSet
                     .str(n!("title"))
@@ -1123,8 +1212,12 @@ impl CompareEntry {
             }
             // L389
             let src = srcInstance();
-            let value = if calcs { src.skillMinionItemSetCalcs.get() } else { src.skillMinionItemSet.get() }
-                .unwrap_or(1.0);
+            let value = if calcs {
+                src.skillMinionItemSetCalcs.get()
+            } else {
+                src.skillMinionItemSet.get()
+            }
+            .unwrap_or(1.0);
             DropDownControl::sel_by_value(cx, minion, &|item| {
                 item.get::<MinionListValue>()
                     .is_some_and(|v| v.item_set_id == Some(value))
@@ -1153,7 +1246,12 @@ impl CompareEntry {
                 .list
                 .first()
                 .and_then(|i| i.get::<MinionListValue>().and_then(|v| v.minion_id));
-            let value = if calcs { src.skillMinionCalcs.get() } else { src.skillMinion.get() }.or(first);
+            let value = if calcs {
+                src.skillMinionCalcs.get()
+            } else {
+                src.skillMinion.get()
+            }
+            .or(first);
             DropDownControl::sel_by_value(cx, minion, &|item| {
                 // `listVal.minionId == value` (a nil value matches an entry without minionId)
                 item.get::<MinionListValue>()
@@ -1174,13 +1272,25 @@ impl CompareEntry {
             // L404
             for minionSkill in minionActor.activeSkillList.get().snapshot() {
                 // L405
-                let name = minionSkill.activeEffect.get().grantedEffect.get().name.to_string();
-                cx.w_mut::<DropDownControl>(minion_skill).list.push(DropItem::str(name));
+                let name = minionSkill
+                    .activeEffect
+                    .get()
+                    .grantedEffect
+                    .get()
+                    .name
+                    .to_string();
+                cx.w_mut::<DropDownControl>(minion_skill)
+                    .list
+                    .push(DropItem::str(name));
             }
             // L407
             let src = srcInstance();
-            let s = if calcs { src.skillMinionSkillCalcs.get() } else { src.skillMinionSkill.get() }
-                .unwrap_or(1.0);
+            let s = if calcs {
+                src.skillMinionSkillCalcs.get()
+            } else {
+                src.skillMinionSkill.get()
+            }
+            .unwrap_or(1.0);
             cx.w_mut::<DropDownControl>(minion_skill).sel_index = sel(s);
             // L408
             set_shown(cx, minion_skill, true);
@@ -1231,15 +1341,22 @@ impl CompareEntry {
         // L429
         let mut count = 0.0;
         // L430
-        let Some(mainEnv) = m.calcsTab.mainEnv.get() else { return count };
-        let Some(mainSkill) = mainEnv.player.mainSkill.get() else { return count };
+        let Some(mainEnv) = m.calcsTab.mainEnv.get() else {
+            return count;
+        };
+        let Some(mainSkill) = mainEnv.player.mainSkill.get() else {
+            return count;
+        };
         // L431
         let baseMinion = baseOutput.get(n!("Minion"));
         let compareMinion = compareOutput.get(n!("Minion"));
         if mainSkill.minion.get().is_some() && baseMinion.truthy() && compareMinion.truthy() {
             let as_table = |v: &Val| {
                 v.table().unwrap_or_else(|| {
-                    lua_error!("attempt to index local 'baseOutput' (a {} value)", v.lua_type())
+                    lua_error!(
+                        "attempt to index local 'baseOutput' (a {} value)",
+                        v.lua_type()
+                    )
                 })
             };
             // L432
@@ -1358,11 +1475,16 @@ impl CompareEntry {
                         cx.main.cc.NEGATIVE.clone()
                     };
                     // L492
-                    let val = diff * if statData.pc || statData.r#mod { 100.0 } else { 1.0 };
+                    let val = diff
+                        * if statData.pc || statData.r#mod {
+                            100.0
+                        } else {
+                            1.0
+                        };
                     // L493
-                    let fmt = statData
-                        .fmt
-                        .unwrap_or_else(|| lua_error!("attempt to concatenate field 'fmt' (a nil value)"));
+                    let fmt = statData.fmt.unwrap_or_else(|| {
+                        lua_error!("attempt to concatenate field 'fmt' (a nil value)")
+                    });
                     let mut valStr = lfmt!(&format!("%+{fmt}"), val);
                     // L494
                     let caps = pob_lua::lmatch(&valStr, "^([%+%-]?%d+%.%d+)(%D*)$", None)
@@ -1477,7 +1599,11 @@ impl CompareEntry {
             }
         } else {
             // L533-541
-            for (stat, base, key) in [(str, strBase, "Str"), (dex, dexBase, "Dex"), (int, intBase, "Int")] {
+            for (stat, base, key) in [
+                (str, strBase, "Str"),
+                (dex, dexBase, "Dex"),
+                (int, intBase, "Int"),
+            ] {
                 if let Some(stat) = stat {
                     if stat > 14.0 || gt(stat, &out(key)) {
                         req.push(lfmt!(
@@ -1492,7 +1618,11 @@ impl CompareEntry {
         // L543
         if !req.is_empty() {
             // L544
-            let fontSizeBig = if cx.main.show_flavour_text { 18.0 } else { 16.0 };
+            let fontSizeBig = if cx.main.show_flavour_text {
+                18.0
+            } else {
+                16.0
+            };
             // L545
             tooltip.add_line_ex(
                 cx,
@@ -1549,7 +1679,12 @@ pub fn set_viewer_search_str(entry: &CompareEntryRef, buf: &str) {
 /// `entry.treeTab:OpenVersionConvertPopup(version, ignoreTreeSubType)` (TreeTab.lua:655-672 on
 /// the entry's tree tab). Its Cancel button re-selects the entry TreeTab's own `versionSelect`
 /// (TreeTab.lua:668), a control the entry does not have (module notes): nothing to do.
-pub fn OpenVersionConvertPopup(cx: &mut Cx, entry: &CompareEntryRef, version: Name, ignoreTreeSubType: bool) {
+pub fn OpenVersionConvertPopup(
+    cx: &mut Cx,
+    entry: &CompareEntryRef,
+    version: Name,
+    ignoreTreeSubType: bool,
+) {
     let shown = model::data()
         .gameVersions
         .treeVersions
@@ -1582,20 +1717,30 @@ pub fn OpenVersionConvertPopup(cx: &mut Cx, entry: &CompareEntryRef, version: Na
             cx.add(
                 p,
                 "convert",
-                ButtonControl::new(Anchor::NONE, rect(-125, 105, 100, 20), "Convert", move |cx| {
-                    ConvertToVersion(cx, &e, version, true, false, ignoreTreeSubType);
-                    popups::close_popup(cx);
-                }),
+                ButtonControl::new(
+                    Anchor::NONE,
+                    rect(-125, 105, 100, 20),
+                    "Convert",
+                    move |cx| {
+                        ConvertToVersion(cx, &e, version, true, false, ignoreTreeSubType);
+                        popups::close_popup(cx);
+                    },
+                ),
             );
             // TreeTab.lua:663-666
             let e = e2.clone();
             cx.add(
                 p,
                 "convertCopy",
-                ButtonControl::new(Anchor::NONE, rect(0, 105, 125, 20), "Copy + Convert", move |cx| {
-                    ConvertToVersion(cx, &e, version, false, false, ignoreTreeSubType);
-                    popups::close_popup(cx);
-                }),
+                ButtonControl::new(
+                    Anchor::NONE,
+                    rect(0, 105, 125, 20),
+                    "Copy + Convert",
+                    move |cx| {
+                        ConvertToVersion(cx, &e, version, false, false, ignoreTreeSubType);
+                        popups::close_popup(cx);
+                    },
+                ),
             );
             // TreeTab.lua:667-670
             cx.add(
@@ -1630,7 +1775,8 @@ fn ConvertToVersion(
     let mut version = version;
     let buildSpec = m.spec.get();
     // TreeTab.lua:595
-    let treeSubTypeCapture = pob_ui_core::luastr::lmatch(&buildSpec.treeVersion.get(), "(_%l+_?%l*)");
+    let treeSubTypeCapture =
+        pob_ui_core::luastr::lmatch(&buildSpec.treeVersion.get(), "(_%l+_?%l*)");
     // TreeTab.lua:596
     if let Some(cap) = treeSubTypeCapture.as_deref() {
         if !ignoreTreeSubType && pob_lua::pattern::find(&version, cap, None, false).is_none() {
@@ -1694,7 +1840,11 @@ fn ConvertToVersion(
 
 /// The CompareHooks entries this file answers (CCR-0136 §1): installed by
 /// `init::default_compare_hooks`.
-pub fn new_compare_entry(cx: &mut Cx, xmlText: Option<&str>, label: Option<&str>) -> Option<CompareEntryRef> {
+pub fn new_compare_entry(
+    cx: &mut Cx,
+    xmlText: Option<&str>,
+    label: Option<&str>,
+) -> Option<CompareEntryRef> {
     CompareEntry::new(cx, xmlText, label)
 }
 

@@ -7,7 +7,11 @@
 //! `calcs.hitChance` (CalcDefence.lua:58).
 #![allow(non_snake_case)]
 // literal Lua statement shapes (`x = x * y`, `1 / (a + b)`)
-#![allow(unused_parens, clippy::assign_op_pattern, clippy::neg_cmp_op_on_partial_ord)]
+#![allow(
+    unused_parens,
+    clippy::assign_op_pattern,
+    clippy::neg_cmp_op_on_partial_ord
+)]
 
 use super::costs_passes::combineStat;
 use super::OffenceCtx;
@@ -36,10 +40,7 @@ fn concat_str(v: &Val) -> String {
     match v {
         Val::Num(n) => tostring_num(*n),
         Val::Str(s) => s.to_string(),
-        other => lua_error!(
-            "attempt to concatenate a {} value",
-            other.lua_type()
-        ),
+        other => lua_error!("attempt to concatenate a {} value", other.lua_type()),
     }
 }
 
@@ -77,7 +78,12 @@ fn source_table(source: &Val) -> Table {
 
 /// `activeSkill.activeEffect.grantedEffect.castTime`.
 fn castTime(ctx: &OffenceCtx) -> Option<f64> {
-    ctx.activeSkill.activeEffect.get().grantedEffect.get().castTime
+    ctx.activeSkill
+        .activeEffect
+        .get()
+        .grantedEffect
+        .get()
+        .castTime
 }
 
 /// `activeSkill.skillTypes[t]`.
@@ -843,7 +849,8 @@ pub fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
             * skillModList.More(skillCfg_, nm!["DPS"]),
     );
     // L2491
-    if hasSkillType(ctx, SkillType::Brand) && !skillData.truthy(n!("countsAttachedBrandsInDamage")) {
+    if hasSkillType(ctx, SkillType::Brand) && !skillData.truthy(n!("countsAttachedBrandsInDamage"))
+    {
         // L2492
         skillData.set(
             n!("dpsMultiplier"),
@@ -873,7 +880,10 @@ pub fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
     // L2501
     if let Some(breakdown) = &breakdown {
         // L2502
-        breakdown.set(n!("SustainableTrauma"), ctx.storedSustainedTraumaBreakdown.clone());
+        breakdown.set(
+            n!("SustainableTrauma"),
+            ctx.storedSustainedTraumaBreakdown.clone(),
+        );
     }
     // L2504 (`Flag` returns true or nil, so the key is nil without trauma)
     output.set(
@@ -994,7 +1004,9 @@ pub fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
             } else {
                 // L2551
                 let handBreakdown = lor(
-                    land(skillFlags.get(n!("weapon1Attack")), || breakdown.get(n!("MainHand"))),
+                    land(skillFlags.get(n!("weapon1Attack")), || {
+                        breakdown.get(n!("MainHand"))
+                    }),
                     || breakdown.get(n!("OffHand")),
                 );
                 // L2552
@@ -1007,7 +1019,9 @@ pub fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
                 // L2553
                 breakdown.set(
                     n!("Speed"),
-                    lor(breakdown.get(n!("Speed")), || index(&handBreakdown, n!("Speed"))),
+                    lor(breakdown.get(n!("Speed")), || {
+                        index(&handBreakdown, n!("Speed"))
+                    }),
                 );
             }
         }
@@ -1058,7 +1072,10 @@ pub fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
             breakdown.set(n!("HitSpeed"), Table::new());
             let hitSpeed = breakdown.table(n!("HitSpeed")).unwrap_or_default();
             // L2573
-            hitSpeed.push(lfmt!("1 / %.2f ^8(hit time override)", output.opt_num(n!("HitTime"))));
+            hitSpeed.push(lfmt!(
+                "1 / %.2f ^8(hit time override)",
+                output.opt_num(n!("HitTime"))
+            ));
             // L2574
             hitSpeed.push(lfmt!("= %.2f", output.opt_num(n!("HitSpeed"))));
         } else if skillData.truthy(n!("hitTimeMultiplier"))
@@ -1119,7 +1136,10 @@ pub fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
                 ));
             } else {
                 // L2593
-                hitSpeed.push(lfmt!("1 / %.2f ^8(hit time)", output.opt_num(n!("HitTime"))));
+                hitSpeed.push(lfmt!(
+                    "1 / %.2f ^8(hit time)",
+                    output.opt_num(n!("HitTime"))
+                ));
             }
             // L2595
             hitSpeed.push(lfmt!("= %.2f", output.opt_num(n!("HitSpeed"))));

@@ -916,7 +916,10 @@ fn calc_diff_is_accepted_by_report_py() {
         .expect("the .parity checked above holds the build");
         let run = corpus_run(&xml);
         let prov = run_file(&run.run_dir(), "provenance.json").unwrap_or_else(|| {
-            panic!("{BUILD}: the corpus probe run wrote no provenance ({})", run.run_dir().display())
+            panic!(
+                "{BUILD}: the corpus probe run wrote no provenance ({})",
+                run.run_dir().display()
+            )
         });
         let pdir = dir.join("prov").join(BUILD);
         std::fs::create_dir_all(&pdir).unwrap();
@@ -964,7 +967,10 @@ fn calc_diff_is_accepted_by_report_py() {
         // The --unit check only (POB_ALLOW_SKIP=1); the rest of the test runs.
         let _ = require(
             None::<()>,
-            &format!("--unit: the corpus probe run of {BUILD}: {}", why.unwrap_or_default()),
+            &format!(
+                "--unit: the corpus probe run of {BUILD}: {}",
+                why.unwrap_or_default()
+            ),
         );
     }
 
@@ -1009,7 +1015,12 @@ fn all57_corpus() {
         return; // POB_ALLOW_SKIP=1
     };
     let why = testkit::probe_inputs().err();
-    if require(why.is_none().then_some(()), why.as_deref().unwrap_or_default()).is_none() {
+    if require(
+        why.is_none().then_some(()),
+        why.as_deref().unwrap_or_default(),
+    )
+    .is_none()
+    {
         return; // POB_ALLOW_SKIP=1
     }
     let mut builds: Vec<String> = std::fs::read_dir(parity.join("builds"))
@@ -1036,7 +1047,10 @@ fn all57_corpus() {
         let dir = run.run_dir();
         let file = |name: &str| run_file(&dir, name);
         let Some(hits) = file("hits.json").and_then(|p| HitsIndex::load(&p).ok()) else {
-            failures.push(format!("{stem}: the probe run has no hits index ({})", dir.display()));
+            failures.push(format!(
+                "{stem}: the probe run has no hits index ({})",
+                dir.display()
+            ));
             continue;
         };
         if hits.dumps.is_empty() {
@@ -1048,7 +1062,11 @@ fn all57_corpus() {
             let p = file(&d.file).unwrap_or_else(|| panic!("{stem}: no dump file {}", d.file));
             let s = StateDump::load(&p).unwrap_or_else(|e| panic!("{stem}: {e}"));
             // pob-state/1 from dumps made before FUP3, /2 since (`schema::STATE_FORMATS`)
-            assert!(pob_oracle::schema::STATE_FORMATS.contains(&s.format.as_str()), "{}", s.format);
+            assert!(
+                pob_oracle::schema::STATE_FORMATS.contains(&s.format.as_str()),
+                "{}",
+                s.format
+            );
             dumps += 1;
             if s.kind != "line" {
                 fn_dumps += 1;

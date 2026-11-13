@@ -15,9 +15,7 @@ pub mod skills_act_int;
 pub mod skills_act_str;
 pub mod skills_misc;
 
-pub use crate::data_fns_types::{
-    ExplosiveArrowFunc, FnRow, SkillFunc, SkillFuncImpl, SkillHook,
-};
+pub use crate::data_fns_types::{ExplosiveArrowFunc, FnRow, SkillFunc, SkillFuncImpl, SkillHook};
 
 /// Every skill hook by id.
 pub static SKILL_FUNCS: LazyLock<ahash::AHashMap<&'static str, &'static FnRow<SkillFuncImpl>>> =

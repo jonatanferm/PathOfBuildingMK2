@@ -49,10 +49,12 @@ use std::rc::Rc;
 
 use pob_lua::format::tostring_num;
 use pob_lua::math::{lmod, m_max, m_min, m_random};
-use pob_ui_core::controls::list::{ListControl, ListData, ListHooks, ListSource, ListValue, ValKey};
+use pob_ui_core::controls::list::{
+    ListControl, ListData, ListHooks, ListSource, ListValue, ValKey,
+};
 use pob_ui_core::controls::scroll_bar::ScrollBarControl;
 use pob_ui_core::prelude::*;
-use pob_ui_core::tooltip::{TtKey, TtObj, Tooltip};
+use pob_ui_core::tooltip::{Tooltip, TtKey, TtObj};
 
 use crate::app::CxApp;
 use crate::model::{self, ItemRef, LjIntMap, NodeRef, Table, Val};
@@ -310,7 +312,10 @@ fn len_of(v: &Val) -> usize {
 fn not_added(row: &Table) -> bool {
     match row.get("label") {
         Val::Str(s) => pob_lua::pattern::find(&s, "B2B2B2", None, false).is_none(),
-        other => lua_error!("attempt to index field 'label' (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to index field 'label' (a {} value)",
+            other.lua_type()
+        ),
     }
 }
 
@@ -487,14 +492,18 @@ Historic\n"
             let mut alt_variant = if !dv1.raw_eq(&Val::Num(1.0)) && dv1.truthy() {
                 dv1
             } else {
-                lor(data.get("altVariant"), || Val::Num(m_random(Some(2.0), Some(17.0))))
+                lor(data.get("altVariant"), || {
+                    Val::Num(m_random(Some(2.0), Some(17.0)))
+                })
             };
             // L134
             let dv2 = shared.get("devotionVariant2").get("id");
             let alt_variant2 = if !dv2.raw_eq(&Val::Num(1.0)) && dv2.truthy() {
                 dv2
             } else {
-                lor(data.get("altVariant2"), || Val::Num(m_random(Some(2.0), Some(17.0))))
+                lor(data.get("altVariant2"), || {
+                    Val::Num(m_random(Some(2.0), Some(17.0)))
+                })
             };
             // L135
             if alt_variant.raw_eq(&alt_variant2) {
@@ -843,7 +852,11 @@ fn add_value_tooltip(cx: &mut Cx, me: CtrlId, tooltip: &mut Tooltip, index: usiz
         };
         if total_n > 0.0 {
             // L328
-            tooltip.add_line(cx, 16.0, &format!("^7Combined Node Weight: {}", cat(&total)));
+            tooltip.add_line(
+                cx,
+                16.0,
+                &format!("^7Combined Node Weight: {}", cat(&total)),
+            );
         }
         // L330
         let jewel = TimelessJewelListControl::get_jewel_item(cx, me, &data);

@@ -148,7 +148,9 @@ impl BuildDumps {
     /// Did the dumps come from the shared cache (rather than a private run or the override)?
     #[must_use]
     pub fn is_cached(&self) -> bool {
-        self.held.as_ref().is_some_and(crate::runner::ProbeDumps::is_cached)
+        self.held
+            .as_ref()
+            .is_some_and(crate::runner::ProbeDumps::is_cached)
     }
 }
 
@@ -204,7 +206,9 @@ pub fn probe_inputs() -> Result<(), String> {
         return Ok(());
     }
     if !cfg!(feature = "luajit") {
-        return Err("built without the luajit feature (no probe), and no $POB_PROBE_DIR".to_owned());
+        return Err(
+            "built without the luajit feature (no probe), and no $POB_PROBE_DIR".to_owned(),
+        );
     }
     if crate::oracle::find_pob_src().is_none() {
         return Err("no PoB checkout (.PathOfBuilding/src)".to_owned());
@@ -506,7 +510,8 @@ pub fn oracle_dir(
         });
     let Some(entry) = entry else {
         // off / verify / no `.parity`: a private run, deleted when the result is dropped
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/oracle-dir-off");
+        let root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/oracle-dir-off");
         let dir = tmp_name(&root.join("run"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -627,7 +632,12 @@ pub fn export_after(env: Option<&EnvRef>, locals: &[(String, Val)]) -> J {
 /// dump. Returns the mismatches as text (empty = pass). A missing dump or a
 /// stage without a segment is reported as one mismatch line. Both dumps come from
 /// one directory of `dirs` ([`find_pair`]; e.g. [`BuildDumps::dirs`]).
-pub fn segment_diff(build: &Path, dirs: &[PathBuf], stage_in: &str, stage_out: &str) -> Vec<String> {
+pub fn segment_diff(
+    build: &Path,
+    dirs: &[PathBuf],
+    stage_in: &str,
+    stage_out: &str,
+) -> Vec<String> {
     if !init_default_data() {
         return vec!["no data dump (data/dump)".to_owned()];
     }
@@ -643,14 +653,23 @@ pub fn segment_diff(build: &Path, dirs: &[PathBuf], stage_in: &str, stage_out: &
         )];
     };
     let (Ok(din), Ok(dout)) = (StateDump::load(&pin), StateDump::load(&pout)) else {
-        return vec![format!("unreadable dump {} / {}", pin.display(), pout.display())];
+        return vec![format!(
+            "unreadable dump {} / {}",
+            pin.display(),
+            pout.display()
+        )];
     };
     segment_diff_dumps(build, &stem, &din, &dout)
 }
 
 /// [`segment_diff`] on loaded dumps: the mismatches as text, or the injection / run error as
 /// one line.
-pub fn segment_diff_dumps(build: &Path, stem: &str, din: &StateDump, dout: &StateDump) -> Vec<String> {
+pub fn segment_diff_dumps(
+    build: &Path,
+    stem: &str,
+    din: &StateDump,
+    dout: &StateDump,
+) -> Vec<String> {
     match segment_mismatches(build, stem, din, dout) {
         Ok(mm) => mm
             .into_iter()
@@ -964,11 +983,17 @@ mod tests {
     /// a permutation across sources, or different mods, is left alone.
     #[test]
     fn buff_list_lua_order_normalisation() {
-        let tree = |list: Vec<J>| {
-            json!({"env": {"skill": {"buffList": [{"name": "B", "modList": list}]}}})
-        };
-        let pob = tree(vec![m("A", 1.0, "S1"), m("B", 2.0, "S1"), m("C", 3.0, "S2")]);
-        let ours = tree(vec![m("B", 2.0, "S1"), m("A", 1.0, "S1"), m("C", 3.0, "S2")]);
+        let tree = |list: Vec<J>| json!({"env": {"skill": {"buffList": [{"name": "B", "modList": list}]}}});
+        let pob = tree(vec![
+            m("A", 1.0, "S1"),
+            m("B", 2.0, "S1"),
+            m("C", 3.0, "S2"),
+        ]);
+        let ours = tree(vec![
+            m("B", 2.0, "S1"),
+            m("A", 1.0, "S1"),
+            m("C", 3.0, "S2"),
+        ]);
         let mm = diff_trees(&pob, &ours, &DiffOptions::strict());
         assert!(mm.len() > 1, "{mm:?}");
         let n = normalise_lua_order(mm, &pob, &ours);
@@ -976,14 +1001,22 @@ mod tests {
         assert_eq!(n[0].kind, MismatchKind::LuaOrder);
         assert_eq!(n[0].path, "env.skill.buffList[1].modList");
         // across sources: not order-only
-        let ours = tree(vec![m("C", 3.0, "S2"), m("B", 2.0, "S1"), m("A", 1.0, "S1")]);
+        let ours = tree(vec![
+            m("C", 3.0, "S2"),
+            m("B", 2.0, "S1"),
+            m("A", 1.0, "S1"),
+        ]);
         let mm = diff_trees(&pob, &ours, &DiffOptions::strict());
         let k = mm.len();
         let n = normalise_lua_order(mm, &pob, &ours);
         assert_eq!(n.len(), k);
         assert!(n.iter().all(|x| x.kind != MismatchKind::LuaOrder));
         // another value: not order-only
-        let ours = tree(vec![m("B", 2.0, "S1"), m("A", 1.5, "S1"), m("C", 3.0, "S2")]);
+        let ours = tree(vec![
+            m("B", 2.0, "S1"),
+            m("A", 1.5, "S1"),
+            m("C", 3.0, "S2"),
+        ]);
         let mm = diff_trees(&pob, &ours, &DiffOptions::strict());
         let k = mm.len();
         assert_eq!(normalise_lua_order(mm, &pob, &ours).len(), k);
@@ -1009,8 +1042,12 @@ mod tests {
         let entry = dir.join("sel-x");
         let runs = Arc::new(AtomicUsize::new(0));
         // a failed run publishes nothing and is not remembered
-        let r: Result<u8, String> =
-            refresh_once(&entry, || entry.is_dir(), || 0, || Err("probe failed".to_owned()));
+        let r: Result<u8, String> = refresh_once(
+            &entry,
+            || entry.is_dir(),
+            || 0,
+            || Err("probe failed".to_owned()),
+        );
         assert!(r.is_err());
         let threads: Vec<_> = (0..6)
             .map(|_| {
@@ -1041,7 +1078,10 @@ mod tests {
         let again = refresh_once(&entry, || entry.is_dir(), || "served", || Ok("ran")).unwrap();
         assert_eq!(again, "ran");
         // the retired copy is gone, nothing is left next to the entry
-        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(Result::ok).collect();
+        let left: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
         assert!(left.is_empty(), "{left:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }

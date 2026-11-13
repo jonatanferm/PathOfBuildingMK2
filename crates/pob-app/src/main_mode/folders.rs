@@ -160,7 +160,10 @@ pub fn move_folder(cx: &mut Cx, name: &str, src_path: &str, dst_path: &str) {
             popups::open_message_popup(
                 cx,
                 "Error",
-                &format!("Couldn't move '{src_name}' to '{dst_name}': {}", msg_of(msg)),
+                &format!(
+                    "Couldn't move '{src_name}' to '{dst_name}': {}",
+                    msg_of(msg)
+                ),
             );
             // L1610
             return;
@@ -191,7 +194,10 @@ pub fn copy_folder(cx: &mut Cx, src_name: &str, dst_name: &str) {
         popups::open_message_popup(
             cx,
             "Error",
-            &format!("Couldn't copy '{src_name}' to '{dst_name}' : {}", msg_of(msg)),
+            &format!(
+                "Couldn't copy '{src_name}' to '{dst_name}' : {}",
+                msg_of(msg)
+            ),
         );
         // L1630
         return;
@@ -226,7 +232,10 @@ pub fn copy_folder(cx: &mut Cx, src_name: &str, dst_name: &str) {
             popups::open_message_popup(
                 cx,
                 "Error",
-                &format!("Couldn't copy '{src_name}' to '{dst_name}': {}", msg_of(msg)),
+                &format!(
+                    "Couldn't copy '{src_name}' to '{dst_name}': {}",
+                    msg_of(msg)
+                ),
             );
             // L1652
             return;

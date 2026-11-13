@@ -181,9 +181,15 @@ fn u53_tree_perf_1080p() {
             ms.len(),
             ms.iter().take(3).map(|x| (x * 1000.0).round() / 1000.0).collect::<Vec<_>>()
         );
-        assert!(steady.len() >= 40, "{build}: only {} tree draws", steady.len());
+        assert!(
+            steady.len() >= 40,
+            "{build}: only {} tree draws",
+            steady.len()
+        );
         if gate && !(p50 < 4.0 && p95 < 4.0) {
-            failures.push(format!("{build}: tree draw p50 {p50:.3} ms, p95 {p95:.3} ms (gate < 4 ms)"));
+            failures.push(format!(
+                "{build}: tree draw p50 {p50:.3} ms, p95 {p95:.3} ms (gate < 4 ms)"
+            ));
         }
     }
     of::set_shell_hooks(|h| *h = of::default_shell_hooks());

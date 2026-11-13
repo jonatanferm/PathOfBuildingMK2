@@ -439,12 +439,7 @@ pub fn fetch_auth_token(cx: &mut Cx, callback: AuthCallback) {
     let initial_state = pob_lua::gsub_fn(
         "xxxxxxxxxxxxxxxx",
         "x",
-        |_| {
-            Some(lfmt!(
-                "%x",
-                m_random(Some(0.0), Some(f64::from(0xf)))
-            ))
-        },
+        |_| Some(lfmt!("%x", m_random(Some(0.0), Some(f64::from(0xf))))),
         None,
     )
     .0;

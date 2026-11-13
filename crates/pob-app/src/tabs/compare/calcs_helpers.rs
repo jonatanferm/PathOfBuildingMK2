@@ -74,7 +74,10 @@ fn concat_str(v: &Val, what: &str) -> String {
     match v {
         Val::Str(s) => s.to_string(),
         Val::Num(x) => tostring_num(*x),
-        other => lua_error!("attempt to concatenate {what} (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to concatenate {what} (a {} value)",
+            other.lua_type()
+        ),
     }
 }
 
@@ -102,7 +105,9 @@ fn main_skill_cfg(skill: &pob_calc::active_skill::ActiveSkill, name: &str) -> Op
     match name {
         "skillCfg" => Some(skill.skillCfg.get()),
         "weapon1Cfg" | "weapon2Cfg" | "bleedCfg" | "poisonCfg" | "igniteCfg" | "OHbleedCfg"
-        | "OHpoisonCfg" | "OHigniteCfg" | "dotCfg" | "decayCfg" => skill.cfg_field(Name::from(name)).get(),
+        | "OHpoisonCfg" | "OHigniteCfg" | "dotCfg" | "decayCfg" => {
+            skill.cfg_field(Name::from(name)).get()
+        }
         _ => skill.extra.get(Name::from(name)).obj::<ModCfg>(),
     }
 }
@@ -195,7 +200,11 @@ pub fn FormatCalcModName(modName: &str) -> String {
 /// @pob Classes/CompareCalcsHelpers.lua:42-76 h=19bb8268
 pub fn ResolveSourceName(cx: &Cx, r#mod: &Val, build: &model::BuildRef) -> String {
     // L46
-    let Some(source) = r#mod.get(n!("source")).str().filter(|_| r#mod.get(n!("source")).truthy()) else {
+    let Some(source) = r#mod
+        .get(n!("source"))
+        .str()
+        .filter(|_| r#mod.get(n!("source")).truthy())
+    else {
         return String::new();
     };
     // L47
@@ -246,7 +255,9 @@ pub fn ResolveSourceName(cx: &Cx, r#mod: &Val, build: &model::BuildRef) -> Strin
         // L66
         let skillId = match1(&source, "Skill:(.+)");
         // L67
-        if let Some(ge) = skillId.and_then(|id| build.data.skills.get(&Name::from(id.as_str())).cloned()) {
+        if let Some(ge) =
+            skillId.and_then(|id| build.data.skills.get(&Name::from(id.as_str())).cloned())
+        {
             // L68
             return ge.name.to_string();
         }
@@ -335,7 +346,13 @@ pub fn TabulateMods(sectionData: &Table, actor: &ActorRef) -> Vec<Table> {
 /// @pob Classes/CompareCalcsHelpers.lua:112-121 h=e3b430dc
 pub fn ModRowKey(row: &Table) -> String {
     let m = row.get(n!("mod"));
-    let or_empty = |v: Val| if v.truthy() { concat_str(&v, "a mod field") } else { String::new() };
+    let or_empty = |v: Val| {
+        if v.truthy() {
+            concat_str(&v, "a mod field")
+        } else {
+            String::new()
+        }
+    };
     // L114
     let src = or_empty(m.get(n!("source")));
     // L115
@@ -354,7 +371,12 @@ pub fn ModRowKey(row: &Table) -> String {
 /// modName`
 /// lua: CompareCalcsHelpers.lua:123-140 `M.FormatModRow(row, sectionData, build)`
 /// @pob Classes/CompareCalcsHelpers.lua:123-140 h=8f6acb4f
-pub fn FormatModRow(cx: &Cx, row: &Table, sectionData: &Table, build: &model::BuildRef) -> (Val, String, String, String) {
+pub fn FormatModRow(
+    cx: &Cx,
+    row: &Table,
+    sectionData: &Table,
+    build: &model::BuildRef,
+) -> (Val, String, String, String) {
     let m = row.get(n!("mod"));
     let value = row.get(n!("value"));
     // L125
@@ -380,7 +402,10 @@ pub fn FormatModRow(cx: &Cx, row: &Table, sectionData: &Table, build: &model::Bu
     // L135
     if matches!(sectionData.get(n!("modName")), Val::Table(_)) {
         // L136
-        modName = format!("  {}", FormatCalcModName(&concat_str(&m.get(n!("name")), "field 'name'")));
+        modName = format!(
+            "  {}",
+            FormatCalcModName(&concat_str(&m.get(n!("name")), "field 'name'"))
+        );
     }
 
     // L139
@@ -413,7 +438,11 @@ pub fn GetBreakdownLines(sectionData: &Table, build: &model::BuildRef) -> Option
         // CCR-0144 §2: `breakdown.MainHand`/`.OffHand` are nested breakdown instances
         // (`Val::Obj(Breakdown)`), plain tables in Lua
         let t = bd_val(actorBreakdown.get(Name::from(&ns)));
-        breakdown = if t.truthy() { t.get(Name::from(&name)) } else { t };
+        breakdown = if t.truthy() {
+            t.get(Name::from(&name))
+        } else {
+            t
+        };
     } else {
         // L155
         breakdown = actorBreakdown.get(Name::from(key.as_str()));
@@ -423,7 +452,10 @@ pub fn GetBreakdownLines(sectionData: &Table, build: &model::BuildRef) -> Option
     let breakdown = match &breakdown {
         Val::Table(t) if !t.is_empty() => t.clone(),
         Val::Nil | Val::Bool(false) | Val::Table(_) => return None,
-        other => lua_error!("attempt to get length of local 'breakdown' (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to get length of local 'breakdown' (a {} value)",
+            other.lua_type()
+        ),
     };
 
     // L160
@@ -472,14 +504,24 @@ pub fn DrawCalcsTooltip(
     if tooltip.check_for_update(cx, &keys) {
         // Get calcsEnv actors (these have breakdown data populated)
         // L176-179
-        let primaryCalcsActor = primaryBuild.calcsTab.calcsEnv.get().map(|e| e.player.clone());
+        let primaryCalcsActor = primaryBuild
+            .calcsTab
+            .calcsEnv
+            .get()
+            .map(|e| e.player.clone());
         let compareCalcsActor = cmp.calcsTab.calcsEnv.get().map(|e| e.player.clone());
 
         // L181
-        let primaryActor =
-            primaryCalcsActor.or_else(|| primaryBuild.calcsTab.mainEnv.get().map(|e| e.player.clone()));
+        let primaryActor = primaryCalcsActor.or_else(|| {
+            primaryBuild
+                .calcsTab
+                .mainEnv
+                .get()
+                .map(|e| e.player.clone())
+        });
         // L182
-        let compareActor = compareCalcsActor.or_else(|| cmp.calcsTab.mainEnv.get().map(|e| e.player.clone()));
+        let compareActor =
+            compareCalcsActor.or_else(|| cmp.calcsTab.mainEnv.get().map(|e| e.player.clone()));
 
         // L184
         if primaryActor.is_none() && compareActor.is_none() {
@@ -501,7 +543,10 @@ pub fn DrawCalcsTooltip(
         // L195
         for (_, sectionData) in colData.ipairs() {
             let Some(sectionData) = sectionData.table() else {
-                lua_error!("attempt to index local 'sectionData' (a {} value)", sectionData.lua_type())
+                lua_error!(
+                    "attempt to index local 'sectionData' (a {} value)",
+                    sectionData.lua_type()
+                )
             };
             // Show breakdown formulas per build (these are always build-specific)
             // L197
@@ -542,15 +587,22 @@ pub fn DrawCalcsTooltip(
             // L219
             if sectionData.truthy(n!("modName")) {
                 // L220
-                let pRows = primaryActor.as_ref().map(|a| TabulateMods(&sectionData, a)).unwrap_or_default();
+                let pRows = primaryActor
+                    .as_ref()
+                    .map(|a| TabulateMods(&sectionData, a))
+                    .unwrap_or_default();
                 // L221
-                let cRows = compareActor.as_ref().map(|a| TabulateMods(&sectionData, a)).unwrap_or_default();
+                let cRows = compareActor
+                    .as_ref()
+                    .map(|a| TabulateMods(&sectionData, a))
+                    .unwrap_or_default();
 
                 // L223
                 if !pRows.is_empty() || !cRows.is_empty() {
                     // Build lookup of compare rows by key
                     // L225
-                    let mut cByKey: std::collections::HashMap<String, Table> = std::collections::HashMap::new();
+                    let mut cByKey: std::collections::HashMap<String, Table> =
+                        std::collections::HashMap::new();
                     // L226
                     for row in &cRows {
                         // L227
@@ -565,7 +617,8 @@ pub fn DrawCalcsTooltip(
                     // L233
                     let mut pOnly: Vec<Table> = Vec::new();
                     // L234
-                    let mut cMatched: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    let mut cMatched: std::collections::HashSet<String> =
+                        std::collections::HashSet::new();
 
                     // L236
                     for pRow in &pRows {
@@ -626,13 +679,22 @@ pub fn DrawCalcsTooltip(
                             // L272
                             let valStr = if pVal.raw_eq(&cVal) {
                                 // L273
-                                pob_lua::lua_format("^7%-10s", &[pob_lua::FmtArg::from(&tostring_val(&pVal))])
+                                pob_lua::lua_format(
+                                    "^7%-10s",
+                                    &[pob_lua::FmtArg::from(&tostring_val(&pVal))],
+                                )
                             } else {
                                 // L275
                                 format!(
                                     "{positive}{}^7/{warning}{}",
-                                    pob_lua::lua_format("%-5s", &[pob_lua::FmtArg::from(&tostring_val(&pVal))]),
-                                    pob_lua::lua_format("%-5s", &[pob_lua::FmtArg::from(&tostring_val(&cVal))])
+                                    pob_lua::lua_format(
+                                        "%-5s",
+                                        &[pob_lua::FmtArg::from(&tostring_val(&pVal))]
+                                    ),
+                                    pob_lua::lua_format(
+                                        "%-5s",
+                                        &[pob_lua::FmtArg::from(&tostring_val(&cVal))]
+                                    )
                                 )
                             };
                             // L277
@@ -706,7 +768,12 @@ pub fn DrawCalcsTooltip(
 
 /// `s_format("    ^7%-10s ^7%-6s ^7%s%s", displayValue, sourceType, sourceName, modName)`
 /// (L293, L309)
-fn only_line(displayValue: &Val, sourceType: String, sourceName: String, modName: String) -> String {
+fn only_line(
+    displayValue: &Val,
+    sourceType: String,
+    sourceName: String,
+    modName: String,
+) -> String {
     pob_lua::lua_format(
         "    ^7%-10s ^7%-6s ^7%s%s",
         &[
@@ -733,7 +800,12 @@ fn resolveModSource(cx: &Cx, r#mod: &Val, build: &model::BuildRef) -> (String, S
     let mut sourceName = String::new();
     // L332-358 (the same branches as ResolveSourceName, which a nil source cannot reach: its
     // `sourceType` is "?")
-    if source.is_some() && matches!(sourceType.as_str(), "Item" | "Tree" | "Skill" | "Pantheon" | "Spectre") {
+    if source.is_some()
+        && matches!(
+            sourceType.as_str(),
+            "Item" | "Tree" | "Skill" | "Pantheon" | "Spectre"
+        )
+    {
         sourceName = ResolveSourceName(cx, r#mod, build);
     }
     // L359
@@ -772,7 +844,10 @@ pub fn DrawSkillBreakdownPanel(
     let modList = match &modList {
         Val::Table(t) if !t.is_empty() => t.clone(),
         Val::Nil | Val::Bool(false) | Val::Table(_) => return,
-        other => lua_error!("attempt to get length of field 'modList' (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to get length of field 'modList' (a {} value)",
+            other.lua_type()
+        ),
     };
 
     // L372 (local modList = breakdown.modList)
@@ -787,8 +862,14 @@ pub fn DrawSkillBreakdownPanel(
     }
     // L379-383
     pob_lua::sort::sort(&mut rowList, |a, b| {
-        let (an, bn) = (a.get(n!("mod")).get(n!("name")), b.get(n!("mod")).get(n!("name")));
-        let (an, bn) = (concat_str(&an, "field 'name'"), concat_str(&bn, "field 'name'"));
+        let (an, bn) = (
+            a.get(n!("mod")).get(n!("name")),
+            b.get(n!("mod")).get(n!("name")),
+        );
+        let (an, bn) = (
+            concat_str(&an, "field 'name'"),
+            concat_str(&bn, "field 'name'"),
+        );
         an.as_bytes() > bn.as_bytes()
             || (an == bn
                 && match (a.get(n!("value")), b.get(n!("value"))) {
@@ -806,10 +887,30 @@ pub fn DrawSkillBreakdownPanel(
         x: f64,
     }
     let mut colDefs = [
-        ColDef { label: "Value", key: 0, width: 0.0, x: 0.0 },
-        ColDef { label: "Stat", key: 1, width: 0.0, x: 0.0 },
-        ColDef { label: "Source", key: 2, width: 0.0, x: 0.0 },
-        ColDef { label: "Source Name", key: 3, width: 0.0, x: 0.0 },
+        ColDef {
+            label: "Value",
+            key: 0,
+            width: 0.0,
+            x: 0.0,
+        },
+        ColDef {
+            label: "Stat",
+            key: 1,
+            width: 0.0,
+            x: 0.0,
+        },
+        ColDef {
+            label: "Source",
+            key: 2,
+            width: 0.0,
+            x: 0.0,
+        },
+        ColDef {
+            label: "Source Name",
+            key: 3,
+            width: 0.0,
+            x: 0.0,
+        },
     ];
 
     // L393 (`row.displayValue`, `row.name`, `row.source`, `row.sourceName`: always strings)
@@ -821,7 +922,11 @@ pub fn DrawSkillBreakdownPanel(
         // L396-401
         let displayValue = FormatCalcModValue(&entry.get(n!("value")), &m.get(n!("type")));
         let name = m.get(n!("name"));
-        let name = FormatCalcModName(&if name.truthy() { concat_str(&name, "field 'name'") } else { String::new() });
+        let name = FormatCalcModName(&if name.truthy() {
+            concat_str(&name, "field 'name'")
+        } else {
+            String::new()
+        });
         // L399
         let (sourceType, sourceName) = resolveModSource(cx, &m, build);
         // L402
@@ -836,7 +941,9 @@ pub fn DrawSkillBreakdownPanel(
         // L408
         for row in &rows {
             // L409-410
-            col.width = col.width.max(cx.sg.draw_string_width(12.0, Font::Var, &row[col.key]) + 6.0);
+            col.width = col
+                .width
+                .max(cx.sg.draw_string_width(12.0, Font::Var, &row[col.key]) + 6.0);
         }
     }
 
@@ -874,7 +981,8 @@ pub fn DrawSkillBreakdownPanel(
     // L434
     cx.sg.set_draw_color_a(0.0, 0.0, 0.0, 0.9);
     // L435
-    cx.sg.draw_image(None, panelX + 2.0, panelY + 2.0, panelW - 4.0, panelH - 4.0);
+    cx.sg
+        .draw_image(None, panelX + 2.0, panelY + 2.0, panelW - 4.0, panelH - 4.0);
 
     // Draw border
     // L438
@@ -883,9 +991,11 @@ pub fn DrawSkillBreakdownPanel(
     cx.sg.set_draw_color(0.33, 0.66, 0.33);
     // L440-443
     cx.sg.draw_image(None, panelX, panelY, panelW, 2.0);
-    cx.sg.draw_image(None, panelX, panelY + panelH - 2.0, panelW, 2.0);
+    cx.sg
+        .draw_image(None, panelX, panelY + panelH - 2.0, panelW, 2.0);
     cx.sg.draw_image(None, panelX, panelY, 2.0, panelH);
-    cx.sg.draw_image(None, panelX + panelW - 2.0, panelY, 2.0, panelH);
+    cx.sg
+        .draw_image(None, panelX + panelW - 2.0, panelY, 2.0, panelH);
     // L444
     cx.sg.set_draw_layer(None, Some(10));
 
@@ -901,12 +1011,14 @@ pub fn DrawSkillBreakdownPanel(
             // L451
             cx.sg.set_draw_color(0.5, 0.5, 0.5);
             // L452
-            cx.sg.draw_image(None, colX - 2.0, panelY + 2.0, 1.0, panelH - 4.0);
+            cx.sg
+                .draw_image(None, colX - 2.0, panelY + 2.0, 1.0, panelH - 4.0);
         }
         // L454
         cx.sg.set_draw_color(1.0, 1.0, 1.0);
         // L455
-        cx.sg.draw_string(colX, panelY + 2.0, Align::Left, 16.0, Font::Var, col.label);
+        cx.sg
+            .draw_string(colX, panelY + 2.0, Align::Left, 16.0, Font::Var, col.label);
         // L456
         colX += col.width;
     }
@@ -920,13 +1032,21 @@ pub fn DrawSkillBreakdownPanel(
         // L463
         cx.sg.set_draw_color(0.5, 0.5, 0.5);
         // L464
-        cx.sg.draw_image(None, panelX + 2.0, rowY - 1.0, panelW - 4.0, 1.0);
+        cx.sg
+            .draw_image(None, panelX + 2.0, rowY - 1.0, panelW - 4.0, 1.0);
         // L465
         for col in &colDefs {
             // L466
             if !row[col.key].is_empty() {
                 // L467
-                cx.sg.draw_string(col.x, rowY + 1.0, Align::Left, 12.0, Font::Var, &format!("^7{}", row[col.key]));
+                cx.sg.draw_string(
+                    col.x,
+                    rowY + 1.0,
+                    Align::Left,
+                    12.0,
+                    Font::Var,
+                    &format!("^7{}", row[col.key]),
+                );
             }
         }
         // L470
@@ -946,14 +1066,38 @@ mod tests {
 
     #[test]
     fn format_mod_value() {
-        assert_eq!(FormatCalcModValue(&Val::Num(12.0), &Val::from("BASE")), "+12 base");
-        assert_eq!(FormatCalcModValue(&Val::Num(-3.5), &Val::from("BASE")), "-3.5 base");
-        assert_eq!(FormatCalcModValue(&Val::Num(20.0), &Val::from("INC")), "20% increased");
-        assert_eq!(FormatCalcModValue(&Val::Num(-20.0), &Val::from("INC")), "20% reduced");
-        assert_eq!(FormatCalcModValue(&Val::Num(0.0), &Val::from("MORE")), "0% more");
-        assert_eq!(FormatCalcModValue(&Val::Num(-10.0), &Val::from("MORE")), "10% less");
-        assert_eq!(FormatCalcModValue(&Val::Num(5.0), &Val::from("OVERRIDE")), "Override: 5");
-        assert_eq!(FormatCalcModValue(&Val::Bool(true), &Val::from("FLAG")), "True");
+        assert_eq!(
+            FormatCalcModValue(&Val::Num(12.0), &Val::from("BASE")),
+            "+12 base"
+        );
+        assert_eq!(
+            FormatCalcModValue(&Val::Num(-3.5), &Val::from("BASE")),
+            "-3.5 base"
+        );
+        assert_eq!(
+            FormatCalcModValue(&Val::Num(20.0), &Val::from("INC")),
+            "20% increased"
+        );
+        assert_eq!(
+            FormatCalcModValue(&Val::Num(-20.0), &Val::from("INC")),
+            "20% reduced"
+        );
+        assert_eq!(
+            FormatCalcModValue(&Val::Num(0.0), &Val::from("MORE")),
+            "0% more"
+        );
+        assert_eq!(
+            FormatCalcModValue(&Val::Num(-10.0), &Val::from("MORE")),
+            "10% less"
+        );
+        assert_eq!(
+            FormatCalcModValue(&Val::Num(5.0), &Val::from("OVERRIDE")),
+            "Override: 5"
+        );
+        assert_eq!(
+            FormatCalcModValue(&Val::Bool(true), &Val::from("FLAG")),
+            "True"
+        );
         assert_eq!(FormatCalcModValue(&Val::Nil, &Val::from("FLAG")), "False");
         assert_eq!(FormatCalcModValue(&Val::Num(1.25), &Val::Nil), "1.25");
     }
@@ -962,7 +1106,10 @@ mod tests {
     fn format_mod_name() {
         assert_eq!(FormatCalcModName("LifeRegenPercent"), "Life Regen Percent");
         assert_eq!(FormatCalcModName("Damage2Life"), "Damage 2 Life");
-        assert_eq!(FormatCalcModName("ElementalDamage:Fire"), "Elemental Damage: Fire");
+        assert_eq!(
+            FormatCalcModName("ElementalDamage:Fire"),
+            "Elemental Damage: Fire"
+        );
     }
 
     #[test]

@@ -81,7 +81,17 @@ fn flat(prefix: &str, t: &Table, out: &mut BTreeMap<String, String>, depth: u32)
         let p = format!("{prefix}.{}", key_str(&k));
         match v {
             Val::Num(x) => {
-                out.insert(p, format!("{:016x}", if x.is_nan() { f64::NAN.to_bits() } else { x.to_bits() }));
+                out.insert(
+                    p,
+                    format!(
+                        "{:016x}",
+                        if x.is_nan() {
+                            f64::NAN.to_bits()
+                        } else {
+                            x.to_bits()
+                        }
+                    ),
+                );
             }
             Val::Bool(b) => {
                 out.insert(p, b.to_string());
@@ -173,7 +183,9 @@ fn power_run(build: &BuildRef) {
 
 fn one_build(path: &Path, o: &Opts) -> Result<String, String> {
     let xml = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let name = path.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+    let name = path
+        .file_stem()
+        .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
     pob_calc::global_cache::clear_all();
     let t = Instant::now();
     let build = catch(|| pob_calc::model::build_xml::loadBuildFromXML(&xml, pob_gamedata::data()))?;
@@ -200,7 +212,11 @@ fn one_build(path: &Path, o: &Opts) -> Result<String, String> {
         pc.push(c);
         prss.push(rss_mb().0 as f64);
     }
-    let (pow_digest, pow_n) = if o.power > 0 { power_digest(&build) } else { (String::new(), 0) };
+    let (pow_digest, pow_n) = if o.power > 0 {
+        power_digest(&build)
+    } else {
+        (String::new(), 0)
+    };
     let (rss, peak) = rss_mb();
     let line = format!(
         r#"{{"build":"{name}","engine":"rust","load":{load:.6},"recalc":{{"wall":{},"cpu":{}}},"power":{{"wall":{},"cpu":{}}},"outputDigest":"{out_digest}","outputLeaves":{out_n},"powerDigest":"{pow_digest}","powerLeaves":{pow_n},"rssMB":{rss},"peakRssMB":{peak},"rssAfterRecalcMB":{rss_recalc},"rssAfterPowerMB":{}}}"#,
@@ -231,10 +247,16 @@ fn find_up(rel: &str) -> Option<PathBuf> {
 fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let mut builds: Vec<PathBuf> = Vec::new();
-    let mut o = Opts { recalc: 10, warmup: 3, power: 2 };
+    let mut o = Opts {
+        recalc: 10,
+        warmup: 3,
+        power: 2,
+    };
     let mut json: Option<PathBuf> = None;
     let num = |v: Option<String>, what: &str| -> Result<u32, String> {
-        v.ok_or(format!("{what} N"))?.parse().map_err(|e| format!("{what}: {e}"))
+        v.ok_or(format!("{what} N"))?
+            .parse()
+            .map_err(|e| format!("{what}: {e}"))
     };
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -278,7 +300,9 @@ fn run() -> Result<(), String> {
     let mut lines = Vec::new();
     for b in &builds {
         let line = one_build(b, &o).unwrap_or_else(|e| {
-            let name = b.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+            let name = b
+                .file_stem()
+                .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
             format!(r#"{{"build":"{name}","engine":"rust","error":{:?}}}"#, e)
         });
         if json.is_none() {
@@ -287,7 +311,8 @@ fn run() -> Result<(), String> {
         lines.push(line);
     }
     if let Some(p) = json {
-        std::fs::write(&p, format!("[{}]\n", lines.join(",\n"))).map_err(|e| format!("{}: {e}", p.display()))?;
+        std::fs::write(&p, format!("[{}]\n", lines.join(",\n")))
+            .map_err(|e| format!("{}: {e}", p.display()))?;
     }
     Ok(())
 }

@@ -94,7 +94,9 @@ use crate::app::CxApp;
 use crate::build::display_stats;
 use crate::calc::MiscCalc;
 use crate::model::gamedata::schema::item_data::PowerStat;
-use crate::model::{self, Field, GemInstance, GemInstanceRef, ItemRef, NodeRef, Output, Override, Table, Val};
+use crate::model::{
+    self, Field, GemInstance, GemInstanceRef, ItemRef, NodeRef, Output, Override, Table, Val,
+};
 use crate::tabs::items::slot::set_sel_item_id;
 use crate::tabs::items::slot_helper::items_hooks;
 // calc:PWR's module is not re-exported by model.rs (U15; CCR-0123 §9, CCR-0115)
@@ -229,7 +231,10 @@ fn item_at(build: &model::BuildRef, id: &Val) -> Option<ItemRef> {
 
 /// `itemsTab.slots[slotName]`
 fn slot_at(build: &model::BuildRef, slotName: &str) -> Option<Table> {
-    build.itemsTab.slots.with(|s| s.get(&Name::from(slotName)).cloned())
+    build
+        .itemsTab
+        .slots
+        .with(|s| s.get(&Name::from(slotName)).cloned())
 }
 
 /// `slot and itemsTab.items[slot.selItemId]`
@@ -245,7 +250,11 @@ fn color(cx: &Cx, name: &str) -> String {
 /// `colorCodes[item.rarity] or colorCodes.NORMAL`
 fn rarity_color(cx: &Cx, item: &ItemRef) -> String {
     let rarity = item.rarity.get();
-    cx.main.cc.get(rarity.as_str()).cloned().unwrap_or_else(|| cx.main.cc.NORMAL.clone())
+    cx.main
+        .cc
+        .get(rarity.as_str())
+        .cloned()
+        .unwrap_or_else(|| cx.main.cc.NORMAL.clone())
 }
 
 /// `group.gemList or {}` (a snapshot: the loops below do not change the list they iterate).
@@ -258,8 +267,21 @@ fn gems_of(group: &model::SocketGroupRef) -> Vec<GemInstanceRef> {
 /// `local baseSlots = { ... }` with Ring 3 and the abyssal sockets (L2553-2559, L2718-2724).
 fn base_slots(cx: &Cx, compareEntry: &CompareEntryRef) -> Vec<String> {
     let mut baseSlots: Vec<String> = [
-        "Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Belt",
-        "Flask 1", "Flask 2", "Flask 3", "Flask 4", "Flask 5",
+        "Weapon 1",
+        "Weapon 2",
+        "Helmet",
+        "Body Armour",
+        "Gloves",
+        "Boots",
+        "Amulet",
+        "Ring 1",
+        "Ring 2",
+        "Belt",
+        "Flask 1",
+        "Flask 2",
+        "Flask 3",
+        "Flask 4",
+        "Flask 5",
     ]
     .iter()
     .map(|s| (*s).to_owned())
@@ -288,7 +310,12 @@ fn support_names(group: &model::SocketGroupRef) -> HashSet<String> {
 
 /// `local function formatImpact(impact)` (L2627-2654): `str, displayVal, combinedStr, percent,
 /// isZero`.
-fn formatImpact(cx: &Cx, displayStat: &DisplayFmt, baseStatValue: f64, impact: f64) -> (String, f64, String, f64, bool) {
+fn formatImpact(
+    cx: &Cx,
+    displayStat: &DisplayFmt,
+    baseStatValue: f64,
+    impact: f64,
+) -> (String, f64, String, f64, bool) {
     // L2628
     let displayVal = impact * displayStat.mult();
     // L2629
@@ -303,9 +330,11 @@ fn formatImpact(cx: &Cx, displayStat: &DisplayFmt, baseStatValue: f64, impact: f
 
     // Determine color
     // L2634
-    let isPositive = (displayVal > 0.0 && !displayStat.lowerIsBetter) || (displayVal < 0.0 && displayStat.lowerIsBetter);
+    let isPositive = (displayVal > 0.0 && !displayStat.lowerIsBetter)
+        || (displayVal < 0.0 && displayStat.lowerIsBetter);
     // L2635
-    let isNegative = (displayVal < 0.0 && !displayStat.lowerIsBetter) || (displayVal > 0.0 && displayStat.lowerIsBetter);
+    let isNegative = (displayVal < 0.0 && !displayStat.lowerIsBetter)
+        || (displayVal > 0.0 && displayStat.lowerIsBetter);
     // L2636
     let color = if isPositive {
         cx.main.cc.POSITIVE.clone()
@@ -400,7 +429,11 @@ impl CompareTab {
     /// categories)` (`categories` is `self.comparePowerCategories`: module notes)
     /// @pob Classes/CompareTab.lua:2516-3126 h=3443146f
     #[allow(clippy::too_many_lines)]
-    pub async fn ComparePowerBuilder(me: CtrlId, compareEntry: CompareEntryRef, powerStat: &'static PowerStat) {
+    pub async fn ComparePowerBuilder(
+        me: CtrlId,
+        compareEntry: CompareEntryRef,
+        powerStat: &'static PowerStat,
+    ) {
         let cmp = compareEntry.model.clone();
         let cats = move |cx: &Cx| st(cx, me).comparePowerCategories;
         let statTable = power::powerStat_table(powerStat);
@@ -424,15 +457,28 @@ impl CompareTab {
         // L2525
         for ds in display_stats::displayStats().iter() {
             // L2526
-            if ds.stat.is_some_and(|d| powerStat.stat.is_some_and(|s| s.as_str() == d)) {
+            if ds
+                .stat
+                .is_some_and(|d| powerStat.stat.is_some_and(|s| s.as_str() == d))
+            {
                 // L2527
-                displayStat = Some(DisplayFmt { fmt: ds.fmt, pc: ds.pc, r#mod: ds.r#mod, lowerIsBetter: ds.lowerIsBetter });
+                displayStat = Some(DisplayFmt {
+                    fmt: ds.fmt,
+                    pc: ds.pc,
+                    r#mod: ds.r#mod,
+                    lowerIsBetter: ds.lowerIsBetter,
+                });
                 // L2528
                 break;
             }
         }
         // L2531-2533
-        let displayStat = displayStat.unwrap_or(DisplayFmt { fmt: Some(".1f"), pc: false, r#mod: false, lowerIsBetter: false });
+        let displayStat = displayStat.unwrap_or(DisplayFmt {
+            fmt: Some(".1f"),
+            pc: false,
+            r#mod: false,
+            lowerIsBetter: false,
+        });
 
         // L2535
         let mut total = 0.0;
@@ -454,7 +500,9 @@ impl CompareTab {
                 // L2543 ORDER: see the module notes
                 for (nodeId, _node) in compareNodes {
                     // L2544
-                    if (nodeId as f64) < CLUSTER_NODE_OFFSET && !primarySpec.allocNodes.with(|a| a.contains_key(nodeId)) {
+                    if (nodeId as f64) < CLUSTER_NODE_OFFSET
+                        && !primarySpec.allocNodes.with(|a| a.contains_key(nodeId))
+                    {
                         // L2545
                         let pNode = primarySpec.nodes.with(|m| m.get(nodeId));
                         // L2546
@@ -502,9 +550,15 @@ impl CompareTab {
             // L2580
             if c.supportGems {
                 // L2581
-                let cMainGroup = at_num(&cmp.skillsTab.socketGroupList.get().snapshot(), cmp.mainSocketGroup.get());
+                let cMainGroup = at_num(
+                    &cmp.skillsTab.socketGroupList.get().snapshot(),
+                    cmp.mainSocketGroup.get(),
+                );
                 // L2582
-                let pMainGroup = at_num(&p.skillsTab.socketGroupList.get().snapshot(), p.mainSocketGroup.get());
+                let pMainGroup = at_num(
+                    &p.skillsTab.socketGroupList.get().snapshot(),
+                    p.mainSocketGroup.get(),
+                );
                 // L2583
                 if let (Some(cMainGroup), Some(pMainGroup)) = (cMainGroup, pMainGroup) {
                     // Count support gems in compared build's main group not in primary's main group
@@ -536,11 +590,17 @@ impl CompareTab {
                 // L2607
                 for varData in st(cx, me).configOptions {
                     // L2608
-                    if let (Some(var), true, true) =
-                        (varData.var, varData.apply.is_some(), !varData.r#type.is_some_and(|t| t == n!("text")))
-                    {
+                    if let (Some(var), true, true) = (
+                        varData.var,
+                        varData.apply.is_some(),
+                        !varData.r#type.is_some_and(|t| t == n!("text")),
+                    ) {
                         // L2609
-                        let (pVal, cVal) = CompareTab::NormalizeConfigVals(varData, pInput.get(var), cInput.get(var));
+                        let (pVal, cVal) = CompareTab::NormalizeConfigVals(
+                            varData,
+                            pInput.get(var),
+                            cInput.get(var),
+                        );
                         // L2610
                         if !pVal.raw_eq(&cVal) {
                             // L2611
@@ -583,7 +643,9 @@ impl CompareTab {
                     let p = cx.build().model.clone();
                     let primarySpec = p.spec.get();
                     // L2665
-                    if (nodeId as f64) >= CLUSTER_NODE_OFFSET || primarySpec.allocNodes.with(|a| a.contains_key(nodeId)) {
+                    if (nodeId as f64) >= CLUSTER_NODE_OFFSET
+                        || primarySpec.allocNodes.with(|a| a.contains_key(nodeId))
+                    {
                         return false;
                     }
                     // L2666
@@ -607,7 +669,10 @@ impl CompareTab {
                         // L2673
                         let o = call(
                             &calcFunc,
-                            Override { addNodes: Field::new(Some(node_set(&pNode))), ..Override::default() },
+                            Override {
+                                addNodes: Field::new(Some(node_set(&pNode))),
+                                ..Override::default()
+                            },
                             useFullDPS,
                         );
                         // L2674
@@ -674,8 +739,20 @@ impl CompareTab {
 
             // L2726
             for slotName in &baseSlots {
-                co::with_cx(|cx| Self::rate_item(cx, &compareEntry, slotName, &calcFunc, &calcBase, &statTable,
-                    useFullDPS, &displayStat, baseStatValue, &mut results));
+                co::with_cx(|cx| {
+                    Self::rate_item(
+                        cx,
+                        &compareEntry,
+                        slotName,
+                        &calcFunc,
+                        &calcBase,
+                        &statTable,
+                        useFullDPS,
+                        &displayStat,
+                        baseStatValue,
+                        &mut results,
+                    )
+                });
                 // L2805-2810
                 step(me, &mut processed, total, &mut start).await;
             }
@@ -706,21 +783,33 @@ impl CompareTab {
                         // L2826
                         if let Some(node) = node {
                             // L2827-2832
-                            let slotName = slot.str(n!("slotName")).map(|s| s.to_string()).unwrap_or_default();
+                            let slotName = slot
+                                .str(n!("slotName"))
+                                .map(|s| s.to_string())
+                                .unwrap_or_default();
                             primaryJewelSockets.push((slotName, node, allocated));
                         }
                     }
                 }
                 // L2837
-                (primaryJewelSockets, CompareTab::GetJewelComparisonSlots(cx, &compareEntry))
+                (
+                    primaryJewelSockets,
+                    CompareTab::GetJewelComparisonSlots(cx, &compareEntry),
+                )
             });
 
             // L2838
             for jEntry in &jewelSlots {
                 co::with_cx(|cx| {
                     // L2839
-                    let Some(cItem) = jEntry.cItem.clone() else { return };
-                    if jEntry.pItem.as_ref().is_some_and(|p| p.name.get() == cItem.name.get()) {
+                    let Some(cItem) = jEntry.cItem.clone() else {
+                        return;
+                    };
+                    if jEntry
+                        .pItem
+                        .as_ref()
+                        .is_some_and(|p| p.name.get() == cItem.name.get())
+                    {
                         return;
                     }
                     // L2840
@@ -740,14 +829,17 @@ impl CompareTab {
                         let output = call(
                             &calcFunc,
                             Override {
-                                repSlotName: Field::new(Some(Name::from(jEntry.cSlotName.as_str()))),
+                                repSlotName: Field::new(Some(Name::from(
+                                    jEntry.cSlotName.as_str(),
+                                ))),
                                 repItem: Field::new(Some(newItem.clone())),
                                 ..Override::default()
                             },
                             useFullDPS,
                         );
                         // L2849
-                        bestImpactVal = Some(power::CalculatePowerStat(&statTable, &output, &calcBase));
+                        bestImpactVal =
+                            Some(power::CalculatePowerStat(&statTable, &output, &calcBase));
                     } else {
                         // Socket is NOT allocated in primary build; try the jewel in every
                         // jewel socket on the primary build's tree, temporarily allocating
@@ -860,7 +952,8 @@ impl CompareTab {
                         }
                         Ok((_gemCalcFunc, gemCalcBase)) => {
                             // L2932
-                            let impact = power::CalculatePowerStat(&statTable, &gemCalcBase, &calcBase);
+                            let impact =
+                                power::CalculatePowerStat(&statTable, &gemCalcBase, &calcBase);
                             // L2933
                             let f = formatImpact(cx, &displayStat, baseStatValue, impact);
                             // L2934
@@ -869,7 +962,15 @@ impl CompareTab {
                                 let label = CompareTab::GetSocketGroupLabel(cGroup);
                                 let gem = color(cx, "GEM");
                                 // L2937-2949
-                                results.push(entry("Skill gem", gem.clone(), gem, label, None, None, f));
+                                results.push(entry(
+                                    "Skill gem",
+                                    gem.clone(),
+                                    gem,
+                                    label,
+                                    None,
+                                    None,
+                                    f,
+                                ));
                             }
                         }
                     }
@@ -886,9 +987,15 @@ impl CompareTab {
         if co::with_cx(|cx| cats(cx).supportGems) {
             let p = co::with_cx(|cx| cx.build().model.clone());
             // L2966
-            let cMainGroup = at_num(&cmp.skillsTab.socketGroupList.get().snapshot(), cmp.mainSocketGroup.get());
+            let cMainGroup = at_num(
+                &cmp.skillsTab.socketGroupList.get().snapshot(),
+                cmp.mainSocketGroup.get(),
+            );
             // L2967
-            let pMainGroup = at_num(&p.skillsTab.socketGroupList.get().snapshot(), p.mainSocketGroup.get());
+            let pMainGroup = at_num(
+                &p.skillsTab.socketGroupList.get().snapshot(),
+                p.mainSocketGroup.get(),
+            );
 
             // L2969
             if let (Some(cMainGroup), Some(pMainGroup)) = (cMainGroup, pMainGroup) {
@@ -901,7 +1008,9 @@ impl CompareTab {
                     // L2981
                     let cGrantedEffect = CompareTab::GetGemGrantedEffect(&cGem);
                     // L2982
-                    let Some(cGrantedEffect) = cGrantedEffect.filter(|ge| ge.support) else { continue };
+                    let Some(cGrantedEffect) = cGrantedEffect.filter(|ge| ge.support) else {
+                        continue;
+                    };
                     // L2983
                     let name = cGrantedEffect.name.to_string();
                     // L2984
@@ -924,7 +1033,9 @@ impl CompareTab {
                             ..GemInstance::default()
                         };
                         // `qualityId = cGem.qualityId` (module notes)
-                        tempGem.extra.set(n!("qualityId"), cGem.extra.get(n!("qualityId")));
+                        tempGem
+                            .extra
+                            .set(n!("qualityId"), cGem.extra.get(n!("qualityId")));
                         let gemList = pMainGroup.gemList.get();
 
                         // Temporarily add to primary build's main socket group
@@ -946,11 +1057,16 @@ impl CompareTab {
                             // L3011
                             Err(e) => {
                                 // L3012
-                                con_printf(cx, "Compare power (support gem): %s", &[FmtArg::from(e.as_str())]);
+                                con_printf(
+                                    cx,
+                                    "Compare power (support gem): %s",
+                                    &[FmtArg::from(e.as_str())],
+                                );
                             }
                             Ok((_sgCalcFunc, sgCalcBase)) => {
                                 // L3014
-                                let impact = power::CalculatePowerStat(&statTable, &sgCalcBase, &calcBase);
+                                let impact =
+                                    power::CalculatePowerStat(&statTable, &sgCalcBase, &calcBase);
                                 // L3015
                                 let f = formatImpact(cx, &displayStat, baseStatValue, impact);
 
@@ -958,7 +1074,15 @@ impl CompareTab {
                                 if !f.4 {
                                     let gem = color(cx, "GEM");
                                     // L3018-3030
-                                    results.push(entry("Support gem", gem.clone(), gem, name.clone(), None, None, f));
+                                    results.push(entry(
+                                        "Support gem",
+                                        gem.clone(),
+                                        gem,
+                                        name.clone(),
+                                        None,
+                                        None,
+                                        f,
+                                    ));
                                 }
                             }
                         }
@@ -974,7 +1098,8 @@ impl CompareTab {
         // ==========================================
         // L3048
         if co::with_cx(|cx| cats(cx).config) {
-            let (p, configOptions) = co::with_cx(|cx| (cx.build().model.clone(), st(cx, me).configOptions));
+            let (p, configOptions) =
+                co::with_cx(|cx| (cx.build().model.clone(), st(cx, me).configOptions));
             // L3049
             let pInput = p.configTab.input.clone();
             // L3050
@@ -999,7 +1124,8 @@ impl CompareTab {
                 // L3059
                 let cVal = cInput.get(var);
                 // L3060
-                let (pNorm, cNorm) = CompareTab::NormalizeConfigVals(varData, pVal.clone(), cVal.clone());
+                let (pNorm, cNorm) =
+                    CompareTab::NormalizeConfigVals(varData, pVal.clone(), cVal.clone());
 
                 // L3062
                 if pNorm.raw_eq(&cNorm) {
@@ -1038,11 +1164,16 @@ impl CompareTab {
                         Err(e) => {
                             // cfgCalcFunc contains the error message on failure; skip this config
                             // L3083
-                            con_printf(cx, "Compare power (config): %s", &[FmtArg::from(e.as_str())]);
+                            con_printf(
+                                cx,
+                                "Compare power (config): %s",
+                                &[FmtArg::from(e.as_str())],
+                            );
                         }
                         Ok((_cfgCalcFunc, cfgCalcBase)) => {
                             // L3085
-                            let impact = power::CalculatePowerStat(&statTable, &cfgCalcBase, &calcBase);
+                            let impact =
+                                power::CalculatePowerStat(&statTable, &cfgCalcBase, &calcBase);
                             // L3086
                             let f = formatImpact(cx, &displayStat, baseStatValue, impact);
 
@@ -1051,14 +1182,20 @@ impl CompareTab {
                             if !f.4 {
                                 // Build display name with value change description
                                 // L3091
-                                let displayName = varData.label.as_deref().map_or_else(|| var.to_string(), str::to_owned);
+                                let displayName = varData
+                                    .label
+                                    .as_deref()
+                                    .map_or_else(|| var.to_string(), str::to_owned);
                                 // L3092
-                                let (displayName, _) = pob_lua::pattern::gsub(&displayName, ":$", "", None);
+                                let (displayName, _) =
+                                    pob_lua::pattern::gsub(&displayName, ":$", "", None);
 
                                 // L3094
-                                let pDisplay = stripColors(&CompareTab::FormatConfigValue(cx, varData, &pVal));
+                                let pDisplay =
+                                    stripColors(&CompareTab::FormatConfigValue(cx, varData, &pVal));
                                 // L3095
-                                let cDisplay = stripColors(&CompareTab::FormatConfigValue(cx, varData, &cVal));
+                                let cDisplay =
+                                    stripColors(&CompareTab::FormatConfigValue(cx, varData, &cVal));
 
                                 // L3097-3109
                                 results.push(entry(
@@ -1132,16 +1269,24 @@ impl CompareTab {
             let mut idx = 1.0;
             while idx <= abyssalSocketCount {
                 // L2742
-                let abyssSlotName = pob_lua::lua_format("%s Abyssal Socket %d", &[FmtArg::from(slotName), FmtArg::from(idx)]);
+                let abyssSlotName = pob_lua::lua_format(
+                    "%s Abyssal Socket %d",
+                    &[FmtArg::from(slotName), FmtArg::from(idx)],
+                );
                 // L2743
-                let cmpJewelSlot = slot_at(cmp, &abyssSlotName)
-                    .unwrap_or_else(|| lua_error!("attempt to index local 'cmpJewelSlot' (a nil value)"));
+                let cmpJewelSlot = slot_at(cmp, &abyssSlotName).unwrap_or_else(|| {
+                    lua_error!("attempt to index local 'cmpJewelSlot' (a nil value)")
+                });
                 // save old id and unequip existing
                 // L2745
-                let primaryJewelSlot = slot_at(&p, &abyssSlotName)
-                    .unwrap_or_else(|| lua_error!("attempt to index local 'primaryJewelSlot' (a nil value)"));
+                let primaryJewelSlot = slot_at(&p, &abyssSlotName).unwrap_or_else(|| {
+                    lua_error!("attempt to index local 'primaryJewelSlot' (a nil value)")
+                });
                 // L2746
-                oldEquipped.insert(abyssSlotName.clone(), primaryJewelSlot.get(n!("selItemId")).num());
+                oldEquipped.insert(
+                    abyssSlotName.clone(),
+                    primaryJewelSlot.get(n!("selItemId")).num(),
+                );
                 // L2747
                 set_sel_item_id(&p, &primaryJewelSlot, 0.0);
                 // L2748
@@ -1164,9 +1309,12 @@ impl CompareTab {
 
                         // equip copied
                         // L2760
-                        let slot = slot_at(&p, &abyssSlotName)
-                            .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
-                        let id = itemCopy.id.get().unwrap_or_else(|| lua_error!("bad argument (number expected, got nil)"));
+                        let slot = slot_at(&p, &abyssSlotName).unwrap_or_else(|| {
+                            lua_error!("attempt to index field '?' (a nil value)")
+                        });
+                        let id = itemCopy.id.get().unwrap_or_else(|| {
+                            lua_error!("bad argument (number expected, got nil)")
+                        });
                         set_sel_item_id(&p, &slot, id);
                     }
                 }
@@ -1195,7 +1343,8 @@ impl CompareTab {
             // L2773
             for (k, v) in &oldEquipped {
                 // L2774
-                let slot = slot_at(&p, k).unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
+                let slot = slot_at(&p, k)
+                    .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
                 set_sel_item_id(&p, &slot, *v);
             }
             // L2776
@@ -1214,7 +1363,13 @@ impl CompareTab {
             // L2786-2787
             let n = cmpJewels.len();
             let abyssJewelText = if n > 0 {
-                pob_lua::lua_format(", %d Jewel%s", &[FmtArg::from(n as f64), FmtArg::from(if n > 1 { "s" } else { "" })])
+                pob_lua::lua_format(
+                    ", %d Jewel%s",
+                    &[
+                        FmtArg::from(n as f64),
+                        FmtArg::from(if n > 1 { "s" } else { "" }),
+                    ],
+                )
             } else {
                 String::new()
             };
@@ -1237,7 +1392,12 @@ impl CompareTab {
     pub fn RunComparePowerReport(cx: &mut Cx, me: CtrlId, compareEntry: &CompareEntryRef) {
         // Invalidate if compare entry changed
         // L3131
-        let same = cx.w::<CompareTab>(me).power.comparePowerCompareId.as_ref().is_some_and(|e| Rc::ptr_eq(e, compareEntry));
+        let same = cx
+            .w::<CompareTab>(me)
+            .power
+            .comparePowerCompareId
+            .as_ref()
+            .is_some_and(|e| Rc::ptr_eq(e, compareEntry));
         if !same {
             // L3132
             cx.w_mut::<CompareTab>(me).power.comparePowerCompareId = Some(compareEntry.clone());
@@ -1258,7 +1418,11 @@ impl CompareTab {
             // L3141
             s.comparePowerListSynced = false;
             // L3142-3144
-            s.comparePowerCoroutine = Some(Coroutine::create(CompareTab::ComparePowerBuilder(me, compareEntry.clone(), stat)));
+            s.comparePowerCoroutine = Some(Coroutine::create(CompareTab::ComparePowerBuilder(
+                me,
+                compareEntry.clone(),
+                stat,
+            )));
         }
 
         // Resume coroutine

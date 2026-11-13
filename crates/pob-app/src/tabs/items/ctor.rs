@@ -94,8 +94,7 @@ use pob_ui_core::controls::list::ListControl;
 use pob_ui_core::controls::scroll_bar::ScrollDir;
 use pob_ui_core::controls::slider::SliderControl;
 use pob_ui_core::controls::{
-    ButtonControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl,
-    ScrollBarControl,
+    ButtonControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl, ScrollBarControl,
 };
 use pob_ui_core::prelude::*;
 use pob_ui_core::tooltip::tooltip::{Tooltip, TtKey, TtObj};
@@ -132,13 +131,19 @@ pub fn rarityDropList(cx: &Cx) -> Vec<DropItem> {
     let cc = &cx.main.cc;
     vec![
         // L23
-        DropItem::new(format!("{}Normal", cc.NORMAL), Rc::new(RarityValue("NORMAL"))),
+        DropItem::new(
+            format!("{}Normal", cc.NORMAL),
+            Rc::new(RarityValue("NORMAL")),
+        ),
         // L24
         DropItem::new(format!("{}Magic", cc.MAGIC), Rc::new(RarityValue("MAGIC"))),
         // L25
         DropItem::new(format!("{}Rare", cc.RARE), Rc::new(RarityValue("RARE"))),
         // L26
-        DropItem::new(format!("{}Unique", cc.UNIQUE), Rc::new(RarityValue("UNIQUE"))),
+        DropItem::new(
+            format!("{}Unique", cc.UNIQUE),
+            Rc::new(RarityValue("UNIQUE")),
+        ),
         // L27
         DropItem::new(format!("{}Relic", cc.RELIC), Rc::new(RarityValue("RELIC"))),
     ]
@@ -159,7 +164,10 @@ pub fn socketDropList(cx: &Cx) -> Vec<DropItem> {
         // L32
         DropItem::new(format!("{}G", cc.DEXTERITY), Rc::new(SocketColorValue("G"))),
         // L33
-        DropItem::new(format!("{}B", cc.INTELLIGENCE), Rc::new(SocketColorValue("B"))),
+        DropItem::new(
+            format!("{}B", cc.INTELLIGENCE),
+            Rc::new(SocketColorValue("B")),
+        ),
         // L34
         DropItem::new(format!("{}W", cc.SCION), Rc::new(SocketColorValue("W"))),
     ]
@@ -455,7 +463,9 @@ pub fn default_items_ui_hooks() -> ItemsUiHooks {
         add_display_item: Rc::new(super::core::add_display_item_hook),
         // U35 (display_item.rs)
         select_display_item_variant: Rc::new(super::display_item::SelectDisplayItemVariant),
-        update_display_item_variant_controls: Rc::new(super::display_item::UpdateDisplayItemVariantControls),
+        update_display_item_variant_controls: Rc::new(
+            super::display_item::UpdateDisplayItemVariantControls,
+        ),
         update_display_item_tooltip: Rc::new(super::display_item::UpdateDisplayItemTooltip),
         update_socket_controls: Rc::new(super::display_item::UpdateSocketControls),
         craft_cluster_jewel: Rc::new(super::display_item::CraftClusterJewel),
@@ -467,20 +477,30 @@ pub fn default_items_ui_hooks() -> ItemsUiHooks {
             super::display_item::AddModComparisonTooltip(cx, me, tt, m.map(|m| &**m), false);
         }),
         get_comparison_slot_name_for_item: Rc::new(|cx, me, item| {
-            Some(super::display_item::GetComparisonSlotNameForItem(cx, me, item))
+            Some(super::display_item::GetComparisonSlotNameForItem(
+                cx, me, item,
+            ))
         }),
         // U36 (craft_a.rs, add_implicit.rs)
         open_item_set_manage_popup: Rc::new(super::craft_a::OpenItemSetManagePopup),
         craft_item: Rc::new(super::craft_a::CraftItem),
         edit_display_item_text: Rc::new(super::craft_a::EditDisplayItemText),
-        enchant_display_item: Rc::new(|cx, me, slot| super::craft_a::EnchantDisplayItem(cx, me, Some(slot))),
+        enchant_display_item: Rc::new(|cx, me, slot| {
+            super::craft_a::EnchantDisplayItem(cx, me, Some(slot))
+        }),
         append_added_notable_tooltip: Rc::new(super::craft_a::AppendAddedNotableTooltip),
-        anoint_display_item: Rc::new(|cx, me, slot| super::craft_a::AnointDisplayItem(cx, me, Some(slot))),
+        anoint_display_item: Rc::new(|cx, me, slot| {
+            super::craft_a::AnointDisplayItem(cx, me, Some(slot))
+        }),
         add_implicit_to_display_item: Rc::new(super::add_implicit::AddImplicitToDisplayItem),
         // U37 (craft_b.rs)
         corrupt_display_item: Rc::new(super::craft_b::CorruptDisplayItem),
-        add_custom_modifier_to_display_item: Rc::new(super::craft_b::AddCustomModifierToDisplayItem),
-        add_crucible_modifier_to_display_item: Rc::new(super::craft_b::AddCrucibleModifierToDisplayItem),
+        add_custom_modifier_to_display_item: Rc::new(
+            super::craft_b::AddCustomModifierToDisplayItem,
+        ),
+        add_crucible_modifier_to_display_item: Rc::new(
+            super::craft_b::AddCrucibleModifierToDisplayItem,
+        ),
         // CCR-0145 §5 (U53 cut-over): U24's `PassiveTreeView:AddNodeName` on `self.socketViewer`
         socket_viewer_add_node_name: Rc::new(|cx, me, tooltip, node| {
             cx.lend::<ItemsTab, _, _>(
@@ -641,7 +661,8 @@ fn affix_mod_or_err(
     item: &model::ItemRef,
     mod_id: Option<Name>,
 ) -> gamedata::schema::affixes::ItemModRef {
-    affix_mod(item, mod_id).unwrap_or_else(|| lua_error!("attempt to index local 'mod' (a nil value)"))
+    affix_mod(item, mod_id)
+        .unwrap_or_else(|| lua_error!("attempt to index local 'mod' (a nil value)"))
 }
 
 /// `drop.list[drop.selIndex]` of an affix dropdown, as its series (the "None" entry and a
@@ -699,7 +720,10 @@ fn force_affix_selectors(cx: &mut Cx, me: CtrlId) {
             (
                 w.sel_func.clone(),
                 w.sel_index,
-                w.sel_index.checked_sub(1).and_then(|k| w.list.get(k)).cloned(),
+                w.sel_index
+                    .checked_sub(1)
+                    .and_then(|k| w.list.get(k))
+                    .cloned(),
             )
         };
         let f = f.unwrap_or_else(|| lua_error!("attempt to call field 'selFunc' (a nil value)"));
@@ -758,32 +782,35 @@ impl ItemsTab {
     /// @pob Classes/ItemsTab.lua:93-100 h=2129fa55
     pub fn new(build: CtrlId) -> New<ItemsTab> {
         // L94-96 self:UndoHandler(); self:ControlHost(); self:Control()
-        New::new(Base::new(Anchor::NONE, rect(0, 0, 0, 0)), ItemsTab::default())
-            .host()
-            .init(move |cx, me| {
-                let me = me.id();
-                // L98
-                st_mut(cx, me).build = build;
-                // L100 self.socketViewer = new("PassiveTreeView"):PassiveTreeView() (U23)
-                let viewer = crate::tree_view::PassiveTreeView::new(cx);
-                st_mut(cx, me).socketViewer = viewer;
-                // L102-108 (model part: calc:BM-A; `self.tradeQuery` is U51's)
-                ctor_sets(cx, me);
-                ctor_slots(cx, me, build);
-                ctor_lists(cx, me);
-                ctor_display_head(cx, me);
-                ctor_variants(cx, me);
-                ctor_sockets(cx, me);
-                ctor_enchant(cx, me);
-                ctor_influence(cx, me);
-                ctor_quality_catalyst(cx, me);
-                ctor_cluster(cx, me);
-                ctor_affixes(cx, me);
-                ctor_custom(cx, me);
-                ctor_range(cx, me);
-                ctor_stacked_range(cx, me);
-                ctor_tail(cx, me, build);
-            })
+        New::new(
+            Base::new(Anchor::NONE, rect(0, 0, 0, 0)),
+            ItemsTab::default(),
+        )
+        .host()
+        .init(move |cx, me| {
+            let me = me.id();
+            // L98
+            st_mut(cx, me).build = build;
+            // L100 self.socketViewer = new("PassiveTreeView"):PassiveTreeView() (U23)
+            let viewer = crate::tree_view::PassiveTreeView::new(cx);
+            st_mut(cx, me).socketViewer = viewer;
+            // L102-108 (model part: calc:BM-A; `self.tradeQuery` is U51's)
+            ctor_sets(cx, me);
+            ctor_slots(cx, me, build);
+            ctor_lists(cx, me);
+            ctor_display_head(cx, me);
+            ctor_variants(cx, me);
+            ctor_sockets(cx, me);
+            ctor_enchant(cx, me);
+            ctor_influence(cx, me);
+            ctor_quality_catalyst(cx, me);
+            ctor_cluster(cx, me);
+            ctor_affixes(cx, me);
+            ctor_custom(cx, me);
+            ctor_range(cx, me);
+            ctor_stacked_range(cx, me);
+            ctor_tail(cx, me, build);
+        })
     }
 }
 
@@ -836,7 +863,9 @@ fn ctor_sets(cx: &mut Cx, me: CtrlId) {
                 let set = index
                     .and_then(|i| m.itemsTab.itemSetOrderList.with(|l| l.get(i - 1).copied()))
                     .and_then(|id| m.itemsTab.itemSets.with(|s| s.get(&id).cloned()))
-                    .unwrap_or_else(|| lua_error!("attempt to index local 'itemSet' (a nil value)"));
+                    .unwrap_or_else(|| {
+                        lua_error!("attempt to index local 'itemSet' (a nil value)")
+                    });
                 let f = items_hooks().add_item_set_tooltip;
                 f(cx, tooltip, &set);
             }
@@ -923,14 +952,13 @@ fn slot_shown(kind: Option<&str>, slot: &Table) -> Option<Prop<bool>> {
         }),
         // L183-185
         "ring3" => Prop::f(|cx, _| {
-            let env = cx
-                .build()
-                .model
-                .calcsTab
-                .mainEnv
+            let env =
+                cx.build().model.calcsTab.mainEnv.get().unwrap_or_else(|| {
+                    lua_error!("attempt to index field 'mainEnv' (a nil value)")
+                });
+            env.modDB
                 .get()
-                .unwrap_or_else(|| lua_error!("attempt to index field 'mainEnv' (a nil value)"));
-            env.modDB.get().Flag(None, pob_lua::nm!["AdditionalRingSlot"])
+                .Flag(None, pob_lua::nm!["AdditionalRingSlot"])
         }),
         _ => return None,
     })
@@ -1029,8 +1057,7 @@ fn ctor_slots(cx: &mut Cx, me: CtrlId, _build: CtrlId) {
         )
         .id();
     // L211-213
-    cx.base_mut(spec_select).enabled =
-        Prop::f(|cx, me| cx.w::<DropDownControl>(me).list.len() > 1);
+    cx.base_mut(spec_select).enabled = Prop::f(|cx, me| cx.w::<DropDownControl>(me).list.len() > 1);
     // L214
     prevSlot = spec_select;
     // L215-217
@@ -1191,9 +1218,9 @@ fn display_anchor(cx: &Cx, me: CtrlId) -> (CtrlId, f64) {
 
 /// `m_min(cap, self.maxY - select(2, c:GetPos()))` (the DB heights, L293, L302).
 fn db_height(cx: &Cx, me: CtrlId, c: CtrlId, cap: f64) -> f64 {
-    let max_y = st(cx, me)
-        .maxY
-        .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on field 'maxY' (a nil value)"));
+    let max_y = st(cx, me).maxY.unwrap_or_else(|| {
+        lua_error!("attempt to perform arithmetic on field 'maxY' (a nil value)")
+    });
     m_min(cap, max_y - cx.pos(c).1)
 }
 
@@ -1274,7 +1301,12 @@ fn ctor_lists(cx: &mut Cx, me: CtrlId) {
             "uniqueDB",
             ItemDBControl::new(
                 Anchor::new(TopLeft, item_list, BottomLeft),
-                rect(0, 76, 360, Prop::f(move |cx, c| db_height(cx, me, c, 244.0))),
+                rect(
+                    0,
+                    76,
+                    360,
+                    Prop::f(move |cx, c| db_height(cx, me, c, 244.0)),
+                ),
                 me,
                 DbType::Unique,
             ),
@@ -1301,7 +1333,12 @@ fn ctor_lists(cx: &mut Cx, me: CtrlId) {
             "rareDB",
             ItemDBControl::new(
                 Anchor::new(TopLeft, item_list, BottomLeft),
-                rect(0, 76, 360, Prop::f(move |cx, c| db_height(cx, me, c, 260.0))),
+                rect(
+                    0,
+                    76,
+                    360,
+                    Prop::f(move |cx, c| db_height(cx, me, c, 260.0)),
+                ),
                 me,
                 DbType::Rare,
             ),
@@ -1593,11 +1630,27 @@ fn ctor_variants(cx: &mut Cx, me: CtrlId) {
                             return 0.0;
                         }
                         // L382-387
-                        28.0 + if ext(&item, n!("hasAltVariant")) { 24.0 } else { 0.0 }
-                            + if ext(&item, n!("hasAltVariant2")) { 24.0 } else { 0.0 }
-                            + if ext(&item, n!("hasAltVariant3")) { 24.0 } else { 0.0 }
-                            + if ext(&item, n!("hasAltVariant4")) { 24.0 } else { 0.0 }
-                            + if ext(&item, n!("hasAltVariant5")) { 24.0 } else { 0.0 }
+                        28.0 + if ext(&item, n!("hasAltVariant")) {
+                            24.0
+                        } else {
+                            0.0
+                        } + if ext(&item, n!("hasAltVariant2")) {
+                            24.0
+                        } else {
+                            0.0
+                        } + if ext(&item, n!("hasAltVariant3")) {
+                            24.0
+                        } else {
+                            0.0
+                        } + if ext(&item, n!("hasAltVariant4")) {
+                            24.0
+                        } else {
+                            0.0
+                        } + if ext(&item, n!("hasAltVariant5")) {
+                            24.0
+                        } else {
+                            0.0
+                        }
                     }),
                 ),
             ),
@@ -1688,13 +1741,8 @@ fn ctor_variants(cx: &mut Cx, me: CtrlId) {
             .id();
         if k == 0 {
             // L405-407
-            cx.base_mut(drop).y = Prop::f(move |cx, _| {
-                if cx.is_shown(version) {
-                    24.0
-                } else {
-                    0.0
-                }
-            });
+            cx.base_mut(drop).y =
+                Prop::f(move |cx, _| if cx.is_shown(version) { 24.0 } else { 0.0 });
         }
         // L408 / L415 / L422 / L429 / L436 / L443
         cx.w_mut::<DropDownControl>(drop).max_dropped_width = 1000.0;
@@ -1714,8 +1762,7 @@ fn ctor_variants(cx: &mut Cx, me: CtrlId) {
                 return false;
             };
             let uses = ext(&item, n!("usesVariantGroups"));
-            (uses && st(cx, me).variant_controls[k].newVariantVisible)
-                || (!uses && legacyShown(cx))
+            (uses && st(cx, me).variant_controls[k].newVariantVisible) || (!uses && legacyShown(cx))
         });
         // L460-462
         cx.base_mut(drop).enabled = Prop::f(move |cx, _| {
@@ -1771,7 +1818,9 @@ fn ctor_sockets(cx: &mut Cx, me: CtrlId) {
                     let color = value
                         .and_then(|v| v.get::<SocketColorValue>())
                         .map(|v| v.0)
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
+                        .unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'value' (a nil value)")
+                        });
                     socket(&item, i)
                         .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"))
                         .set(n!("color"), color);
@@ -1962,7 +2011,11 @@ fn ctor_enchant(cx: &mut Cx, me: CtrlId) {
                   click: Rc<dyn Fn(&mut Cx)>,
                   shown: Prop<bool>| {
         let id = cx
-            .add(me, key, ButtonControl::new(anchor, r, label, move |cx| click(cx)))
+            .add(
+                me,
+                key,
+                ButtonControl::new(anchor, r, label, move |cx| click(cx)),
+            )
             .id();
         cx.base_mut(id).shown = shown;
         id
@@ -2021,9 +2074,7 @@ fn ctor_enchant(cx: &mut Cx, me: CtrlId) {
         // L533
         anoint(1.0),
         // L535-537
-        Prop::f(move |cx, _| {
-            display_item(cx, me).is_some_and(|item| isAnointable(Some(&item)))
-        }),
+        Prop::f(move |cx, _| display_item(cx, me).is_some_and(|item| isAnointable(Some(&item)))),
     );
     // L538-546
     let anoint2 = button(
@@ -2092,7 +2143,9 @@ fn ctor_enchant(cx: &mut Cx, me: CtrlId) {
             f(cx, me);
         }),
         // L568-570
-        Prop::f(move |cx, _| display_item(cx, me).is_some_and(|item| ext(&item, n!("corruptible")))),
+        Prop::f(move |cx, _| {
+            display_item(cx, me).is_some_and(|item| ext(&item, n!("corruptible")))
+        }),
     );
     // L571-579
     button(
@@ -2133,7 +2186,8 @@ fn setDisplayItemInfluence(cx: &mut Cx, me: CtrlId, influenceIndexList: [f64; 2]
         // L589
         for (i, _curInfluenceInfo) in influenceInfo_default.iter().enumerate() {
             // L590
-            item.influences.set(Name::from(influenceInfo_all[i].key), true);
+            item.influences
+                .set(Name::from(influenceInfo_all[i].key), true);
         }
     } else {
         // L593
@@ -2222,11 +2276,7 @@ fn ctor_influence(cx: &mut Cx, me: CtrlId) {
                     let other = ctl(cx, me, "displayItemInfluence2");
                     let otherIndex = cx.w::<DropDownControl>(other).sel_index;
                     // L616
-                    setDisplayItemInfluence(
-                        cx,
-                        me,
-                        [index as f64 - 1.0, otherIndex as f64 - 1.0],
-                    );
+                    setDisplayItemInfluence(cx, me, [index as f64 - 1.0, otherIndex as f64 - 1.0]);
                 }),
                 None,
                 false,
@@ -2252,11 +2302,7 @@ fn ctor_influence(cx: &mut Cx, me: CtrlId) {
                     let other = ctl(cx, me, "displayItemInfluence");
                     let otherIndex = cx.w::<DropDownControl>(other).sel_index;
                     // L624
-                    setDisplayItemInfluence(
-                        cx,
-                        me,
-                        [index as f64 - 1.0, otherIndex as f64 - 1.0],
-                    );
+                    setDisplayItemInfluence(cx, me, [index as f64 - 1.0, otherIndex as f64 - 1.0]);
                 }),
                 None,
                 false,
@@ -2677,7 +2723,8 @@ fn flipRange(
     modB: Option<&gamedata::schema::affixes::ItemModRef>,
 ) -> bool {
     let mm = |m: Option<&gamedata::schema::affixes::ItemModRef>| {
-        let m = m.unwrap_or_else(|| lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"));
+        let m = m
+            .unwrap_or_else(|| lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"));
         getMinMax(m).unwrap_or((None, None))
     };
     // L770
@@ -2715,7 +2762,8 @@ fn flipRange(
 fn verifyRange(cx: &Cx, me: CtrlId, range: f64, index: f64, drop: CtrlId) -> f64 {
     let item = di(cx, me);
     let series = || {
-        sel_series(cx, drop).unwrap_or_else(|| lua_error!("attempt to index field 'modList' (a nil value)"))
+        sel_series(cx, drop)
+            .unwrap_or_else(|| lua_error!("attempt to index field 'modList' (a nil value)"))
     };
     let at = |s: &AffixSeries, k: f64| -> Option<Name> {
         (k >= 1.0 && k.fract() == 0.0)
@@ -2740,14 +2788,20 @@ fn verifyRange(cx: &Cx, me: CtrlId, range: f64, index: f64, drop: CtrlId) -> f64
     // L788
     if priorMod.is_some() {
         // L789
-        if flipRange(priorMod.as_ref(), affix_mod(&item, at(&series(), index)).as_ref()) {
+        if flipRange(
+            priorMod.as_ref(),
+            affix_mod(&item, at(&series(), index)).as_ref(),
+        ) {
             // L790
             range = 1.0 - range;
         }
     // L792
     } else if nextMod.is_some() {
         // L793
-        if flipRange(affix_mod(&item, at(&series(), index)).as_ref(), nextMod.as_ref()) {
+        if flipRange(
+            affix_mod(&item, at(&series(), index)).as_ref(),
+            nextMod.as_ref(),
+        ) {
             // L794
             range = 1.0 - range;
         }
@@ -2765,7 +2819,10 @@ fn mod_at(list: &[Name], k: f64) -> Option<Name> {
 
 /// `table.concat(mod.modTags, ', ')`
 fn concat_tags(tags: &[Name]) -> String {
-    tags.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
+    tags.iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// L730-755: the affix section.
@@ -2921,9 +2978,10 @@ fn ctor_affix(cx: &mut Cx, me: CtrlId, i: usize, section: CtrlId) {
         let item = di(cx, me);
         let (tbl, idx) = output_affix(cx, me, i);
         // L800
-        let cur = tbl.get(idx).table().unwrap_or_else(|| {
-            lua_error!("attempt to index field '?' (a nil value)")
-        });
+        let cur = tbl
+            .get(idx)
+            .table()
+            .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
         let affix = Table::new();
         affix.set(n!("modId"), "None");
         affix.set(n!("fractured"), cur.get(n!("fractured")));
@@ -2977,9 +3035,9 @@ fn ctor_affix(cx: &mut Cx, me: CtrlId, i: usize, section: CtrlId) {
         let modList = series_of(&sel).map(|s| s.modList.clone());
         // L948
         let sel_control = cx.host(me).sel_control;
-        let Some(modList) = modList.filter(|_| {
-            cx.main.popups.is_empty() && !sel_control.is_some_and(|s| s != slider)
-        }) else {
+        let Some(modList) = modList
+            .filter(|_| cx.main.popups.is_empty() && !sel_control.is_some_and(|s| s != slider))
+        else {
             // L949
             tooltip.clear(false);
             return;
@@ -3013,9 +3071,7 @@ fn ctor_affix(cx: &mut Cx, me: CtrlId, i: usize, section: CtrlId) {
                     .iter()
                     .position(|m| Some(*m) == modId)
                     .map(|p| p + 1)
-                    .unwrap_or_else(|| {
-                        lua_error!("attempt to perform arithmetic on a nil value")
-                    });
+                    .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on a nil value"));
                 let l = format!(
                     "^7Affix: Tier {} ({affix})",
                     tostring(modList.len() as f64 - pos as f64 + 1.0)
@@ -3031,9 +3087,9 @@ fn ctor_affix(cx: &mut Cx, me: CtrlId, i: usize, section: CtrlId) {
                 tooltip.add_line(cx, 14.0, line);
             }
             // L967
-            let level = r#mod.level.unwrap_or_else(|| {
-                lua_error!("attempt to compare nil with number")
-            });
+            let level = r#mod
+                .level
+                .unwrap_or_else(|| lua_error!("attempt to compare nil with number"));
             if level > 1.0 {
                 // L968
                 tooltip.add_line(cx, 16.0, &format!("Level: {}", tostring(level)));
@@ -3177,10 +3233,13 @@ fn affix_tooltip(
                     |c| {
                         let min = c[0].to_str().into_owned();
                         // L847
-                        let (_s, e, caps) = pattern::find(&maxLine, "(%d[%d%.]*)", Some(start), false)
-                            .unwrap_or_else(|| {
-                                lua_error!("attempt to perform arithmetic on local 'e' (a nil value)")
-                            });
+                        let (_s, e, caps) =
+                            pattern::find(&maxLine, "(%d[%d%.]*)", Some(start), false)
+                                .unwrap_or_else(|| {
+                                    lua_error!(
+                                        "attempt to perform arithmetic on local 'e' (a nil value)"
+                                    )
+                                });
                         let max = caps[0].to_str().into_owned();
                         // L848
                         start = e as i64 + 1;
@@ -3201,12 +3260,15 @@ fn affix_tooltip(
         }
         // L857
         let lvl = |m: &gamedata::schema::affixes::ItemMod| {
-            tostring(
-                m.level
-                    .unwrap_or_else(|| lua_error!("attempt to concatenate field 'level' (a nil value)")),
-            )
+            tostring(m.level.unwrap_or_else(|| {
+                lua_error!("attempt to concatenate field 'level' (a nil value)")
+            }))
         };
-        tooltip.add_line(cx, 16.0, &format!("Level: {} to {}", lvl(&minMod), lvl(&maxMod)));
+        tooltip.add_line(
+            cx,
+            16.0,
+            &format!("Level: {} to {}", lvl(&minMod), lvl(&maxMod)),
+        );
         // Assuming that all mods have the same tags
         // L859
         if !maxMod.modTags.is_empty() {
@@ -3218,7 +3280,8 @@ fn affix_tooltip(
     let r#mod = affix_mod_or_err(&item, modId.or_else(|| modList.first().copied()));
     // L864
     let notableName = r#mod.lines.first().and_then(|l| {
-        pattern::r#match(l, "1 Added Passive Skill is (.*)", None).map(|c| c[0].to_str().into_owned())
+        pattern::r#match(l, "1 Added Passive Skill is (.*)", None)
+            .map(|c| c[0].to_str().into_owned())
     });
     // L865
     let node = notableName.as_ref().and_then(|name| {
@@ -3803,8 +3866,9 @@ fn ctor_range(cx: &mut Cx, me: CtrlId) {
                 rect(4, 0, 100, 18),
                 Some(Rc::new(move |cx, val| {
                     // L1078
-                    let line = getSelectedModLine(cx, me)
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'line' (a nil value)"));
+                    let line = getSelectedModLine(cx, me).unwrap_or_else(|| {
+                        lua_error!("attempt to index local 'line' (a nil value)")
+                    });
                     // L1079
                     line.set(n!("range"), val);
                     // L1080
@@ -3888,7 +3952,11 @@ fn ctor_stacked_range(cx: &mut Cx, me: CtrlId) {
                 return 2.0;
             }
             // L1119
-            let prevBox = ctl(cx, me, format!("displayItemStackedMutatedCheckbox{}", i - 1));
+            let prevBox = ctl(
+                cx,
+                me,
+                format!("displayItemStackedMutatedCheckbox{}", i - 1),
+            );
             // L1120 (`prevLabel.lineCount`)
             let lc = st(cx, me).stacked_line_count[i - 2].get();
             // L1121
@@ -4008,8 +4076,7 @@ fn ctor_stacked_range(cx: &mut Cx, me: CtrlId) {
             )
             .id();
         // L1176-1178
-        cx.base_mut(label).shown =
-            Prop::f(move |cx, _| cx.is_shown(slider) || cx.is_shown(boxid));
+        cx.base_mut(label).shown = Prop::f(move |cx, _| cx.is_shown(slider) || cx.is_shown(boxid));
     }
 }
 

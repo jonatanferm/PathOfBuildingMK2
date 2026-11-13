@@ -57,7 +57,9 @@ use pob_lua::{n, Name};
 use pob_ui_core::controls::list::ListControl;
 use pob_ui_core::controls::path::PathControl;
 use pob_ui_core::controls::scroll_bar::ScrollBarControl;
-use pob_ui_core::controls::{ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl};
+use pob_ui_core::controls::{
+    ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl,
+};
 use pob_ui_core::popups::{self, PopupOpts};
 use pob_ui_core::prelude::*;
 
@@ -107,7 +109,12 @@ impl CompareTab {
     /// lua: CompareTab.lua:1244-1258 `CompareTabClass:ImportBuild(xmlText, label)`
     /// Import a comparison build from XML text
     /// @pob Classes/CompareTab.lua:1244-1258 h=18757cca
-    pub fn ImportBuild(cx: &mut Cx, me: CtrlId, xmlText: Option<&str>, label: Option<&str>) -> bool {
+    pub fn ImportBuild(
+        cx: &mut Cx,
+        me: CtrlId,
+        xmlText: Option<&str>,
+        label: Option<&str>,
+    ) -> bool {
         // L1246
         let f = compare_hooks().new_compare_entry;
         let entry = f(cx, xmlText, label);
@@ -171,7 +178,14 @@ impl CompareTab {
             // L1282
             if st(cx, me).compareEntries.is_empty() {
                 // L1283-1284
-                for key in ["cmpMainSkill", "cmpSkillPart", "cmpStageCount", "cmpMineCount", "cmpMinion", "cmpMinionSkill"] {
+                for key in [
+                    "cmpMainSkill",
+                    "cmpSkillPart",
+                    "cmpStageCount",
+                    "cmpMineCount",
+                    "cmpMinion",
+                    "cmpMinionSkill",
+                ] {
                     // L1285
                     let c = ctl(cx, me, key);
                     cx.base_mut(c).shown = Prop::Val(false);
@@ -213,7 +227,8 @@ impl CompareTab {
             cx.click(b);
         // account name import
         // L1306
-        } else if DropDownControl::get_sel_value(cx, ctl(cx, importTab, "siteCharSelect")).is_some() {
+        } else if DropDownControl::get_sel_value(cx, ctl(cx, importTab, "siteCharSelect")).is_some()
+        {
             // L1307
             check(cx, "siteCharImportTreeClearJewels");
             // L1308
@@ -272,7 +287,9 @@ impl CompareTab {
     pub fn CopyCompareSpecToPrimary(cx: &mut Cx, me: CtrlId, andUse: bool) {
         // L1337
         // L1338 (`entry.treeTab` always exists)
-        let Some(entry) = Self::GetActiveCompare(cx, me) else { return };
+        let Some(entry) = Self::GetActiveCompare(cx, me) else {
+            return;
+        };
         let tt = &entry.model.treeTab;
         // L1339
         let sourceSpec = tt.specList.with(|l| at_num(l, tt.activeSpec.get()));
@@ -288,8 +305,13 @@ impl CompareTab {
         // L1347
         let newSpec = new_PassiveSpec(&p, sourceSpec.treeVersion.get(), false);
         // L1348
-        let title = sourceSpec.title.get().map_or_else(|| "Default".to_owned(), |t| t.to_string());
-        newSpec.title.set(Some(format!("{title} (Compared)").as_str().into()));
+        let title = sourceSpec
+            .title
+            .get()
+            .map_or_else(|| "Default".to_owned(), |t| t.to_string());
+        newSpec
+            .title
+            .set(Some(format!("{title} (Compared)").as_str().into()));
         // L1349
         let state = sourceSpec.CreateUndoState();
         newSpec.RestoreUndoState(&state, None);
@@ -323,7 +345,10 @@ impl CompareTab {
         // L1366
         for spec in p.treeTab.specList.with(Clone::clone) {
             // L1367
-            let t = spec.title.get().map_or_else(|| "Default".to_owned(), |t| t.to_string());
+            let t = spec
+                .title
+                .get()
+                .map_or_else(|| "Default".to_owned(), |t| t.to_string());
             newSpecList.push(DropItem::str(t));
         }
         // L1369
@@ -340,7 +365,10 @@ impl CompareTab {
     /// Build a list of jewel comparison entries between the primary and compare builds.
     /// Returns a sorted list of { label, nodeId, pItem, cItem, pSlotName, cSlotName } records.
     /// @pob Classes/CompareTab.lua:1375-1441 h=10957063
-    pub fn GetJewelComparisonSlots(cx: &Cx, compareEntry: &CompareEntryRef) -> Vec<JewelComparisonSlot> {
+    pub fn GetJewelComparisonSlots(
+        cx: &Cx,
+        compareEntry: &CompareEntryRef,
+    ) -> Vec<JewelComparisonSlot> {
         let p = cx.build().model.clone();
         let c = compareEntry.model.clone();
         // L1378
@@ -432,10 +460,18 @@ impl CompareTab {
     /// compareEntry, andUse)`
     /// Copy a compared build's item into the primary build
     /// @pob Classes/CompareTab.lua:1443-1464 h=c2775f37
-    pub fn CopyCompareItemToPrimary(cx: &mut Cx, slotName: &str, compareEntry: &CompareEntryRef, andUse: bool) {
+    pub fn CopyCompareItemToPrimary(
+        cx: &mut Cx,
+        slotName: &str,
+        compareEntry: &CompareEntryRef,
+        andUse: bool,
+    ) {
         let c = compareEntry.model.clone();
         // L1445
-        let cSlot = c.itemsTab.slots.with(|s| s.get(&Name::from(slotName)).cloned());
+        let cSlot = c
+            .itemsTab
+            .slots
+            .with(|s| s.get(&Name::from(slotName)).cloned());
         // L1446
         let cItem = cSlot.and_then(|slot| item_at(&c, &slot.get(n!("selItemId"))));
         // L1447 (`cItem.raw` is always a string)
@@ -455,11 +491,17 @@ impl CompareTab {
         if andUse {
             let p = cx.build().model.clone();
             // L1455
-            let pSlot = p.itemsTab.slots.with(|s| s.get(&Name::from(slotName)).cloned());
+            let pSlot = p
+                .itemsTab
+                .slots
+                .with(|s| s.get(&Name::from(slotName)).cloned());
             // L1456
             if let Some(pSlot) = pSlot {
                 // L1457
-                let id = newItem.id.get().unwrap_or_else(|| lua_error!("bad argument (number expected, got nil)"));
+                let id = newItem
+                    .id
+                    .get()
+                    .unwrap_or_else(|| lua_error!("bad argument (number expected, got nil)"));
                 crate::tabs::items::slot::set_sel_item_id(&p, &pSlot, id);
             }
         }
@@ -548,31 +590,46 @@ impl CompareTab {
                     .add(
                         p,
                         "state",
-                        LabelControl::new(Anchor::new(TopLeft, name, BottomLeft), rect(0, 4, 0, 16), ""),
+                        LabelControl::new(
+                            Anchor::new(TopLeft, name, BottomLeft),
+                            rect(0, 4, 0, 16),
+                            "",
+                        ),
                     )
                     .id();
                 // L1482-1484
                 let st_text = stateText.clone();
-                cx.w_mut::<LabelControl>(state).label = Prop::f(move |_, _| st_text.borrow().clone());
+                cx.w_mut::<LabelControl>(state).label =
+                    Prop::f(move |_, _| st_text.borrow().clone());
                 // L1485-1521
                 let st_text = stateText.clone();
                 cx.add(
                     p,
                     "go",
-                    ButtonControl::new(Anchor::NONE, rect(-118, 130, 80, 20), "Import", move |cx| {
-                        Self::import_popup_go(cx, me, p, &st_text);
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(-118, 130, 80, 20),
+                        "Import",
+                        move |cx| {
+                            Self::import_popup_go(cx, me, p, &st_text);
+                        },
+                    ),
                 );
                 // L1522-1525
                 cx.add(
                     p,
                     "importFolder",
-                    ButtonControl::new(Anchor::NONE, rect(0, 130, 140, 20), "Import from Folder", move |cx| {
-                        // L1523
-                        popups::close_popup(cx);
-                        // L1524
-                        Self::OpenImportFolderPopup(cx, me);
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(0, 130, 140, 20),
+                        "Import from Folder",
+                        move |cx| {
+                            // L1523
+                            popups::close_popup(cx);
+                            // L1524
+                            Self::OpenImportFolderPopup(cx, me);
+                        },
+                    ),
                 );
                 // L1526-1528
                 cx.add(
@@ -604,7 +661,11 @@ impl CompareTab {
         }
         // L1490
         let name_buf = cx.w::<EditControl>(pc(cx, p, "name")).buf.clone();
-        let customName = if name_buf.is_empty() { None } else { Some(name_buf) };
+        let customName = if name_buf.is_empty() {
+            None
+        } else {
+            Some(name_buf)
+        };
 
         // Check if it's a URL
         // L1493
@@ -621,27 +682,38 @@ impl CompareTab {
                     cx,
                     &buf,
                     Some(site),
-                    Rc::new(move |cx: &mut Cx, isSuccess: bool, codeData: String, _url: Option<String>| {
-                        // L1497
-                        if isSuccess {
-                            // L1498
-                            let xmlText = decode_build_code(&codeData);
-                            // L1499
-                            if let Some(xmlText) = xmlText {
-                                // L1500
-                                let label = customName.clone().unwrap_or_else(|| format!("Imported from {label}"));
-                                Self::ImportBuild(cx, me, Some(&xmlText), Some(&label));
-                                // L1501
-                                popups::close_popup(cx);
+                    Rc::new(
+                        move |cx: &mut Cx,
+                              isSuccess: bool,
+                              codeData: String,
+                              _url: Option<String>| {
+                            // L1497
+                            if isSuccess {
+                                // L1498
+                                let xmlText = decode_build_code(&codeData);
+                                // L1499
+                                if let Some(xmlText) = xmlText {
+                                    // L1500
+                                    let label = customName
+                                        .clone()
+                                        .unwrap_or_else(|| format!("Imported from {label}"));
+                                    Self::ImportBuild(cx, me, Some(&xmlText), Some(&label));
+                                    // L1501
+                                    popups::close_popup(cx);
+                                } else {
+                                    // L1503
+                                    *stateText.borrow_mut() = format!(
+                                        "{}Failed to decode build data",
+                                        cx.main.cc.NEGATIVE
+                                    );
+                                }
                             } else {
-                                // L1503
-                                *stateText.borrow_mut() = format!("{}Failed to decode build data", cx.main.cc.NEGATIVE);
+                                // L1506
+                                *stateText.borrow_mut() =
+                                    format!("{}{codeData}", cx.main.cc.NEGATIVE);
                             }
-                        } else {
-                            // L1506
-                            *stateText.borrow_mut() = format!("{}{codeData}", cx.main.cc.NEGATIVE);
-                        }
-                    }),
+                        },
+                    ),
                 );
                 // L1509
                 return;
@@ -683,19 +755,18 @@ impl CompareTab {
                 let p = p.id();
                 // Minimal listMode-like host consumed by BuildListControl/PathControl.
                 // L1540-1544 (see the module notes)
-                let listHost = cx
-                    .add_free(
-                        Some(p),
-                        New::new(
-                            Base::new(Anchor::NONE, rect(0, 0, 0, 0)),
-                            ListMode {
-                                sub_path: Some(String::new()),
-                                filter_build_list: Some(String::new()),
-                                ..ListMode::default()
-                            },
-                        )
-                        .host(),
-                    );
+                let listHost = cx.add_free(
+                    Some(p),
+                    New::new(
+                        Base::new(Anchor::NONE, rect(0, 0, 0, 0)),
+                        ListMode {
+                            sub_path: Some(String::new()),
+                            filter_build_list: Some(String::new()),
+                            ..ListMode::default()
+                        },
+                    )
+                    .host(),
+                );
                 // L1545-1565 listHost:BuildList / FilterBuildList / SortList / SelectControl:
                 // `ListMode::{build_list, filter_build_list, sort_list}` (module notes)
 
@@ -728,7 +799,12 @@ impl CompareTab {
                     )
                     .id();
                 // L1592
-                EditControl::set_placeholder(cx, searchText, "(e.g. class:assassin myfilename)", false);
+                EditControl::set_placeholder(
+                    cx,
+                    searchText,
+                    "(e.g. class:assassin myfilename)",
+                    false,
+                );
                 // L1593-1597
                 let sort = cx
                     .add(
@@ -738,17 +814,23 @@ impl CompareTab {
                             Anchor::nil(TopLeft, TopLeft),
                             rect(475, 25, 210, 20),
                             build_sort_drop_list(),
-                            Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                                let value = value
-                                    .and_then(|v| v.get::<SortDropItem>())
-                                    .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
-                                // L1594 sortMode = value.sortMode (the popup's sort mode is
-                                // `main.buildSortMode`, module notes)
-                                // L1595
-                                cx.app_mut().main.build_sort_mode = value.sort_mode.to_owned();
-                                // L1596
-                                ListMode::sort_list(cx, listHost.id());
-                            })),
+                            Some(Rc::new(
+                                move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                                    let value = value
+                                        .and_then(|v| v.get::<SortDropItem>())
+                                        .unwrap_or_else(|| {
+                                            lua_error!(
+                                                "attempt to index local 'value' (a nil value)"
+                                            )
+                                        });
+                                    // L1594 sortMode = value.sortMode (the popup's sort mode is
+                                    // `main.buildSortMode`, module notes)
+                                    // L1595
+                                    cx.app_mut().main.build_sort_mode = value.sort_mode.to_owned();
+                                    // L1596
+                                    ListMode::sort_list(cx, listHost.id());
+                                },
+                            )),
                             None,
                             false,
                         ),
@@ -756,7 +838,8 @@ impl CompareTab {
                     .id();
                 // L1598
                 DropDownControl::sel_by_value(cx, sort, &|item: &DropItem| {
-                    item.get::<SortDropItem>().is_some_and(|v| v.sort_mode == sortMode)
+                    item.get::<SortDropItem>()
+                        .is_some_and(|v| v.sort_mode == sortMode)
                 });
 
                 // Build list itself. Reuses BuildListControl (which provides the PathControl
@@ -767,7 +850,13 @@ impl CompareTab {
                     .add(
                         p,
                         "buildList",
-                        BuildListControl::new(Anchor::nil(TopLeft, TopLeft), rect(15, 75, 0, 0), listHost, list, Some(String::new())),
+                        BuildListControl::new(
+                            Anchor::nil(TopLeft, TopLeft),
+                            rect(15, 75, 0, 0),
+                            listHost,
+                            list,
+                            Some(String::new()),
+                        ),
                     )
                     .id();
                 // the host's `controls.buildList` (BuildList.lua's SortList reads it)
@@ -783,53 +872,86 @@ impl CompareTab {
                     let ov = &mut cx.w_mut::<ListControl>(buildList).ov;
                     // L1607-1613 LoadBuild: [`popup_load_build`]; BuildListControl.lua:259-265
                     // OnSelClick calls it (CCR-0136 §3)
-                    ov.on_sel_click = Some(Rc::new(move |cx: &mut Cx, list: CtrlId, _index: usize, v: &pob_ui_core::controls::ListValue, doubleClick: bool| {
-                        // BuildListControl.lua:L260
-                        if doubleClick {
-                            // L261
-                            popup_load_build(cx, me, list, &entry_of(v));
-                            let l = cx.w_mut::<ListControl>(list);
-                            // L262
-                            l.sel_dragging = false;
-                            // L263
-                            l.sel_drag_active = false;
-                        }
-                        None
-                    }));
+                    ov.on_sel_click = Some(Rc::new(
+                        move |cx: &mut Cx,
+                              list: CtrlId,
+                              _index: usize,
+                              v: &pob_ui_core::controls::ListValue,
+                              doubleClick: bool| {
+                            // BuildListControl.lua:L260
+                            if doubleClick {
+                                // L261
+                                popup_load_build(cx, me, list, &entry_of(v));
+                                let l = cx.w_mut::<ListControl>(list);
+                                // L262
+                                l.sel_dragging = false;
+                                // L263
+                                l.sel_drag_active = false;
+                            }
+                            None
+                        },
+                    ));
                     // L1614-1618
-                    ov.on_sel_key_down = Some(Rc::new(move |cx: &mut Cx, list: CtrlId, _index: usize, v: &pob_ui_core::controls::ListValue, key: Key| {
-                        // L1615
-                        if key == Key::Return {
-                            // L1616
-                            popup_load_build(cx, me, list, &entry_of(v));
-                        }
-                    }));
+                    ov.on_sel_key_down = Some(Rc::new(
+                        move |cx: &mut Cx,
+                              list: CtrlId,
+                              _index: usize,
+                              v: &pob_ui_core::controls::ListValue,
+                              key: Key| {
+                            // L1615
+                            if key == Key::Return {
+                                // L1616
+                                popup_load_build(cx, me, list, &entry_of(v));
+                            }
+                        },
+                    ));
                     // L1625
-                    ov.on_sel_copy = Some(Rc::new(|_cx: &mut Cx, _list: CtrlId, _index: usize, _v: &pob_ui_core::controls::ListValue| {}));
+                    ov.on_sel_copy = Some(Rc::new(
+                        |_cx: &mut Cx,
+                         _list: CtrlId,
+                         _index: usize,
+                         _v: &pob_ui_core::controls::ListValue| {},
+                    ));
                     // L1626
-                    ov.on_sel_cut = Some(Rc::new(|_cx: &mut Cx, _list: CtrlId, _index: usize, _v: &pob_ui_core::controls::ListValue| {}));
+                    ov.on_sel_cut = Some(Rc::new(
+                        |_cx: &mut Cx,
+                         _list: CtrlId,
+                         _index: usize,
+                         _v: &pob_ui_core::controls::ListValue| {},
+                    ));
                     // L1627
-                    ov.on_sel_delete = Some(Rc::new(|_cx: &mut Cx, _list: CtrlId, _index: usize, _v: &pob_ui_core::controls::ListValue| {}));
+                    ov.on_sel_delete = Some(Rc::new(
+                        |_cx: &mut Cx,
+                         _list: CtrlId,
+                         _index: usize,
+                         _v: &pob_ui_core::controls::ListValue| {},
+                    ));
                 }
                 cx.set_ov(buildList, |ov| {
                     // L1619-1623
                     ov.on_hover_key_up = Some(Rc::new(|cx: &mut Cx, list: CtrlId, key: Key| {
                         // L1620
-                        let sb = cx
-                            .child(list, "scrollBarV")
-                            .unwrap_or_else(|| lua_error!("attempt to index field 'scrollBarV' (a nil value)"));
-                        if ScrollBarControl::is_scroll_down_key(cx, sb, key) || ScrollBarControl::is_scroll_up_key(cx, sb, key) {
+                        let sb = cx.child(list, "scrollBarV").unwrap_or_else(|| {
+                            lua_error!("attempt to index field 'scrollBarV' (a nil value)")
+                        });
+                        if ScrollBarControl::is_scroll_down_key(cx, sb, key)
+                            || ScrollBarControl::is_scroll_up_key(cx, sb, key)
+                        {
                             // L1621
                             cx.on_key_up(list, key);
                         }
                     }));
                     // L1624
-                    ov.can_receive_drag = Some(Rc::new(|_cx: &Cx, _list: CtrlId, _ty: &str, _v: &DragValue| false));
+                    ov.can_receive_drag = Some(Rc::new(
+                        |_cx: &Cx, _list: CtrlId, _ty: &str, _v: &DragValue| false,
+                    ));
                 });
                 // L1628
                 let path = cx.child_as::<PathControl>(buildList, "path");
                 cx.set_ov(path, |ov| {
-                    ov.can_receive_drag = Some(Rc::new(|_cx: &Cx, _path: CtrlId, _ty: &str, _v: &DragValue| false));
+                    ov.can_receive_drag = Some(Rc::new(
+                        |_cx: &Cx, _path: CtrlId, _ty: &str, _v: &DragValue| false,
+                    ));
                 });
 
                 // Populate the initial list now that the control (and its path control) exist.
@@ -841,27 +963,38 @@ impl CompareTab {
                     .add(
                         p,
                         "open",
-                        ButtonControl::new(Anchor::nil(TopLeft, TopLeft), rect(255, 465, 80, 20), "Open", move |cx| {
-                            // L1634
-                            let sel = BuildListControl::sel_value(cx, buildList);
-                            // L1635
-                            if let Some(sel) = sel {
-                                // L1636
-                                popup_load_build(cx, me, buildList, &sel);
-                            }
-                        }),
+                        ButtonControl::new(
+                            Anchor::nil(TopLeft, TopLeft),
+                            rect(255, 465, 80, 20),
+                            "Open",
+                            move |cx| {
+                                // L1634
+                                let sel = BuildListControl::sel_value(cx, buildList);
+                                // L1635
+                                if let Some(sel) = sel {
+                                    // L1636
+                                    popup_load_build(cx, me, buildList, &sel);
+                                }
+                            },
+                        ),
                     )
                     .id();
                 // L1639
-                cx.base_mut(open).enabled = Prop::f(move |cx, _| cx.w::<ListControl>(buildList).sel_value.is_some());
+                cx.base_mut(open).enabled =
+                    Prop::f(move |cx, _| cx.w::<ListControl>(buildList).sel_value.is_some());
                 // L1640-1642
                 cx.add(
                     p,
                     "close",
-                    ButtonControl::new(Anchor::nil(TopLeft, TopLeft), rect(365, 465, 80, 20), "Close", |cx| {
-                        // L1641
-                        popups::close_popup(cx);
-                    }),
+                    ButtonControl::new(
+                        Anchor::nil(TopLeft, TopLeft),
+                        rect(365, 465, 80, 20),
+                        "Close",
+                        |cx| {
+                            // L1641
+                            popups::close_popup(cx);
+                        },
+                    ),
                 );
             },
             PopupOpts {
@@ -880,7 +1013,12 @@ fn popup_load_build(cx: &mut Cx, me: CtrlId, list: CtrlId, build: &Entry) {
     if let Some(folderName) = &build.folder_name {
         // L1609
         let path = cx.child_as::<PathControl>(list, "path");
-        PathControl::set_sub_path(cx, path.id(), &format!("{}{folderName}/", build.sub_path), false);
+        PathControl::set_sub_path(
+            cx,
+            path.id(),
+            &format!("{}{folderName}/", build.sub_path),
+            false,
+        );
     } else {
         // L1611
         import_build_entry(cx, me, build);
@@ -895,7 +1033,11 @@ fn import_build_entry(cx: &mut Cx, me: CtrlId, build: &Entry) {
     // L1570
     let Ok(bytes) = fileHnd else {
         // L1571
-        popups::open_message_popup(cx, "Import Error", &format!("Couldn't open '{}'.", build.full_file_name));
+        popups::open_message_popup(
+            cx,
+            "Import Error",
+            &format!("Couldn't open '{}'.", build.full_file_name),
+        );
         // L1572
         return;
     };

@@ -44,7 +44,7 @@ use pob_host::{App, PlatformParts};
 use pob_lua::n;
 use pob_sg::{Key, Sg, Sys};
 use pob_ui_core::prelude::*;
-use pob_ui_core::tooltip::tooltip::{TtBackground, TtColor, Tooltip};
+use pob_ui_core::tooltip::tooltip::{Tooltip, TtBackground, TtColor};
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::lua_calc::LuaCalcBridge;
 use pob_ui_oracle::oracle_cache::{self, LuaRun};
@@ -364,7 +364,11 @@ fn rust_ser(t: &Tooltip, head: &str) -> String {
             l.block,
             if l.mod_line.is_some() { "|M" } else { "" },
             bg,
-            if l.separator_image.is_some() { "|sep" } else { "" },
+            if l.separator_image.is_some() {
+                "|sep"
+            } else {
+                ""
+            },
         ));
     }
     for (i, b) in t.blocks.iter().enumerate() {
@@ -438,7 +442,10 @@ fn compare(
         }
         bad += 1;
         if bad <= 6 {
-            let (l, r) = (l.cloned().unwrap_or_default(), r.cloned().unwrap_or_default());
+            let (l, r) = (
+                l.cloned().unwrap_or_default(),
+                r.cloned().unwrap_or_default(),
+            );
             let first = l
                 .lines()
                 .zip(r.lines())
@@ -547,7 +554,11 @@ fn u38_unique_tooltips() {
         .filter(|(k, v)| v.len() > 1 && k.as_str() != "Grand Spectrum")
         .map(|(k, _)| k)
         .collect();
-    println!("flavour lookup: {} names, {} with several entries: {multi_flavour:?}", tt38::flavour_lookup().len(), multi_flavour.len());
+    println!(
+        "flavour lookup: {} names, {} with several entries: {multi_flavour:?}",
+        tt38::flavour_lookup().len(),
+        multi_flavour.len()
+    );
     let results = oracle_cache::par_map(builds, |name| {
         let mut out = BuildOut::default();
         let user = UserDir::new(Some(&fixture_dir())).unwrap();
@@ -702,7 +713,11 @@ fn rust_stat_differences(side: &mut RustSide, picked: &[(u32, String)]) -> Vec<S
         let head = format!(
             "item {id} {} slot={}",
             item.name.get(),
-            if slot_name.is_empty() { "nil" } else { slot_name }
+            if slot_name.is_empty() {
+                "nil"
+            } else {
+                slot_name
+            }
         );
         let mut t = Tooltip::default();
         let r = catch_lua(|| {
@@ -757,11 +772,7 @@ fn u38_stat_differences() {
         out.tooltips += lua.len();
         let n_cmp = lua
             .iter()
-            .map(|t| {
-                t.lines()
-                    .filter(|l| l.contains("will give you:"))
-                    .count()
-            })
+            .map(|t| t.lines().filter(|l| l.contains("will give you:")).count())
             .sum::<usize>();
         out.n2 += n_cmp;
         out.lines.push(format!(
@@ -769,7 +780,14 @@ fn u38_stat_differences() {
             lua.len(),
             picked
                 .iter()
-                .map(|(i, s)| format!("{i}{}", if s.is_empty() { String::new() } else { format!("@{s}") }))
+                .map(|(i, s)| format!(
+                    "{i}{}",
+                    if s.is_empty() {
+                        String::new()
+                    } else {
+                        format!("@{s}")
+                    }
+                ))
                 .collect::<Vec<_>>()
                 .join(" "),
             (t1 - t0).as_secs_f64(),
@@ -814,9 +832,11 @@ fn u38_undo_round_trip() {
         let me = slot_helper::items_tab(cx).expect("the Items tab");
         let snapshot = |cx: &Cx| {
             let t = &m.itemsTab;
-            let items: Vec<(u32, String)> = t
-                .items
-                .with(|i| i.iter().map(|(k, v)| (*k, v.name.get().to_string())).collect());
+            let items: Vec<(u32, String)> = t.items.with(|i| {
+                i.iter()
+                    .map(|(k, v)| (*k, v.name.get().to_string()))
+                    .collect()
+            });
             let order = t.orderList.with(Clone::clone);
             let slots: Vec<(String, String)> = cx
                 .w::<ItemsTab>(me)
@@ -849,11 +869,19 @@ fn u38_undo_round_trip() {
         assert!(tt38::mod_flag(cx), "AddUndoState sets modFlag");
         let edited = snapshot(cx);
         assert_ne!(before, edited, "the edit changes the snapshot");
-        let first_item = m.itemsTab.items.with(|i| i.values().next().cloned()).expect("an item");
+        let first_item = m
+            .itemsTab
+            .items
+            .with(|i| i.values().next().cloned())
+            .expect("an item");
         tt38::undo(cx, me);
         let undone = snapshot(cx);
         assert_eq!(before, undone, "Undo restores {slot_name}");
-        let restored = m.itemsTab.items.with(|i| i.values().next().cloned()).expect("an item");
+        let restored = m
+            .itemsTab
+            .items
+            .with(|i| i.values().next().cloned())
+            .expect("an item");
         assert!(
             !Rc::ptr_eq(&first_item, &restored),
             "the restored items are the state's copies (copyTableSafe)"

@@ -1023,7 +1023,15 @@ fn u29_gem_tooltips() {
         .unwrap();
         let user = UserDir::new(Some(&fixture_dir())).unwrap();
         let screen = runner::screen(1280, 800, 1.0);
-        let run = lua_run(&root, &script, &user, screen, &mode, Some(LUA_TOOLTIPS), false);
+        let run = lua_run(
+            &root,
+            &script,
+            &user,
+            screen,
+            &mode,
+            Some(LUA_TOOLTIPS),
+            false,
+        );
         assert!(run.error.is_none(), "{name}: Lua: {:?}", run.error);
         let lua: Vec<String> = run.extra;
         // the Rust side on this case thread (fresh per case: its thread-local state is new)
@@ -1063,8 +1071,10 @@ fn u29_gem_tooltips() {
         out.tooltips += lua.len();
         out.tt_lines += lua.iter().map(|t| t.lines().count() - 1).sum::<usize>();
         out.errors += lua.iter().filter(|t| t.ends_with(" ERROR")).count();
-        out.lines
-            .push(format!("{name}: {} tooltips compared, {bad} differ", lua.len()));
+        out.lines.push(format!(
+            "{name}: {} tooltips compared, {bad} differ",
+            lua.len()
+        ));
         out
     });
     let mut failures = Vec::new();

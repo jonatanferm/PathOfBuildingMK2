@@ -70,15 +70,19 @@ fn build_output_on_stubs() {
     }
     // Timeless jewel LUTs load from the PoB checkout (PS-B builds jewel node data through them;
     // slice5_allflame_exp_030 has a timeless jewel), as BM-A / PS-B register them.
-    let Some(src) = pob_testpaths::require(pob_testpaths::pob_src(), "PoB checkout (.PathOfBuilding/src)")
-    else {
+    let Some(src) = pob_testpaths::require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src)",
+    ) else {
         return; // POB_ALLOW_SKIP=1
     };
     let src = std::fs::canonicalize(&src).unwrap_or(src);
-    pob_gamedata::timeless_lut::set_jewel_fs(std::sync::Arc::new(pob_gamedata::timeless_lut::StdJewelFs {
-        script_path: src.to_string_lossy().into_owned(),
-        writable: false,
-    }));
+    pob_gamedata::timeless_lut::set_jewel_fs(std::sync::Arc::new(
+        pob_gamedata::timeless_lut::StdJewelFs {
+            script_path: src.to_string_lossy().into_owned(),
+            writable: false,
+        },
+    ));
     pob_gamedata::timeless_lut::set_con_printf(|_| {});
     pob_calc::stub::stub_reset();
     let builds = slice5();
@@ -110,7 +114,10 @@ fn build_output_on_stubs() {
                 Err(e) => {
                     // a Lua error is a stub gap only while the run hits a stub (module doc)
                     let hit = stubbed(&before);
-                    assert!(!hit.is_empty(), "{stem} {mode:?}: Lua error {e} with no stub hit");
+                    assert!(
+                        !hit.is_empty(),
+                        "{stem} {mode:?}: Lua error {e} with no stub hit"
+                    );
                     eprintln!("u0_smoke: {stem} {mode:?}: Lua error {e} (stubs hit: {hit:?})");
                     stub_errors.push(format!("{stem} {mode:?}: {e}"));
                     continue;
@@ -129,7 +136,10 @@ fn build_output_on_stubs() {
         }
     }
     assert_eq!(runs, 15, "5 slice5 builds x 3 modes");
-    eprintln!("u0_smoke: {} of {runs} runs raised on a stub gap", stub_errors.len());
+    eprintln!(
+        "u0_smoke: {} of {runs} runs raised on a stub gap",
+        stub_errors.len()
+    );
     assert!(
         stub_errors.len() <= MAX_STUB_ERRORS,
         "{} runs raised (bound {MAX_STUB_ERRORS}): {stub_errors:#?}",

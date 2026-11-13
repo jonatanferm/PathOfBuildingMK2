@@ -212,10 +212,17 @@ fn run_hit(xml: &Path, din: &StateDump, dout: &StateDump, stem: &str) -> Outcome
         .iter()
         .find(|(k, _)| k == "passList")
         .and_then(|(_, v)| v.table())
-        .map(|t| t.ipairs().into_iter().filter_map(|(_, p)| p.table()).collect())
+        .map(|t| {
+            t.ipairs()
+                .into_iter()
+                .filter_map(|(_, p)| p.table())
+                .collect()
+        })
         .unwrap_or_default();
     if dout.probe == "offence:5650"
-        && passes.last().is_some_and(|l| !this_pass.as_ref().is_some_and(|t| t.ptr_eq(l)))
+        && passes
+            .last()
+            .is_some_and(|l| !this_pass.as_ref().is_some_and(|t| t.ptr_eq(l)))
     {
         return Outcome::NoNext;
     }
@@ -279,7 +286,10 @@ fn run_hit(xml: &Path, din: &StateDump, dout: &StateDump, stem: &str) -> Outcome
                 m.kind,
                 m.pob,
                 m.ours,
-                m.writer.as_deref().map(|w| format!(" [{w}]")).unwrap_or_default()
+                m.writer
+                    .as_deref()
+                    .map(|w| format!(" [{w}]"))
+                    .unwrap_or_default()
             )
         })
         .collect();
@@ -424,7 +434,15 @@ fn ofh_l4_ignite_nondamaging_impale() {
     if !missing.is_empty() && pob_testpaths::require::<()>(None, &missing.join("; ")).is_none() {
         return;
     }
-    assert_eq!(t.errors, 0, "OF-H L4: {} hits raised (see stderr)", t.errors);
-    assert_eq!(t.fail, 0, "OF-H L4: {} stub-free hits mismatch (see stderr)", t.fail);
+    assert_eq!(
+        t.errors, 0,
+        "OF-H L4: {} hits raised (see stderr)",
+        t.errors
+    );
+    assert_eq!(
+        t.fail, 0,
+        "OF-H L4: {} stub-free hits mismatch (see stderr)",
+        t.fail
+    );
     assert!(t.pass > 0, "OF-H L4: no hit ran stub-free");
 }

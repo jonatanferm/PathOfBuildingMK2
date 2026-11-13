@@ -647,10 +647,9 @@ fn l3_full_matrix_all57() {
         (0, 0),
         "pending IT-B (Item:FindModifierSubstring stub reached)"
     );
-    let filtered =
-        std::env::var_os("MS_B_BUILDS").is_some()
-            || std::env::var_os("MS_B_LIMIT").is_some()
-            || pob_testpaths::quick_corpus();
+    let filtered = std::env::var_os("MS_B_BUILDS").is_some()
+        || std::env::var_os("MS_B_LIMIT").is_some()
+        || pob_testpaths::quick_corpus();
     if !filtered {
         assert_eq!(nbuilds, CORPUS_BUILDS, "builds compared");
         let b = MS_B_BOUNDS;

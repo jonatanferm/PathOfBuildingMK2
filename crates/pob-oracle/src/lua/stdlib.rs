@@ -353,7 +353,9 @@ pub fn install(it: &mut Interp) {
         let (out, count) = match &repl {
             Val::Str(_) | Val::Num(_) => {
                 let r = to_bytes(&repl);
-                pat_call(|| pat::gsub_bytes_with(st.as_bytes(), p.as_bytes(), pat::Repl::Str(&r), n))?
+                pat_call(|| {
+                    pat::gsub_bytes_with(st.as_bytes(), p.as_bytes(), pat::Repl::Str(&r), n)
+                })?
             }
             Val::Table(t) => {
                 let t = t.clone();
@@ -362,7 +364,9 @@ pub fn install(it: &mut Interp) {
                     let v = t.get(&key);
                     v.truthy().then(|| to_bytes(&v))
                 };
-                pat_call(|| pat::gsub_bytes_with(st.as_bytes(), p.as_bytes(), pat::Repl::Table(&mut f), n))?
+                pat_call(|| {
+                    pat::gsub_bytes_with(st.as_bytes(), p.as_bytes(), pat::Repl::Table(&mut f), n)
+                })?
             }
             Val::Func(_) => {
                 let mut err: Option<LuaError> = None;

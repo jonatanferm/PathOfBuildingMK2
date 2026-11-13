@@ -115,7 +115,11 @@ pub const FORK_LABEL: &str = "^8PoB Rust Port";
 pub fn version_label_text(branch: Option<&str>) -> String {
     format!(
         "^8{}{}{}",
-        if branch == Some("beta") { "Beta: " } else { "Version: " },
+        if branch == Some("beta") {
+            "Beta: "
+        } else {
+            "Version: "
+        },
         crate::launch::PORT_VERSION,
         if branch == Some("dev") { " (Dev)" } else { "" }
     )
@@ -200,7 +204,10 @@ pub fn main_init(cx: &mut Cx) {
         super::on_frame::set_mode(
             cx,
             "BUILD",
-            vec![ModeArg::Bool(false), ModeArg::Str("Unnamed build".to_owned())],
+            vec![
+                ModeArg::Bool(false),
+                ModeArg::Str("Unnamed build".to_owned()),
+            ],
         );
     }
     // L89
@@ -343,7 +350,10 @@ pub fn main_init(cx: &mut Cx) {
     // L224
     load_tooltip_class(cx);
     let anchor_main = cx
-        .add_free(Some(cx.main.node), PlainControl::new(Anchor::NONE, rect(4, 0, 0, 0)))
+        .add_free(
+            Some(cx.main.node),
+            PlainControl::new(Anchor::NONE, rect(4, 0, 0, 0)),
+        )
         .id();
     // L225-227
     cx.base_mut(anchor_main).y = Prop::f(|cx, _| cx.main.screen_h - 4.0);
@@ -732,17 +742,26 @@ mod tests {
     #[test]
     fn port_version_is_dated_release() {
         let v = crate::launch::PORT_VERSION;
-        let file = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../VERSION"))
-            .unwrap();
+        let file =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../VERSION")).unwrap();
         assert_eq!(v, file.trim());
         let parts: Vec<&str> = v.split('.').collect();
         assert_eq!(parts.len(), 4, "{v:?}");
-        assert_eq!(parts.iter().take(3).map(|p| p.len()).collect::<Vec<_>>(), [4, 2, 2], "{v:?}");
-        assert!(parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())));
+        assert_eq!(
+            parts.iter().take(3).map(|p| p.len()).collect::<Vec<_>>(),
+            [4, 2, 2],
+            "{v:?}"
+        );
+        assert!(parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())));
         let m: u32 = parts[1].parse().unwrap();
         let d: u32 = parts[2].parse().unwrap();
         let n: u32 = parts[3].parse().unwrap();
-        assert!((1..=12).contains(&m) && (1..=31).contains(&d) && n >= 1, "{v:?}");
+        assert!(
+            (1..=12).contains(&m) && (1..=31).contains(&d) && n >= 1,
+            "{v:?}"
+        );
         assert!(!parts[3].starts_with('0'), "{v:?}");
     }
 
@@ -752,9 +771,15 @@ mod tests {
         let v = crate::launch::PORT_VERSION;
         assert_eq!(FORK_LABEL, "^8PoB Rust Port");
         assert_eq!(version_label_text(None), format!("^8Version: {v}"));
-        assert_eq!(version_label_text(Some("master")), format!("^8Version: {v}"));
+        assert_eq!(
+            version_label_text(Some("master")),
+            format!("^8Version: {v}")
+        );
         assert_eq!(version_label_text(Some("beta")), format!("^8Beta: {v}"));
-        assert_eq!(version_label_text(Some("dev")), format!("^8Version: {v} (Dev)"));
+        assert_eq!(
+            version_label_text(Some("dev")),
+            format!("^8Version: {v} (Dev)")
+        );
         assert!(!version_label_text(None).contains("2.67"));
     }
 }

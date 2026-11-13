@@ -265,7 +265,8 @@ pub fn cvtt_i64(n: f64) -> i64 {
 /// `lj_lib_optint` (the `string.sub` fast path's `cvttsd2si r32`). Public for the UI (CCR-0033 §1).
 #[inline]
 pub fn cvtt_i32(n: f64) -> i32 {
-    if crate::profile::x64_casts() && (n.is_nan() || n >= 2_147_483_648.0 || n <= -2_147_483_649.0) {
+    if crate::profile::x64_casts() && (n.is_nan() || n >= 2_147_483_648.0 || n <= -2_147_483_649.0)
+    {
         i32::MIN
     } else {
         n as i32

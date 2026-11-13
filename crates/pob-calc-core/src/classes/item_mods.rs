@@ -93,7 +93,10 @@ fn vfield(v: &Value, k: &str) -> Val {
             "type" => j.r#type.map_or(Val::Nil, Val::from),
             _ => Val::Nil,
         },
-        other => lua_error!("attempt to index local 'value' (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to index local 'value' (a {} value)",
+            other.lua_type()
+        ),
     }
 }
 
@@ -106,7 +109,14 @@ fn apply_data_list(t: &Table, modList: &ModList, name: &str) {
 }
 
 /// `list:NewMod(name, type, value, source, tags…)` with a possibly nil source.
-fn new_mod(list: &ModList, name: Name, r#type: ModType, value: impl Into<Value>, source: Option<&str>, tags: &[Tag]) {
+fn new_mod(
+    list: &ModList,
+    name: Name,
+    r#type: ModType,
+    value: impl Into<Value>,
+    source: Option<&str>,
+    tags: &[Tag],
+) {
     list.AddMod(Arc::new(createMod(name, r#type, value, source, 0, 0, tags)));
 }
 
@@ -130,7 +140,11 @@ fn tgt0(t: &Table, k: &str) -> bool {
         Val::Num(n) => n > 0.0,
         other => lua_error!(
             "attempt to compare {} with number",
-            if other.is_nil() { "nil" } else { other.lua_type() }
+            if other.is_nil() {
+                "nil"
+            } else {
+                other.lua_type()
+            }
         ),
     }
 }
@@ -141,8 +155,24 @@ fn slot_gsub(v: &str, slotName: &str, slotNum: Option<f64>) -> String {
         return v.to_owned();
     }
     let s = pattern::gsub(v, "{SlotName}", slotName, None).0;
-    let s = pattern::gsub(&s, "{Hand}", if slotNum == Some(1.0) { "MainHand" } else { "OffHand" }, None).0;
-    pattern::gsub(&s, "{OtherSlotNum}", if slotNum == Some(1.0) { "2" } else { "1" }, None).0
+    let s = pattern::gsub(
+        &s,
+        "{Hand}",
+        if slotNum == Some(1.0) {
+            "MainHand"
+        } else {
+            "OffHand"
+        },
+        None,
+    )
+    .0;
+    pattern::gsub(
+        &s,
+        "{OtherSlotNum}",
+        if slotNum == Some(1.0) { "2" } else { "1" },
+        None,
+    )
+    .0
 }
 
 /// `for k, v in pairs(tag) do if type(v) == "string" then tag[k] = v:gsub(…) end end`:
@@ -151,7 +181,9 @@ fn tag_gsub(tag: &mut Tag, slotName: &str, slotNum: Option<f64>) {
     let f = |v: &mut Option<Name>| {
         if let Some(s) = v {
             if s.as_str().contains('{') {
-                *v = Some(Name::from(slot_gsub(s.as_str(), slotName, slotNum).as_str()));
+                *v = Some(Name::from(
+                    slot_gsub(s.as_str(), slotName, slotNum).as_str(),
+                ));
             }
         }
     };
@@ -195,7 +227,9 @@ fn tag_gsub(tag: &mut Tag, slotName: &str, slotNum: Option<f64>) {
     g(&mut tag.nameCond);
     if let TagType::Other(n) = tag.r#type {
         if n.as_str().contains('{') {
-            tag.r#type = TagType::Other(Name::from(slot_gsub(n.as_str(), slotName, slotNum).as_str()));
+            tag.r#type = TagType::Other(Name::from(
+                slot_gsub(n.as_str(), slotName, slotNum).as_str(),
+            ));
         }
     }
     if let Some(ex) = tag.extra.as_mut() {
@@ -219,7 +253,10 @@ fn line_mods(modLine: &Table) -> (Table, Vec<(i64, ModRef)>) {
         .into_iter()
         .map(|(i, v)| match v {
             Val::Mod(m) => (i as i64, m),
-            other => lua_error!("attempt to index local 'mod' (a {} value)", other.lua_type()),
+            other => lua_error!(
+                "attempt to index local 'mod' (a {} value)",
+                other.lua_type()
+            ),
         })
         .collect();
     (list, mods)
@@ -412,16 +449,17 @@ impl Item {
             if selfCraftedQuality.truthy() {
                 // L2277
                 let q = self.quality.get().unwrap_or(0.0);
-                self.quality.set(Some(
-                    q - selfCraftedQuality.num() + craftedQuality,
-                ));
+                self.quality
+                    .set(Some(q - selfCraftedQuality.num() + craftedQuality));
             }
             // L2279
             self.extra.set(n!("craftedQuality"), craftedQuality);
         }
         // L2281
-        let corruptImplicitCount = calcLocal(&modList, n!("CorruptImplicitCount"), ModType::BASE, 0);
-        self.extra.set(n!("corruptImplicitCount"), corruptImplicitCount.clone());
+        let corruptImplicitCount =
+            calcLocal(&modList, n!("CorruptImplicitCount"), ModType::BASE, 0);
+        self.extra
+            .set(n!("corruptImplicitCount"), corruptImplicitCount.clone());
         // L2282
         if corruptImplicitCount.opt_num() == Some(0.0) {
             // L2283
@@ -463,7 +501,12 @@ impl Item {
             let AttackSpeedInc = cl(&modList, "Speed", ModType::INC, ModFlag::Attack)
                 + m_floor(
                     quality() / 8.0
-                        * cl(&modList, "AlternateQualityLocalAttackSpeedPer8Quality", ModType::INC, 0),
+                        * cl(
+                            &modList,
+                            "AlternateQualityLocalAttackSpeedPer8Quality",
+                            ModType::INC,
+                            0,
+                        ),
                 );
             weaponData.set(n!("AttackSpeedInc"), AttackSpeedInc);
             // L2295
@@ -474,7 +517,12 @@ impl Item {
                 + 10.0 * cl(&modList, "WeaponRangeMetre", ModType::BASE, 0)
                 + m_floor(
                     quality() / 10.0
-                        * cl(&modList, "AlternateQualityLocalWeaponRangePer10Quality", ModType::BASE, 0),
+                        * cl(
+                            &modList,
+                            "AlternateQualityLocalWeaponRangePer10Quality",
+                            ModType::BASE,
+                            0,
+                        ),
                 );
             weaponData.set(n!("rangeBonus"), rangeBonus);
             // L2297
@@ -489,9 +537,11 @@ impl Item {
                     (None, None) // self.base.weapon[dmgType.."Min"] is nil
                 };
                 // L2300
-                let mut min = baseMin.unwrap_or(0.0) + cl(&modList, &format!("{dmgType}Min"), ModType::BASE, 0);
+                let mut min = baseMin.unwrap_or(0.0)
+                    + cl(&modList, &format!("{dmgType}Min"), ModType::BASE, 0);
                 // L2301
-                let mut max = baseMax.unwrap_or(0.0) + cl(&modList, &format!("{dmgType}Max"), ModType::BASE, 0);
+                let mut max = baseMax.unwrap_or(0.0)
+                    + cl(&modList, &format!("{dmgType}Max"), ModType::BASE, 0);
                 // L2302
                 if dmgType == "Physical" {
                     // L2303
@@ -510,7 +560,8 @@ impl Item {
                     max = round(max * (1.0 + physInc / 100.0) * (1.0 + qs / 100.0), None);
                 } else if dmgType != "Physical" && dmgType != "Chaos" {
                     // L2311
-                    let localInc = cl(&modList, &format!("Local{dmgType}Damage"), ModType::INC, 0) + LocalIncEle;
+                    let localInc = cl(&modList, &format!("Local{dmgType}Damage"), ModType::INC, 0)
+                        + LocalIncEle;
                     // L2312
                     min = round(min * (1.0 + localInc / 100.0), None);
                     // L2313
@@ -539,13 +590,25 @@ impl Item {
             let critInc = cl(&modList, "CritChance", ModType::INC, 0)
                 + m_floor(
                     quality() / 4.0
-                        * cl(&modList, "AlternateQualityLocalCritChancePer4Quality", ModType::INC, 0),
+                        * cl(
+                            &modList,
+                            "AlternateQualityLocalCritChancePer4Quality",
+                            ModType::INC,
+                            0,
+                        ),
                 );
-            weaponData.set(n!("CritChance"), round(critBase * (1.0 + critInc / 100.0), Some(2)));
+            weaponData.set(
+                n!("CritChance"),
+                round(critBase * (1.0 + critInc / 100.0), Some(2)),
+            );
             // L2326
             apply_data_list(&weaponData, &modList, "WeaponData");
             // L2329: the slot list's own copies (contracts.md#mod-mutation): replaced at their index
-            let hand = if slotNum == Some(1.0) { "MainHandAttack" } else { "OffHandAttack" };
+            let hand = if slotNum == Some(1.0) {
+                "MainHandAttack"
+            } else {
+                "OffHandAttack"
+            };
             let mut out: Vec<ModRef> = Vec::new();
             let mut changed = false;
             for r#mod in modList.ipairs() {
@@ -600,20 +663,22 @@ impl Item {
                 lua_error!("attempt to index local 'armourData' (a nil value)")
             };
             // L2347
-            let armourBase = cl(&modList, "Armour", ModType::BASE, 0) + a.ArmourBaseMin.unwrap_or(0.0);
+            let armourBase =
+                cl(&modList, "Armour", ModType::BASE, 0) + a.ArmourBaseMin.unwrap_or(0.0);
             // L2348
             let armourVariance = a.ArmourBaseMax.unwrap_or(0.0) - a.ArmourBaseMin.unwrap_or(0.0);
             // L2349
             let armourEvasionBase = cl(&modList, "ArmourAndEvasion", ModType::BASE, 0);
             // L2350
-            let evasionBase = cl(&modList, "Evasion", ModType::BASE, 0) + a.EvasionBaseMin.unwrap_or(0.0);
+            let evasionBase =
+                cl(&modList, "Evasion", ModType::BASE, 0) + a.EvasionBaseMin.unwrap_or(0.0);
             // L2351
             let evasionVariance = a.EvasionBaseMax.unwrap_or(0.0) - a.EvasionBaseMin.unwrap_or(0.0);
             // L2352
             let evasionEnergyShieldBase = cl(&modList, "EvasionAndEnergyShield", ModType::BASE, 0);
             // L2353
-            let energyShieldBase =
-                cl(&modList, "EnergyShield", ModType::BASE, 0) + a.EnergyShieldBaseMin.unwrap_or(0.0);
+            let energyShieldBase = cl(&modList, "EnergyShield", ModType::BASE, 0)
+                + a.EnergyShieldBaseMin.unwrap_or(0.0);
             // L2354
             let energyShieldVariance =
                 a.EnergyShieldBaseMax.unwrap_or(0.0) - a.EnergyShieldBaseMin.unwrap_or(0.0);
@@ -650,60 +715,101 @@ impl Item {
             let pct = |k: &str| armourData.get(Name::from(k)).num_or(1.0);
             // base percentiles need to differ for each armour type, as they're weighted differently
             // L2371
-            if armourData.truthy(n!("Armour")) && tgt0(&armourData, "Armour") && !armourData.truthy(n!("ArmourBasePercentile")) {
+            if armourData.truthy(n!("Armour"))
+                && tgt0(&armourData, "Armour")
+                && !armourData.truthy(n!("ArmourBasePercentile"))
+            {
                 // L2372
-                let p = ((tnum(&armourData, "Armour")
-                    / ((1.0 + (armourInc + armourEvasionInc + armourEnergyShieldInc + defencesInc) / 100.0)
+                let p = (tnum(&armourData, "Armour")
+                    / ((1.0
+                        + (armourInc + armourEvasionInc + armourEnergyShieldInc + defencesInc)
+                            / 100.0)
                         * (1.0 + (qs() / 100.0)))
-                    - armourBase))
+                    - armourBase)
                     / armourVariance;
                 // L2373
-                armourData.set(n!("ArmourBasePercentile"), round(m_max(m_min(p, 1.0), 0.0), Some(4)));
+                armourData.set(
+                    n!("ArmourBasePercentile"),
+                    round(m_max(m_min(p, 1.0), 0.0), Some(4)),
+                );
             }
             // L2375
-            if armourData.truthy(n!("Evasion")) && tgt0(&armourData, "Evasion") && !armourData.truthy(n!("EvasionBasePercentile")) {
+            if armourData.truthy(n!("Evasion"))
+                && tgt0(&armourData, "Evasion")
+                && !armourData.truthy(n!("EvasionBasePercentile"))
+            {
                 // L2376
-                let p = ((tnum(&armourData, "Evasion")
-                    / ((1.0 + (evasionInc + armourEvasionInc + evasionEnergyShieldInc + defencesInc) / 100.0)
+                let p = (tnum(&armourData, "Evasion")
+                    / ((1.0
+                        + (evasionInc + armourEvasionInc + evasionEnergyShieldInc + defencesInc)
+                            / 100.0)
                         * (1.0 + (qs() / 100.0)))
-                    - evasionBase))
+                    - evasionBase)
                     / evasionVariance;
                 // L2377
-                armourData.set(n!("EvasionBasePercentile"), round(m_max(m_min(p, 1.0), 0.0), Some(4)));
+                armourData.set(
+                    n!("EvasionBasePercentile"),
+                    round(m_max(m_min(p, 1.0), 0.0), Some(4)),
+                );
             }
             // L2379
-            if armourData.truthy(n!("EnergyShield")) && tgt0(&armourData, "EnergyShield") && !armourData.truthy(n!("EnergyShieldBasePercentile")) {
+            if armourData.truthy(n!("EnergyShield"))
+                && tgt0(&armourData, "EnergyShield")
+                && !armourData.truthy(n!("EnergyShieldBasePercentile"))
+            {
                 // L2380
-                let p = ((tnum(&armourData, "EnergyShield")
-                    / ((1.0 + (energyShieldInc + armourEnergyShieldInc + evasionEnergyShieldInc + defencesInc) / 100.0)
+                let p = (tnum(&armourData, "EnergyShield")
+                    / ((1.0
+                        + (energyShieldInc
+                            + armourEnergyShieldInc
+                            + evasionEnergyShieldInc
+                            + defencesInc)
+                            / 100.0)
                         * (1.0 + (qs() / 100.0)))
-                    - energyShieldBase))
+                    - energyShieldBase)
                     / energyShieldVariance;
                 // L2381
-                armourData.set(n!("EnergyShieldBasePercentile"), round(m_max(m_min(p, 1.0), 0.0), Some(4)));
+                armourData.set(
+                    n!("EnergyShieldBasePercentile"),
+                    round(m_max(m_min(p, 1.0), 0.0), Some(4)),
+                );
             }
             // L2383
-            if armourData.truthy(n!("Ward")) && tgt0(&armourData, "Ward") && !armourData.truthy(n!("WardBasePercentile")) {
+            if armourData.truthy(n!("Ward"))
+                && tgt0(&armourData, "Ward")
+                && !armourData.truthy(n!("WardBasePercentile"))
+            {
                 // L2384
-                let p = ((tnum(&armourData, "Ward")
+                let p = (tnum(&armourData, "Ward")
                     / ((1.0 + (wardInc + defencesInc) / 100.0) * (1.0 + (qs() / 100.0)))
-                    - wardBase))
+                    - wardBase)
                     / wardVariance;
                 // L2385
-                armourData.set(n!("WardBasePercentile"), round(m_max(m_min(p, 1.0), 0.0), Some(4)));
+                armourData.set(
+                    n!("WardBasePercentile"),
+                    round(m_max(m_min(p, 1.0), 0.0), Some(4)),
+                );
             }
 
             // L2388
             armourData.set(
                 n!("ArmourBase"),
-                round(a.ArmourBaseMin.unwrap_or(0.0) + armourVariance * pct("ArmourBasePercentile"), None),
+                round(
+                    a.ArmourBaseMin.unwrap_or(0.0) + armourVariance * pct("ArmourBasePercentile"),
+                    None,
+                ),
             );
             // L2389
             armourData.set(
                 n!("Armour"),
                 round(
-                    (armourBase + armourEvasionBase + armourEnergyShieldBase + armourVariance * pct("ArmourBasePercentile"))
-                        * (1.0 + (armourInc + armourEvasionInc + armourEnergyShieldInc + defencesInc) / 100.0)
+                    (armourBase
+                        + armourEvasionBase
+                        + armourEnergyShieldBase
+                        + armourVariance * pct("ArmourBasePercentile"))
+                        * (1.0
+                            + (armourInc + armourEvasionInc + armourEnergyShieldInc + defencesInc)
+                                / 100.0)
                         * (1.0 + (qs() / 100.0)),
                     None,
                 ),
@@ -711,14 +817,26 @@ impl Item {
             // L2390
             armourData.set(
                 n!("EvasionBase"),
-                round(a.EvasionBaseMin.unwrap_or(0.0) + evasionVariance * pct("EvasionBasePercentile"), None),
+                round(
+                    a.EvasionBaseMin.unwrap_or(0.0)
+                        + evasionVariance * pct("EvasionBasePercentile"),
+                    None,
+                ),
             );
             // L2391
             armourData.set(
                 n!("Evasion"),
                 round(
-                    (evasionBase + armourEvasionBase + evasionEnergyShieldBase + evasionVariance * pct("EvasionBasePercentile"))
-                        * (1.0 + (evasionInc + armourEvasionInc + evasionEnergyShieldInc + defencesInc) / 100.0)
+                    (evasionBase
+                        + armourEvasionBase
+                        + evasionEnergyShieldBase
+                        + evasionVariance * pct("EvasionBasePercentile"))
+                        * (1.0
+                            + (evasionInc
+                                + armourEvasionInc
+                                + evasionEnergyShieldInc
+                                + defencesInc)
+                                / 100.0)
                         * (1.0 + (qs() / 100.0)),
                     None,
                 ),
@@ -727,7 +845,8 @@ impl Item {
             armourData.set(
                 n!("EnergyShieldBase"),
                 round(
-                    a.EnergyShieldBaseMin.unwrap_or(0.0) + energyShieldVariance * pct("EnergyShieldBasePercentile"),
+                    a.EnergyShieldBaseMin.unwrap_or(0.0)
+                        + energyShieldVariance * pct("EnergyShieldBasePercentile"),
                     None,
                 ),
             );
@@ -735,9 +854,16 @@ impl Item {
             armourData.set(
                 n!("EnergyShield"),
                 round(
-                    (energyShieldBase + evasionEnergyShieldBase + armourEnergyShieldBase
+                    (energyShieldBase
+                        + evasionEnergyShieldBase
+                        + armourEnergyShieldBase
                         + energyShieldVariance * pct("EnergyShieldBasePercentile"))
-                        * (1.0 + (energyShieldInc + armourEnergyShieldInc + evasionEnergyShieldInc + defencesInc) / 100.0)
+                        * (1.0
+                            + (energyShieldInc
+                                + armourEnergyShieldInc
+                                + evasionEnergyShieldInc
+                                + defencesInc)
+                                / 100.0)
                         * (1.0 + (qs() / 100.0)),
                     None,
                 ),
@@ -745,7 +871,10 @@ impl Item {
             // L2394
             armourData.set(
                 n!("WardBase"),
-                round(a.WardBaseMin.unwrap_or(0.0) + wardVariance * pct("WardBasePercentile"), None),
+                round(
+                    a.WardBaseMin.unwrap_or(0.0) + wardVariance * pct("WardBasePercentile"),
+                    None,
+                ),
             );
             // L2395
             armourData.set(
@@ -769,7 +898,9 @@ impl Item {
                 armourData.set(n!("EvasionBasePercentile"), 1.0);
             }
             // L2403
-            if !armourData.truthy(n!("EnergyShieldBasePercentile")) && tgt0(&armourData, "EnergyShield") {
+            if !armourData.truthy(n!("EnergyShieldBasePercentile"))
+                && tgt0(&armourData, "EnergyShield")
+            {
                 // L2404
                 armourData.set(n!("EnergyShieldBasePercentile"), 1.0);
             }
@@ -830,7 +961,10 @@ impl Item {
                 // L2429
                 flaskData.set(
                     n!("duration"),
-                    round(f.duration * (1.0 + durationInc / 100.0) / rateMod * durationMore, Some(1)),
+                    round(
+                        f.duration * (1.0 + durationInc / 100.0) / rateMod * durationMore,
+                        Some(1),
+                    ),
                 );
                 // L2430
                 if let Some(life) = f.life {
@@ -881,17 +1015,26 @@ impl Item {
                 flaskData.set(
                     n!("duration"),
                     round(
-                        f.duration * (1.0 + durationInc / 100.0) * (1.0 + quality() / 100.0) * durationMore,
+                        f.duration
+                            * (1.0 + durationInc / 100.0)
+                            * (1.0 + quality() / 100.0)
+                            * durationMore,
                         Some(1),
                     ),
                 );
             }
             // L2449
-            flaskData.set(n!("chargesMax"), f.chargesMax + cl(&modList, "FlaskCharges", ModType::BASE, 0));
+            flaskData.set(
+                n!("chargesMax"),
+                f.chargesMax + cl(&modList, "FlaskCharges", ModType::BASE, 0),
+            );
             // L2450
             flaskData.set(
                 n!("chargesUsed"),
-                m_floor(f.chargesUsed * (1.0 + cl(&modList, "FlaskChargesUsed", ModType::INC, 0) / 100.0)),
+                m_floor(
+                    f.chargesUsed
+                        * (1.0 + cl(&modList, "FlaskChargesUsed", ModType::INC, 0) / 100.0),
+                ),
             );
             // L2451
             flaskData.set(
@@ -901,7 +1044,8 @@ impl Item {
             // L2452
             flaskData.set(
                 n!("effectInc"),
-                cl(&modList, "FlaskEffect", ModType::INC, 0) + cl(&modList, "LocalEffect", ModType::INC, 0),
+                cl(&modList, "FlaskEffect", ModType::INC, 0)
+                    + cl(&modList, "LocalEffect", ModType::INC, 0),
             );
             // L2453
             apply_data_list(&flaskData, &modList, "FlaskData");
@@ -926,7 +1070,8 @@ impl Item {
             // L2461
             tinctureData.set(
                 n!("effectInc"),
-                cl(&modList, "TinctureEffect", ModType::INC, 0) + cl(&modList, "LocalEffect", ModType::INC, 0),
+                cl(&modList, "TinctureEffect", ModType::INC, 0)
+                    + cl(&modList, "LocalEffect", ModType::INC, 0),
             );
             // L2462
             apply_data_list(&tinctureData, &modList, "TinctureData");
@@ -949,7 +1094,15 @@ impl Item {
                 // L2469
                 let mut v = ValueTable::new();
                 v.set(n!("mod"), Value::Mod(spectrumMod));
-                modList.NewMod(n!("MinionModifier"), ModType::LIST, Value::Table(Arc::new(v)), &name, 0, 0, &[]);
+                modList.NewMod(
+                    n!("MinionModifier"),
+                    ModType::LIST,
+                    Value::Table(Arc::new(v)),
+                    &name,
+                    0,
+                    0,
+                    &[],
+                );
             }
 
             // L2472
@@ -966,7 +1119,10 @@ impl Item {
                         jewelData.set(n!("funcList"), t.clone());
                         t
                     }
-                    other => lua_error!("bad argument #1 to 'insert' (table expected, got {})", other.lua_type()),
+                    other => lua_error!(
+                        "bad argument #1 to 'insert' (table expected, got {})",
+                        other.lua_type()
+                    ),
                 };
                 // L2475
                 funcList.push(Val::from_value(&func));
@@ -1019,7 +1175,10 @@ impl Item {
                 if jewelData.truthy(n!("clusterJewelNodeCount")) {
                     // L2506
                     let c = m_min(
-                        m_max(tnum(&jewelData, "clusterJewelNodeCount"), tnum(&clusterJewel, "minNodes")),
+                        m_max(
+                            tnum(&jewelData, "clusterJewelNodeCount"),
+                            tnum(&clusterJewel, "minNodes"),
+                        ),
                         tnum(&clusterJewel, "maxNodes"),
                     );
                     jewelData.set(n!("clusterJewelNodeCount"), c);
@@ -1030,7 +1189,10 @@ impl Item {
                     let skills = clusterJewel.get(n!("skills"));
                     let known = match &skills {
                         Val::Table(s) => read_at(s, &skill).truthy(),
-                        other => lua_error!("attempt to index field 'skills' (a {} value)", other.lua_type()),
+                        other => lua_error!(
+                            "attempt to index field 'skills' (a {} value)",
+                            other.lua_type()
+                        ),
                     };
                     if !known {
                         // L2509
@@ -1043,7 +1205,10 @@ impl Item {
                     match jewelData.get(n!("clusterJewelSkill")) {
                         Val::Str(s) => self.clusterJewelSkill.set(Some(Name::from(&*s))),
                         Val::Nil | Val::Bool(false) => {}
-                        other => lua_error!("clusterJewelSkill: a {} value is not a name", other.lua_type()),
+                        other => lua_error!(
+                            "clusterJewelSkill: a {} value is not a name",
+                            other.lua_type()
+                        ),
                     }
                 }
                 // L2513
@@ -1082,7 +1247,10 @@ pub fn getRangedModList(item: &Item, modLine: &Table) -> Option<Vec<Mod>> {
     let _ = item;
     let line = || match modLine.get(n!("line")) {
         Val::Str(s) => s,
-        other => lua_error!("attempt to index field 'line' (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to index field 'line' (a {} value)",
+            other.lua_type()
+        ),
     };
     // L2523
     if !modLine.truthy(n!("range"))
@@ -1193,7 +1361,10 @@ impl Item {
                 // special section for variant over-ride of pre-modifier item parameters
                 let line = match modLine.get(n!("line")) {
                     Val::Str(s) => s,
-                    other => lua_error!("attempt to index field 'line' (a {} value)", other.lua_type()),
+                    other => lua_error!(
+                        "attempt to index field 'line' (a {} value)",
+                        other.lua_type()
+                    ),
                 };
                 // L2570
                 if pattern::find(&line, "Requires Class", None, false).is_some() {
@@ -1242,7 +1413,10 @@ impl Item {
                     let n = match &modTags {
                         Val::Nil | Val::Bool(false) => 0,
                         Val::Table(t) => t.len(),
-                        other => lua_error!("attempt to get length of field 'modTags' (a {} value)", other.lua_type()),
+                        other => lua_error!(
+                            "attempt to get length of field 'modTags' (a {} value)",
+                            other.lua_type()
+                        ),
                     };
                     if n > 0 {
                         // L2590
@@ -1293,7 +1467,14 @@ impl Item {
             let mut v = ValueTable::new();
             v.set(n!("key"), Value::Str(AStr::from("EnergyShield")));
             v.set(n!("value"), Value::Num(0.0));
-            new_mod(&baseList, n!("ArmourData"), ModType::LIST, Value::Table(Arc::new(v)), None, &[]);
+            new_mod(
+                &baseList,
+                n!("ArmourData"),
+                ModType::LIST,
+                Value::Table(Arc::new(v)),
+                None,
+                &[],
+            );
             // L2616
             self.requirements.set(n!("int"), 0.0);
         }
@@ -1308,19 +1489,22 @@ impl Item {
         } else {
             // L2623
             let v = m_floor(
-                (tnum(&self.requirements, "str") + cl(&baseList, "StrRequirement", ModType::BASE, 0))
+                (tnum(&self.requirements, "str")
+                    + cl(&baseList, "StrRequirement", ModType::BASE, 0))
                     * (1.0 + cl(&baseList, "StrRequirement", ModType::INC, 0) / 100.0),
             );
             self.requirements.set(n!("strMod"), v);
             // L2624
             let v = m_floor(
-                (tnum(&self.requirements, "dex") + cl(&baseList, "DexRequirement", ModType::BASE, 0))
+                (tnum(&self.requirements, "dex")
+                    + cl(&baseList, "DexRequirement", ModType::BASE, 0))
                     * (1.0 + cl(&baseList, "DexRequirement", ModType::INC, 0) / 100.0),
             );
             self.requirements.set(n!("dexMod"), v);
             // L2625
             let v = m_floor(
-                (tnum(&self.requirements, "int") + cl(&baseList, "IntRequirement", ModType::BASE, 0))
+                (tnum(&self.requirements, "int")
+                    + cl(&baseList, "IntRequirement", ModType::BASE, 0))
                     * (1.0 + cl(&baseList, "IntRequirement", ModType::INC, 0) / 100.0),
             );
             self.requirements.set(n!("intMod"), v);
@@ -1352,7 +1536,8 @@ impl Item {
         let sockets = self.sockets.get();
         self.extra.set(
             n!("selectableSocketCount"),
-            m_max(base.socketLimit.unwrap_or(0.0), sockets.len() as f64) - self.abyssalSocketCount.get(),
+            m_max(base.socketLimit.unwrap_or(0.0), sockets.len() as f64)
+                - self.abyssalSocketCount.get(),
         );
         // L2643
         if calcLocal(&baseList, n!("NoSockets"), ModType::FLAG, 0).truthy() {
@@ -1495,7 +1680,9 @@ impl Item {
         }
         // L2719
         if let Some(validBases) = self.rareLikeUnique_ref().and_then(|r| {
-            r.validBases.as_ref().map(|v| v.iter().map(|b| b.base.clone()).collect::<Vec<_>>())
+            r.validBases
+                .as_ref()
+                .map(|v| v.iter().map(|b| b.base.clone()).collect::<Vec<_>>())
         }) {
             // Some uniques use modifiers from another item type.
             // L2721
@@ -1514,7 +1701,10 @@ impl Item {
             return false;
         }
         // L2728
-        if self.extra.truthy(n!("canHaveOnlySupportSkillsCrucibleTree")) {
+        if self
+            .extra
+            .truthy(n!("canHaveOnlySupportSkillsCrucibleTree"))
+        {
             // L2729
             return match keyMap.get(&n!("crucible_unique_staff")) {
                 Some(&i) => r#mod.weightVal.get(i - 1) != Some(&0.0),

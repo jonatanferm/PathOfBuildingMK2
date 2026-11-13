@@ -503,7 +503,8 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
         // L3145
         if env.mode_combat.get() && modDB.Flag(None, nm!["Condition:OnConsecratedGround"]) {
             // L3146
-            let effect = 1.0 + modDB.Sum(ModType::INC, None, nm!["ConsecratedGroundEffect"]) / 100.0;
+            let effect =
+                1.0 + modDB.Sum(ModType::INC, None, nm!["ConsecratedGroundEffect"]) / 100.0;
             // L3147
             modDB.NewMod(
                 n!("CurseEffectOnSelf"),
@@ -1044,9 +1045,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
             .set(env.player.activeSkillList.get());
         tempResistActor.enemy.set(env.player.enemy.get());
         // L3403
-        tempResistActor
-            .player
-            .set(Rc::downgrade(&tempResistActor));
+        tempResistActor.player.set(Rc::downgrade(&tempResistActor));
         // L3404
         tempResistActor
             .modDB
@@ -1076,7 +1075,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
         };
         // L3413
         let val = m_floor(25.0 * (1.0 + magnitude / 100.0)); // Hallowing flame grants Attack Hits against you gain 25% of Physical Damage as Extra Fire Damage
-        // L3414
+                                                             // L3414
         let mut payload = ValueTable::new();
         payload.set(
             n!("mod"),
@@ -1306,9 +1305,8 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
 
 /// A table value (`for k, v in pairs(x)` / `x[k]` on a table that must exist).
 fn table_of(v: &Val) -> Table {
-    v.table().unwrap_or_else(|| {
-        lua_error!("attempt to index a {} value", v.lua_type())
-    })
+    v.table()
+        .unwrap_or_else(|| lua_error!("attempt to index a {} value", v.lua_type()))
 }
 
 /// A string key of `pairs` (the tables iterated here are string-keyed).

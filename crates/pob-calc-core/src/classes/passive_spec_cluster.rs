@@ -325,9 +325,8 @@ impl PassiveSpec {
             newNode.extra.get(n!("effectSprites")),
         );
         // L1711 (nil restores the tree node's value; tree nodes are never tattoos)
-        old.isTattoo.set(
-            newNode.isTattoo.get() || old.tree.as_ref().is_some_and(|t| t.isTattoo.get()),
-        );
+        old.isTattoo
+            .set(newNode.isTattoo.get() || old.tree.as_ref().is_some_and(|t| t.isTattoo.get()));
         // L1712
         old.overrideType.set(
             newNode
@@ -528,8 +527,7 @@ impl PassiveSpec {
             }
         });
         // L1777 (`self.allocSubgraphNodes = convertedNodeIds`)
-        self.allocSubgraphNodes
-            .with_mut(|v| *v = convertedNodeIds);
+        self.allocSubgraphNodes.with_mut(|v| *v = convertedNodeIds);
 
         // Legacy cluster socket IDs can be normal tree node IDs (< 65536), so they bypass allocSubgraphNodes.
         // Move any such allocations onto their mapped current cluster node IDs.
@@ -610,7 +608,11 @@ impl PassiveSpec {
                 continue;
             };
             // L1813
-            for (_, node) in subGraph.get(n!("nodes")).table().map_or_else(Vec::new, |t| t.ipairs()) {
+            for (_, node) in subGraph
+                .get(n!("nodes"))
+                .table()
+                .map_or_else(Vec::new, |t| t.ipairs())
+            {
                 let node = val_node(&node).expect("subgraph node");
                 removed.push(node.clone());
                 // L1814 (cluster nodes always carry a number id)
@@ -632,8 +634,9 @@ impl PassiveSpec {
                 }
             }
             // L1825
-            let parentSocket = val_node(&subGraph.get(n!("parentSocket")))
-                .unwrap_or_else(|| lua_error!("attempt to index field 'parentSocket' (a nil value)"));
+            let parentSocket = val_node(&subGraph.get(n!("parentSocket"))).unwrap_or_else(|| {
+                lua_error!("attempt to index field 'parentSocket' (a nil value)")
+            });
             let entranceNode = val_node(&subGraph.get(n!("entranceNode")));
             let index = entranceNode
                 .as_ref()
@@ -667,7 +670,10 @@ impl PassiveSpec {
         let jewel_data = self.extra.get(n!("jewel_data"));
         if jewel_data.truthy() {
             let jewel_data = jewel_data.table().unwrap_or_else(|| {
-                lua_error!("bad argument #1 to 'for iterator' (table expected, got {})", jewel_data.lua_type())
+                lua_error!(
+                    "bad argument #1 to 'for iterator' (table expected, got {})",
+                    jewel_data.lua_type()
+                )
             });
             // L1835 (LUA-ORDER: integer keys; a later jewel's group / node of the same id wins)
             for (_, value) in jewel_data.pairs() {
@@ -677,7 +683,10 @@ impl PassiveSpec {
                     // L1837
                     let groups = index(&subgraph, n!("groups"), "groups");
                     let groups = groups.table().unwrap_or_else(|| {
-                        lua_error!("bad argument #1 to 'for iterator' (table expected, got {})", groups.lua_type())
+                        lua_error!(
+                            "bad argument #1 to 'for iterator' (table expected, got {})",
+                            groups.lua_type()
+                        )
                     });
                     for (groupId, groupData) in groups.pairs() {
                         // L1838
@@ -686,7 +695,10 @@ impl PassiveSpec {
                     // L1840
                     let nodes = index(&subgraph, n!("nodes"), "nodes");
                     let nodes = nodes.table().unwrap_or_else(|| {
-                        lua_error!("bad argument #1 to 'for iterator' (table expected, got {})", nodes.lua_type())
+                        lua_error!(
+                            "bad argument #1 to 'for iterator' (table expected, got {})",
+                            nodes.lua_type()
+                        )
                     });
                     for (nodeId, nodeValue) in nodes.pairs() {
                         // L1841
@@ -714,7 +726,10 @@ impl PassiveSpec {
                 continue;
             }
             let Some(jewel) = jewel else { continue };
-            let jewelData = jewel.jewelData.get().expect("GetJewel returns jewels with jewelData");
+            let jewelData = jewel
+                .jewelData
+                .get()
+                .expect("GetJewel returns jewels with jewelData");
             if jewelData.truthy(n!("clusterJewelValid")) {
                 // This is a Large Jewel Socket, and it has a cluster jewel in it
                 // L1851
@@ -785,9 +800,7 @@ impl PassiveSpec {
             let node = tonumber_val(&nodeId)
                 .filter(|x| !x.is_nan())
                 .and_then(|x| tree.nodes.get(x as i64))
-                .unwrap_or_else(|| {
-                    lua_error!("attempt to index local 'node' (a nil value)")
-                });
+                .unwrap_or_else(|| lua_error!("attempt to index local 'node' (a nil value)"));
             // L1886
             if let Some(ej) = node.expansionJewel.get() {
                 if num_val(index).raw_eq(&ej.get(n!("index"))) {
@@ -828,7 +841,10 @@ impl PassiveSpec {
                 // L1901
                 break;
             };
-            let ej = socket.expansionJewel.get().expect("socket has expansionJewel");
+            let ej = socket
+                .expansionJewel
+                .get()
+                .expect("socket has expansionJewel");
             // L1903
             let legacyProxyNode = tonumber_val(&ej.get(n!("proxy")))
                 .filter(|x| !x.is_nan())
@@ -932,7 +948,12 @@ impl PassiveSpec {
     ) -> Table {
         // CCR-0072
         let lj = table_indicies(indicies);
-        self.ApplyClusterOrbitIndexAdjustment_lj(&lj, startOidx, clusterTotalIndicies, skillsPerOrbit);
+        self.ApplyClusterOrbitIndexAdjustment_lj(
+            &lj,
+            startOidx,
+            clusterTotalIndicies,
+            skillsPerOrbit,
+        );
         indicies.clone()
     }
 
@@ -969,7 +990,10 @@ fn table_indicies(t: &Table) -> LjIntMap<NodeRef> {
         };
         out.set(
             i,
-            Some(val_node(&v).unwrap_or_else(|| lua_error!("cluster orbit indices: a non-node value"))),
+            Some(
+                val_node(&v)
+                    .unwrap_or_else(|| lua_error!("cluster orbit indices: a non-node value")),
+            ),
         );
     }
     out
@@ -988,7 +1012,12 @@ impl PassiveSpec {
     ) -> Table {
         // CCR-0072
         let lj = table_indicies(indicies);
-        self.BuildLegacyClusterOrbitMappings_lj(&lj, proxyNode, clusterTotalIndicies, skillsPerOrbit);
+        self.BuildLegacyClusterOrbitMappings_lj(
+            &lj,
+            proxyNode,
+            clusterTotalIndicies,
+            skillsPerOrbit,
+        );
         indicies.clone()
     }
 
@@ -1010,7 +1039,10 @@ impl PassiveSpec {
         // L1949 (`skillsPerOrbit[o + 1]`; a missing entry is nil)
         let o = proxyNode.o.get();
         let legacySkillsPerOrbit = if o >= 0.0 && o == o.trunc() {
-            tree.skillsPerOrbit.get(o as usize).copied().unwrap_or(f64::NAN)
+            tree.skillsPerOrbit
+                .get(o as usize)
+                .copied()
+                .unwrap_or(f64::NAN)
         } else {
             f64::NAN
         };
@@ -1041,8 +1073,11 @@ impl PassiveSpec {
             lj_set_num_key(&mut legacyNodeIdsByOidx, legacyNodeOidx, node.id);
 
             // L1958
-            let currentNodeOidxRelativeToClusterIndicies =
-                self.TranslateClusterOrbitIndex(node.oidx.get(), skillsPerOrbit, clusterTotalIndicies);
+            let currentNodeOidxRelativeToClusterIndicies = self.TranslateClusterOrbitIndex(
+                node.oidx.get(),
+                skillsPerOrbit,
+                clusterTotalIndicies,
+            );
             // L1959
             let currentNodeOidxInLegacySkillsPerOrbit = self.TranslateClusterOrbitIndex(
                 currentNodeOidxRelativeToClusterIndicies,
@@ -1100,17 +1135,20 @@ impl PassiveSpec {
         let tree = self.tree.get();
         let d = data();
         // L1971
-        let expansionJewel = parentSocket.expansionJewel.get().unwrap_or_else(|| {
-            lua_error!("attempt to index local 'expansionJewel' (a nil value)")
-        });
+        let expansionJewel = parentSocket
+            .expansionJewel
+            .get()
+            .unwrap_or_else(|| lua_error!("attempt to index local 'expansionJewel' (a nil value)"));
         // L1972
-        let clusterJewel = jewel.clusterJewel.get().unwrap_or_else(|| {
-            lua_error!("attempt to index local 'clusterJewel' (a nil value)")
-        });
+        let clusterJewel = jewel
+            .clusterJewel
+            .get()
+            .unwrap_or_else(|| lua_error!("attempt to index local 'clusterJewel' (a nil value)"));
         // L1973
-        let jewelData = jewel.jewelData.get().unwrap_or_else(|| {
-            lua_error!("attempt to index local 'jewelData' (a nil value)")
-        });
+        let jewelData = jewel
+            .jewelData
+            .get()
+            .unwrap_or_else(|| lua_error!("attempt to index local 'jewelData' (a nil value)"));
 
         // L1975
         let subGraph = Table::new();
@@ -1132,7 +1170,8 @@ impl PassiveSpec {
         // 16: 1 (signal bit, to prevent conflict with node hashes)
         // L1988
         let mut id = id.unwrap_or(f64::from(0x10000));
-        let b_lshift = |x: f64, n: u32| -> f64 { f64::from(bit::lshift(x as i64 as u32, n) as i32) };
+        let b_lshift =
+            |x: f64, n: u32| -> f64 { f64::from(bit::lshift(x as i64 as u32, n) as i32) };
         // L1989
         let ejSize = expansionJewel.get(n!("size"));
         if num_val(2.0).raw_eq(&ejSize) {
@@ -1262,7 +1301,9 @@ impl PassiveSpec {
                             for extendedId in ipairs_vals(&groupNodes, "nodes") {
                                 // L2058
                                 if idv.raw_eq(&extendedId)
-                                    && inExtendedHashes(&tonumber_val(&idv).map_or(Val::Nil, Val::Num))
+                                    && inExtendedHashes(
+                                        &tonumber_val(&idv).map_or(Val::Nil, Val::Num),
+                                    )
                                 {
                                     // L2059
                                     return true;
@@ -1323,7 +1364,8 @@ impl PassiveSpec {
             // L2094
             subGraph.set(n!("entranceNode"), node_val(&node));
             // L2095
-            self.nodes.with_mut(|m| m.set(node.id as i64, Some(node.clone())));
+            self.nodes
+                .with_mut(|m| m.set(node.id as i64, Some(node.clone())));
             // L2096
             if addToAllocatedSubgraphNodes(&node) {
                 // L2097
@@ -1361,7 +1403,10 @@ impl PassiveSpec {
         let buildData: &'static Data = self.psc_build().data;
         let sortOrder = &buildData.clusterJewels.notableSortOrder;
         // L2114
-        for name in ipairs_vals(&jewelData.get(n!("clusterJewelNotables")), "clusterJewelNotables") {
+        for name in ipairs_vals(
+            &jewelData.get(n!("clusterJewelNotables")),
+            "clusterJewelNotables",
+        ) {
             // L2115
             let baseNode = match &name {
                 Val::Str(s) => val_node(&tree.clusterNodeMap.get(&**s)),
@@ -1439,10 +1484,7 @@ impl PassiveSpec {
         if skill.get(n!("masteryIcon")).truthy() {
             // Add mastery node
             // L2139
-            subGraphGroup
-                .table(n!("oo"))
-                .expect("oo")
-                .set(0.0, true);
+            subGraphGroup.table(n!("oo")).expect("oo").set(0.0, true);
             // L2140
             let node = new_cluster_node(
                 n!("Mastery"),
@@ -1686,7 +1728,10 @@ impl PassiveSpec {
             );
             node.extra.set(n!("expansionSkill"), true);
             // L2291
-            for line in ipairs_vals(&jewelData.get(n!("clusterJewelAddedMods")), "clusterJewelAddedMods") {
+            for line in ipairs_vals(
+                &jewelData.get(n!("clusterJewelAddedMods")),
+                "clusterJewelAddedMods",
+            ) {
                 // L2292
                 match line {
                     Val::Str(s) => node.sd.get().push(s),
@@ -1731,9 +1776,19 @@ impl PassiveSpec {
         }
         let totalIndicies = clusterJewel.num(n!("totalIndicies"));
         // L2304
-        self.ApplyClusterOrbitIndexAdjustment_lj(&indicies, startOidx, totalIndicies, skillsPerOrbit);
+        self.ApplyClusterOrbitIndexAdjustment_lj(
+            &indicies,
+            startOidx,
+            totalIndicies,
+            skillsPerOrbit,
+        );
         // L2305
-        self.BuildLegacyClusterOrbitMappings_lj(&indicies, &proxyNode, totalIndicies, skillsPerOrbit);
+        self.BuildLegacyClusterOrbitMappings_lj(
+            &indicies,
+            &proxyNode,
+            totalIndicies,
+            skillsPerOrbit,
+        );
 
         // Perform processing on nodes to calculate positions, parse mods, and other goodies
         // L2308
@@ -1806,7 +1861,8 @@ impl PassiveSpec {
         // L2338
         for node in &nodes {
             // L2339
-            self.nodes.with_mut(|m| m.set(node.id as i64, Some(node.clone())));
+            self.nodes
+                .with_mut(|m| m.set(node.id as i64, Some(node.clone())));
             // L2340
             if addToAllocatedSubgraphNodes(node) {
                 // L2341
@@ -1921,9 +1977,9 @@ impl PassiveSpec {
 impl PassiveSpec {
     pub fn RestoreUndoState(&self, state: &Table, treeVersion: Option<Name>) {
         let opt = |k: Name| state.get(k).opt_num().unwrap_or(f64::NAN);
-        let hashList: Vec<f64> = state
-            .table(n!("hashList"))
-            .map_or_else(Vec::new, |t| t.ipairs().into_iter().map(|(_, v)| v.num()).collect());
+        let hashList: Vec<f64> = state.table(n!("hashList")).map_or_else(Vec::new, |t| {
+            t.ipairs().into_iter().map(|(_, v)| v.num()).collect()
+        });
         // `pairs(state.hashOverrides)` / `pairs(state.masteryEffects)` in LuaJIT's order: the
         // copies were filled in this insertion order (CCR-0072 §5)
         let mut overrides: LjIntMap<NodeRef> = LjIntMap::new();
@@ -1935,7 +1991,9 @@ impl PassiveSpec {
                 overrides.set(
                     id,
                     Some(val_node(&v).unwrap_or_else(|| {
-                        lua_error!("PassiveSpec:RestoreUndoState: hashOverrides value is not a node")
+                        lua_error!(
+                            "PassiveSpec:RestoreUndoState: hashOverrides value is not a node"
+                        )
                     })),
                 );
             }
@@ -1954,10 +2012,7 @@ impl PassiveSpec {
             .into_iter()
             .map(|(k, v)| (k as f64, v))
             .collect();
-        let stateTreeVersion = state
-            .get(n!("treeVersion"))
-            .str()
-            .map(|s| Name::from(&*s));
+        let stateTreeVersion = state.get(n!("treeVersion")).str().map(|s| Name::from(&*s));
         // L2386
         self.ImportFromNodeList_impl(
             None,

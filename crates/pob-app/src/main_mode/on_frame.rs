@@ -105,7 +105,10 @@ pub fn main_on_frame(cx: &mut Cx) {
         // L416
         if avail == "none" {
             // L417
-            super::toast::add(cx, "No update available\nYou are running the latest version.");
+            super::toast::add(
+                cx,
+                "No update available\nYou are running the latest version.",
+            );
             // L418
             cx.app_mut().launch.update_available = None;
         } else if !cx.app().main.update_available_shown {
@@ -130,11 +133,13 @@ pub fn main_on_frame(cx: &mut Cx) {
     // L431 Draw main controls
     cx.sg.set_draw_color(0.85, 0.85, 0.85);
     // L432
-    cx.sg.draw_image(None, 0.0, cx.main.screen_h - 58.0, 312.0, 58.0);
+    cx.sg
+        .draw_image(None, 0.0, cx.main.screen_h - 58.0, 312.0, 58.0);
     // L433
     cx.sg.set_draw_color(0.1, 0.1, 0.1);
     // L434
-    cx.sg.draw_image(None, 0.0, cx.main.screen_h - 54.0, 308.0, 54.0);
+    cx.sg
+        .draw_image(None, 0.0, cx.main.screen_h - 54.0, 308.0, 54.0);
     // L435
     let node = cx.main.node;
     cx.draw_controls(node, &vp, None);
@@ -204,7 +209,12 @@ pub fn main_on_frame(cx: &mut Cx) {
     // L489 TODO: this pattern may pose memory management issues for classes that don't exist for the lifetime of the program
     // L490 for _, onFrameFunc in pairs(self.onFrameFuncs) do (a function removed by an earlier one
     // is not called; `pairs` skips keys that became nil)
-    let names: Vec<String> = cx.main.on_frame_funcs.iter().map(|(k, _)| k.clone()).collect();
+    let names: Vec<String> = cx
+        .main
+        .on_frame_funcs
+        .iter()
+        .map(|(k, _)| k.clone())
+        .collect();
     for name in names {
         let f = cx
             .main

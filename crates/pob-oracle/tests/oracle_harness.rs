@@ -137,8 +137,7 @@ fn stage_mods_round_trip() {
     assert!(mods.len() > 500, "{} mods", mods.len());
     let mut bad = Vec::new();
     for m in &mods {
-        let (typed, _) =
-            pob_oracle::mod_json::decode_mod(m).unwrap_or_else(|e| panic!("{e}: {m}"));
+        let (typed, _) = pob_oracle::mod_json::decode_mod(m).unwrap_or_else(|e| panic!("{e}: {m}"));
         let back = pob_calc::probe::mod_json(&typed, None);
         // a mod nested in a value is written in the probe dumps' plain-table
         // shape (`$seq` tags), the stages dump writes `"tags"`: compare those

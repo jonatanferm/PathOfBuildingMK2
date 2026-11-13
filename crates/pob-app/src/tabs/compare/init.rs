@@ -148,11 +148,18 @@ pub fn wrapInfoLine(cx: &Cx, str: Option<&str>, width: f64) -> Vec<String> {
         let wordEnd = ws.map_or(len, |ws| ws - 1);
         // L35
         if lineStart < pos
-            && cx.sg.draw_string_width(14.0, Font::Var, &sub(str, lineStart as f64, Some(wordEnd as f64)))
-                > width
+            && cx.sg.draw_string_width(
+                14.0,
+                Font::Var,
+                &sub(str, lineStart as f64, Some(wordEnd as f64)),
+            ) > width
         {
             // L36
-            let committed = pob_ui_core::luastr::gsub(&sub(str, lineStart as f64, Some(pos as f64 - 1.0)), "%s+$", "");
+            let committed = pob_ui_core::luastr::gsub(
+                &sub(str, lineStart as f64, Some(pos as f64 - 1.0)),
+                "%s+$",
+                "",
+            );
             // L37
             lines.push(committed);
             // L38
@@ -304,7 +311,8 @@ pub struct CompareHooks {
     // U47 (CompareEntry.lua)
     /// `new("CompareEntry"):CompareEntry(xmlText, label)`. `None` when the entry has no
     /// `calcsTab` (LoadFromXML failed before creating the tabs, or `xmlText` is nil).
-    pub new_compare_entry: Rc<dyn Fn(&mut Cx, Option<&str>, Option<&str>) -> Option<CompareEntryRef>>,
+    pub new_compare_entry:
+        Rc<dyn Fn(&mut Cx, Option<&str>, Option<&str>) -> Option<CompareEntryRef>>,
     /// `entry:SetActiveSpec(index)` (CompareEntry.lua:265-270)
     pub entry_set_active_spec: Rc<dyn Fn(&mut Cx, &CompareEntryRef, f64)>,
     /// `entry:SetActiveItemSet(id)` (CompareEntry.lua:272-277)
@@ -319,7 +327,8 @@ pub struct CompareHooks {
     pub entry_config_update_controls: Rc<dyn Fn(&mut Cx, &CompareEntryRef)>,
     /// `entry.configTab.varControls and entry.configTab.varControls[var]`: the entry ConfigTab's
     /// option control (`None`: no control)
-    pub entry_config_var_control: Rc<dyn Fn(&Cx, &CompareEntryRef, Name) -> Option<(CtrlId, VarClass)>>,
+    pub entry_config_var_control:
+        Rc<dyn Fn(&Cx, &CompareEntryRef, Name) -> Option<(CtrlId, VarClass)>>,
     /// `if entry.treeTab and entry.treeTab.viewer then entry.treeTab.viewer.searchStr = buf end`
     pub entry_set_viewer_search_str: Rc<dyn Fn(&mut Cx, &CompareEntryRef, &str)>,
     /// `entry.treeTab:OpenVersionConvertPopup(version, true)`
@@ -658,10 +667,15 @@ fn with_active_effect(
     let Some(group) = group else { return };
     let (list, main) = match which {
         SkillList::Main => (group.displaySkillList.get(), group.mainActiveSkill.get()),
-        SkillList::Calcs => (group.displaySkillListCalcs.get(), group.mainActiveSkillCalcs.get()),
+        SkillList::Calcs => (
+            group.displaySkillListCalcs.get(),
+            group.mainActiveSkillCalcs.get(),
+        ),
     };
     let Some(list) = list else { return };
-    let Some(active_skill) = list.with(|l| at_num(l, or_one(main))) else { return };
+    let Some(active_skill) = list.with(|l| at_num(l, or_one(main))) else {
+        return;
+    };
     let effect = active_skill.activeEffect.get();
     if set(&effect) {
         m.buildFlag.set(true);
@@ -679,8 +693,14 @@ fn src_of(effect: &SkillEffectRef) -> model::GemInstanceRef {
 /// The minion selectors' body (L452-459, L564-571, L686-693): `if selected then if
 /// selected.itemSetId then src.skillMinionItemSet[Calcs] = selected.itemSetId elseif
 /// selected.minionId then src.skillMinion[Calcs] = selected.minionId end; buildFlag = true end`.
-fn set_minion(effect: &SkillEffectRef, selected: Option<(Option<f64>, Option<Name>)>, which: SkillList) -> bool {
-    let Some((item_set_id, minion_id)) = selected else { return false };
+fn set_minion(
+    effect: &SkillEffectRef,
+    selected: Option<(Option<f64>, Option<Name>)>,
+    which: SkillList,
+) -> bool {
+    let Some((item_set_id, minion_id)) = selected else {
+        return false;
+    };
     if let Some(id) = item_set_id {
         let src = src_of(effect);
         match which {
@@ -852,7 +872,11 @@ impl CompareTab {
 
         // L205
         let subTabAnchor = cx
-            .add(me, "subTabAnchor", PlainControl::new(Anchor::NONE, rect(0, 0, 0, 20)))
+            .add(
+                me,
+                "subTabAnchor",
+                PlainControl::new(Anchor::NONE, rect(0, 0, 0, 20)),
+            )
             .id();
         let mut prev: Option<CtrlId> = None;
         // L206
@@ -927,16 +951,18 @@ impl CompareTab {
                     Anchor::new(Left, compareBuildLabel, Right),
                     rect(4, 0, 250, 20),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        // L235
-                        if index > 0 && index <= st(cx, me).compareEntries.len() {
-                            let s = st_mut(cx, me);
-                            // L236
-                            s.activeCompareIndex = index;
-                            // L237
-                            s.treeSearchNeedsSync = true;
-                        }
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            // L235
+                            if index > 0 && index <= st(cx, me).compareEntries.len() {
+                                let s = st_mut(cx, me);
+                                // L236
+                                s.activeCompareIndex = index;
+                                // L237
+                                s.treeSearchNeedsSync = true;
+                            }
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -994,9 +1020,11 @@ impl CompareTab {
             // check if either oauth or account name import have a character selected
             // L274
             let siteActive = import_core::st(cx, importTab).char_import_mode == "SELECTCHAR"
-                && DropDownControl::get_sel_value(cx, ctl(cx, importTab, "siteCharSelect")).is_some();
+                && DropDownControl::get_sel_value(cx, ctl(cx, importTab, "siteCharSelect"))
+                    .is_some();
             // L275
-            DropDownControl::get_sel_value(cx, ctl(cx, importTab, "charSelect")).is_some() || siteActive
+            DropDownControl::get_sel_value(cx, ctl(cx, importTab, "charSelect")).is_some()
+                || siteActive
         });
 
         // Remove comparison build button
@@ -1005,15 +1033,22 @@ impl CompareTab {
             .add(
                 me,
                 "removeBtn",
-                ButtonControl::new(Anchor::new(Left, reimportBtn, Right), rect(4, 0, 70, 20), "Remove", move |cx| {
-                    let s = st(cx, me);
-                    // L280
-                    if s.activeCompareIndex > 0 && s.activeCompareIndex <= s.compareEntries.len() {
-                        let index = s.activeCompareIndex;
-                        // L281
-                        Self::RemoveBuild(cx, me, index);
-                    }
-                }),
+                ButtonControl::new(
+                    Anchor::new(Left, reimportBtn, Right),
+                    rect(4, 0, 70, 20),
+                    "Remove",
+                    move |cx| {
+                        let s = st(cx, me);
+                        // L280
+                        if s.activeCompareIndex > 0
+                            && s.activeCompareIndex <= s.compareEntries.len()
+                        {
+                            let index = s.activeCompareIndex;
+                            // L281
+                            Self::RemoveBuild(cx, me, index);
+                        }
+                    },
+                ),
             )
             .id();
         // L284-286
@@ -1031,7 +1066,11 @@ impl CompareTab {
             .add(
                 me,
                 "compareSpecLabel",
-                LabelControl::new(Anchor::new(TopLeft, subTabAnchor, TopLeft), rect(0, -54, 0, 16), "^7Tree set:"),
+                LabelControl::new(
+                    Anchor::new(TopLeft, subTabAnchor, TopLeft),
+                    rect(0, -54, 0, 16),
+                    "^7Tree set:",
+                ),
             )
             .id();
         // L297
@@ -1045,9 +1084,11 @@ impl CompareTab {
                     Anchor::new(Left, compareSpecLabel, Right),
                     rect(2, 0, 150, 20),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        Self::sel_compare_spec(cx, me, index);
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            Self::sel_compare_spec(cx, me, index);
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -1069,7 +1110,11 @@ impl CompareTab {
             .add(
                 me,
                 "compareSkillSetLabel",
-                LabelControl::new(Anchor::new(Left, compareSpecSelect, Right), rect(8, 0, 0, 16), "^7Skill set:"),
+                LabelControl::new(
+                    Anchor::new(Left, compareSpecSelect, Right),
+                    rect(8, 0, 0, 16),
+                    "^7Skill set:",
+                ),
             )
             .id();
         // L314
@@ -1083,18 +1128,24 @@ impl CompareTab {
                     Anchor::new(Left, compareSkillSetLabel, Right),
                     rect(2, 0, 150, 20),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        // L316
-                        let Some((entry, m)) = active_model(cx, me) else { return };
-                        // L317 (`entry.skillsTab` always exists)
-                        let Some(id) = at_num(&m.skillsTab.skillSetOrderList.with(Clone::clone), index as f64)
-                        else {
-                            return;
-                        };
-                        // L318
-                        let f = compare_hooks().entry_set_active_skill_set;
-                        f(cx, &entry, id_num(id));
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            // L316
+                            let Some((entry, m)) = active_model(cx, me) else {
+                                return;
+                            };
+                            // L317 (`entry.skillsTab` always exists)
+                            let Some(id) = at_num(
+                                &m.skillsTab.skillSetOrderList.with(Clone::clone),
+                                index as f64,
+                            ) else {
+                                return;
+                            };
+                            // L318
+                            let f = compare_hooks().entry_set_active_skill_set;
+                            f(cx, &entry, id_num(id));
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -1108,7 +1159,11 @@ impl CompareTab {
             .add(
                 me,
                 "compareItemSetLabel",
-                LabelControl::new(Anchor::new(Left, compareSkillSetSelect, Right), rect(8, 0, 0, 16), "^7Item set:"),
+                LabelControl::new(
+                    Anchor::new(Left, compareSkillSetSelect, Right),
+                    rect(8, 0, 0, 16),
+                    "^7Item set:",
+                ),
             )
             .id();
         // L324
@@ -1122,9 +1177,11 @@ impl CompareTab {
                     Anchor::new(Left, compareItemSetLabel, Right),
                     rect(2, 0, 150, 20),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        Self::sel_compare_item_set(cx, me, index);
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            Self::sel_compare_item_set(cx, me, index);
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -1138,7 +1195,11 @@ impl CompareTab {
             .add(
                 me,
                 "compareConfigSetLabel",
-                LabelControl::new(Anchor::new(Left, compareItemSetSelect, Right), rect(8, 0, 0, 16), "^7Config set:"),
+                LabelControl::new(
+                    Anchor::new(Left, compareItemSetSelect, Right),
+                    rect(8, 0, 0, 16),
+                    "^7Config set:",
+                ),
             )
             .id();
         // L334
@@ -1152,23 +1213,30 @@ impl CompareTab {
                     Anchor::new(Left, compareConfigSetLabel, Right),
                     rect(2, 0, 150, 20),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        // L336
-                        // L337 (`entry.configTab` always exists)
-                        let Some((entry, m)) = active_model(cx, me) else { return };
-                        // L338
-                        let setId = at_num(&m.configTab.configSetOrderList.with(Clone::clone), index as f64);
-                        // L339
-                        if let Some(setId) = setId {
-                            // L340
-                            let f = compare_hooks().entry_config_set_active_config_set;
-                            f(cx, &entry, id_num(setId));
-                            // L341
-                            m.buildFlag.set(true);
-                            // L342
-                            st_mut(cx, me).configNeedsRebuild = true;
-                        }
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            // L336
+                            // L337 (`entry.configTab` always exists)
+                            let Some((entry, m)) = active_model(cx, me) else {
+                                return;
+                            };
+                            // L338
+                            let setId = at_num(
+                                &m.configTab.configSetOrderList.with(Clone::clone),
+                                index as f64,
+                            );
+                            // L339
+                            if let Some(setId) = setId {
+                                // L340
+                                let f = compare_hooks().entry_config_set_active_config_set;
+                                f(cx, &entry, id_num(setId));
+                                // L341
+                                m.buildFlag.set(true);
+                                // L342
+                                st_mut(cx, me).configNeedsRebuild = true;
+                            }
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -1177,7 +1245,8 @@ impl CompareTab {
         // L347
         cx.base_mut(compareConfigSetSelect).enabled = setsEnabled();
         // L348
-        cx.w_mut::<DropDownControl>(compareConfigSetSelect).enable_dropped_width = true;
+        cx.w_mut::<DropDownControl>(compareConfigSetSelect)
+            .enable_dropped_width = true;
 
         // ============================================================
         // Comparison build main skill selector (row between sets and sub-tabs)
@@ -1187,7 +1256,11 @@ impl CompareTab {
             .add(
                 me,
                 "cmpSkillLabel",
-                LabelControl::new(Anchor::new(TopLeft, subTabAnchor, TopLeft), rect(0, -32, 0, 16), "^7Skill:"),
+                LabelControl::new(
+                    Anchor::new(TopLeft, subTabAnchor, TopLeft),
+                    rect(0, -32, 0, 16),
+                    "^7Skill:",
+                ),
             )
             .id();
         // L353
@@ -1203,15 +1276,17 @@ impl CompareTab {
             "cmpSocketGroup".into(),
             Anchor::new(Left, cmpSkillLabel, Right),
             rect(4, 0, 200, 20),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L358
-                // L359
-                if let Some(entry) = Self::GetActiveCompare(cx, me) {
-                    // L360
-                    let f = compare_hooks().entry_set_main_socket_group;
-                    f(cx, &entry, index as f64);
-                }
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L358
+                    // L359
+                    if let Some(entry) = Self::GetActiveCompare(cx, me) {
+                        // L360
+                        let f = compare_hooks().entry_set_main_socket_group;
+                        f(cx, &entry, index as f64);
+                    }
+                },
+            ),
         );
         // L363
         cx.base_mut(cmpSocketGroup).shown = setsEnabled();
@@ -1233,20 +1308,22 @@ impl CompareTab {
             "cmpMainSkill".into(),
             Anchor::new(Left, cmpSocketGroup, Right),
             rect(4, 0, 225, 20),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L370
-                // L371
-                if let Some((_entry, m)) = active_model(cx, me) {
-                    // L372
-                    // L373
-                    if let Some(mainSocketGroup) = socket_group(&m, m.mainSocketGroup.get()) {
-                        // L374
-                        mainSocketGroup.mainActiveSkill.set(index as f64);
-                        // L375
-                        m.buildFlag.set(true);
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L370
+                    // L371
+                    if let Some((_entry, m)) = active_model(cx, me) {
+                        // L372
+                        // L373
+                        if let Some(mainSocketGroup) = socket_group(&m, m.mainSocketGroup.get()) {
+                            // L374
+                            mainSocketGroup.mainActiveSkill.set(index as f64);
+                            // L375
+                            m.buildFlag.set(true);
+                        }
                     }
-                }
-            }),
+                },
+            ),
         );
         // L379
         cx.base_mut(cmpMainSkill).shown = Prop::Val(false);
@@ -1261,15 +1338,17 @@ impl CompareTab {
             "cmpSkillPart".into(),
             Anchor::new(Left, cmpMainSkill, Right),
             rect(4, 0, 200, 20),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L384-390
-                with_active_effect(entry_build(cx, me).as_ref(), SkillList::Main, &|effect| {
-                    // L391
-                    src_of(effect).skillPart.set(Some(index as f64));
-                    // L392
-                    true
-                });
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L384-390
+                    with_active_effect(entry_build(cx, me).as_ref(), SkillList::Main, &|effect| {
+                        // L391
+                        src_of(effect).skillPart.set(Some(index as f64));
+                        // L392
+                        true
+                    });
+                },
+            ),
         );
         // L397
         cx.base_mut(cmpSkillPart).shown = Prop::Val(false);
@@ -1282,7 +1361,11 @@ impl CompareTab {
             .add(
                 me,
                 "cmpStageCountLabel",
-                LabelControl::new(Anchor::new(Left, cmpSkillPart, Right), rect(6, 0, 0, 16), "^7Stages:"),
+                LabelControl::new(
+                    Anchor::new(Left, cmpSkillPart, Right),
+                    rect(6, 0, 0, 16),
+                    "^7Stages:",
+                ),
             )
             .id();
         // L402
@@ -1318,7 +1401,11 @@ impl CompareTab {
             .add(
                 me,
                 "cmpMineCountLabel",
-                LabelControl::new(Anchor::new(Left, cmpStageCount, Right), rect(6, 0, 0, 16), "^7Mines:"),
+                LabelControl::new(
+                    Anchor::new(Left, cmpStageCount, Right),
+                    rect(6, 0, 0, 16),
+                    "^7Mines:",
+                ),
             )
             .id();
         // L423
@@ -1356,13 +1443,15 @@ impl CompareTab {
             "cmpMinion".into(),
             Anchor::new(Left, cmpMineCount, Right),
             rect(6, 0, 140, 20),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L444-450
-                let selected = minion_sel(cx, ctl(cx, me, "cmpMinion"), index);
-                with_active_effect(entry_build(cx, me).as_ref(), SkillList::Main, &|effect| {
-                    set_minion(effect, selected, SkillList::Main)
-                });
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L444-450
+                    let selected = minion_sel(cx, ctl(cx, me, "cmpMinion"), index);
+                    with_active_effect(entry_build(cx, me).as_ref(), SkillList::Main, &|effect| {
+                        set_minion(effect, selected, SkillList::Main)
+                    });
+                },
+            ),
         );
         // L464
         cx.base_mut(cmpMinion).shown = Prop::Val(false);
@@ -1377,15 +1466,17 @@ impl CompareTab {
             "cmpMinionSkill".into(),
             Anchor::new(Left, cmpMinion, Right),
             rect(4, 0, 140, 20),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L469-475
-                with_active_effect(entry_build(cx, me).as_ref(), SkillList::Main, &|effect| {
-                    // L476
-                    src_of(effect).skillMinionSkill.set(Some(index as f64));
-                    // L477
-                    true
-                });
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L469-475
+                    with_active_effect(entry_build(cx, me).as_ref(), SkillList::Main, &|effect| {
+                        // L476
+                        src_of(effect).skillMinionSkill.set(Some(index as f64));
+                        // L477
+                        true
+                    });
+                },
+            ),
         );
         // L482
         cx.base_mut(cmpMinionSkill).shown = Prop::Val(false);
@@ -1446,10 +1537,13 @@ impl CompareTab {
         // Tree footer controls (visible only in TREE view mode with a comparison loaded)
         // ============================================================
         // L735-737
-        let treeFooterShown = move || Prop::f(move |cx, _| mode_is(cx, me, "TREE") && has_active(cx, me));
+        let treeFooterShown =
+            move || Prop::f(move |cx, _| mode_is(cx, me, "TREE") && has_active(cx, me));
         // L738-740
         let treeSideBySideShown = move || {
-            Prop::f(move |cx, _| mode_is(cx, me, "TREE") && has_active(cx, me) && !st(cx, me).treeOverlayMode)
+            Prop::f(move |cx, _| {
+                mode_is(cx, me, "TREE") && has_active(cx, me) && !st(cx, me).treeOverlayMode
+            })
         };
 
         // Build version dropdown list (shared between left and right)
@@ -1517,8 +1611,9 @@ impl CompareTab {
             )
             .id();
         // L767-769
-        cx.base_mut(overlayTreeSearch).shown =
-            Prop::f(move |cx, _| mode_is(cx, me, "TREE") && has_active(cx, me) && st(cx, me).treeOverlayMode);
+        cx.base_mut(overlayTreeSearch).shown = Prop::f(move |cx, _| {
+            mode_is(cx, me, "TREE") && has_active(cx, me) && st(cx, me).treeOverlayMode
+        });
 
         // Items expanded mode toggle
         // L772-775
@@ -1548,10 +1643,15 @@ impl CompareTab {
 
         // Item set dropdown for primary build
         // L781-783
-        let itemsShown = move || Prop::f(move |cx, _| mode_is(cx, me, "ITEMS") && has_active(cx, me));
+        let itemsShown =
+            move || Prop::f(move |cx, _| mode_is(cx, me, "ITEMS") && has_active(cx, me));
         // L784
         let primaryItemSetLabel = cx
-            .add(me, "primaryItemSetLabel", LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Item set:"))
+            .add(
+                me,
+                "primaryItemSetLabel",
+                LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Item set:"),
+            )
             .id();
         // L785
         cx.base_mut(primaryItemSetLabel).shown = itemsShown();
@@ -1565,7 +1665,10 @@ impl CompareTab {
             Rc::new(|cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
                 let m = primary(cx);
                 // L787
-                let id = at_num(&m.itemsTab.itemSetOrderList.with(Clone::clone), index as f64);
+                let id = at_num(
+                    &m.itemsTab.itemSetOrderList.with(Clone::clone),
+                    index as f64,
+                );
                 if let Some(id) = id {
                     // L788
                     let f = build_init::hooks(cx).items_set_active_item_set;
@@ -1584,7 +1687,11 @@ impl CompareTab {
         // Item set dropdown for compare build
         // L796
         let compareItemSetLabel2 = cx
-            .add(me, "compareItemSetLabel2", LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Item set:"))
+            .add(
+                me,
+                "compareItemSetLabel2",
+                LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Item set:"),
+            )
             .id();
         // L797
         cx.base_mut(compareItemSetLabel2).shown = itemsShown();
@@ -1595,9 +1702,11 @@ impl CompareTab {
             "compareItemSetSelect2".into(),
             Anchor::NONE,
             rect(0, 0, 216, 20),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                Self::sel_compare_item_set(cx, me, index);
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    Self::sel_compare_item_set(cx, me, index);
+                },
+            ),
         );
         // L804
         cx.base_mut(compareItemSetSelect2).enabled = itemsShown();
@@ -1607,7 +1716,11 @@ impl CompareTab {
         // Tree set dropdown for primary build
         // L808
         let primaryTreeSetLabel = cx
-            .add(me, "primaryTreeSetLabel", LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Tree set:"))
+            .add(
+                me,
+                "primaryTreeSetLabel",
+                LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Tree set:"),
+            )
             .id();
         // L809
         cx.base_mut(primaryTreeSetLabel).shown = itemsShown();
@@ -1637,7 +1750,11 @@ impl CompareTab {
         // Tree set dropdown for compare build
         // L822
         let compareTreeSetLabel = cx
-            .add(me, "compareTreeSetLabel", LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Tree set:"))
+            .add(
+                me,
+                "compareTreeSetLabel",
+                LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Tree set:"),
+            )
             .id();
         // L823
         cx.base_mut(compareTreeSetLabel).shown = itemsShown();
@@ -1648,9 +1765,11 @@ impl CompareTab {
             "compareTreeSetSelect".into(),
             Anchor::NONE,
             rect(0, 0, 216, 20),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                Self::sel_compare_spec(cx, me, index);
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    Self::sel_compare_spec(cx, me, index);
+                },
+            ),
         );
         // L833
         cx.base_mut(compareTreeSetSelect).enabled = itemsShown();
@@ -1667,13 +1786,21 @@ impl CompareTab {
         // Footer anchor controls (side-by-side only)
         // L839
         let leftFooterAnchor = cx
-            .add(me, "leftFooterAnchor", PlainControl::new(Anchor::NONE, rect(0, 0, 0, 20)))
+            .add(
+                me,
+                "leftFooterAnchor",
+                PlainControl::new(Anchor::NONE, rect(0, 0, 0, 20)),
+            )
             .id();
         // L840
         cx.base_mut(leftFooterAnchor).shown = treeSideBySideShown();
         // L841
         let rightFooterAnchor = cx
-            .add(me, "rightFooterAnchor", PlainControl::new(Anchor::NONE, rect(0, 0, 0, 20)))
+            .add(
+                me,
+                "rightFooterAnchor",
+                PlainControl::new(Anchor::NONE, rect(0, 0, 0, 20)),
+            )
             .id();
         // L842
         cx.base_mut(rightFooterAnchor).shown = treeSideBySideShown();
@@ -1709,19 +1836,23 @@ impl CompareTab {
                     Anchor::new(Left, leftSpecSelect, Right),
                     rect(4, 0, 100, 20),
                     treeVersionDropdownList.clone(),
-                    Some(Rc::new(|cx: &mut Cx, _index: usize, selected: Option<&DropItem>| {
-                        // L856 (`self.primaryBuild.spec` is always set)
-                        let Some(v) = selected.and_then(|s| s.get::<TreeVersionValue>()).copied() else {
-                            return;
-                        };
-                        if v != primary(cx).spec.get().treeVersion.get() {
-                            // L857
-                            let tt = crate::tabs::tree::core::tab(cx).unwrap_or_else(|| {
-                                lua_error!("attempt to index field 'treeTab' (a nil value)")
-                            });
-                            TreeTab::OpenVersionConvertPopup(cx, tt, v, true);
-                        }
-                    })),
+                    Some(Rc::new(
+                        |cx: &mut Cx, _index: usize, selected: Option<&DropItem>| {
+                            // L856 (`self.primaryBuild.spec` is always set)
+                            let Some(v) =
+                                selected.and_then(|s| s.get::<TreeVersionValue>()).copied()
+                            else {
+                                return;
+                            };
+                            if v != primary(cx).spec.get().treeVersion.get() {
+                                // L857
+                                let tt = crate::tabs::tree::core::tab(cx).unwrap_or_else(|| {
+                                    lua_error!("attempt to index field 'treeTab' (a nil value)")
+                                });
+                                TreeTab::OpenVersionConvertPopup(cx, tt, v, true);
+                            }
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -1757,9 +1888,11 @@ impl CompareTab {
             "rightSpecSelect".into(),
             Anchor::NONE,
             rect(0, 0, 180, 20),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                Self::sel_compare_spec(cx, me, index);
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    Self::sel_compare_spec(cx, me, index);
+                },
+            ),
         );
         // L881
         cx.base_mut(rightSpecSelect).shown = treeFooterShown();
@@ -1780,22 +1913,25 @@ impl CompareTab {
                     Anchor::new(Left, rightSpecSelect, Right),
                     rect(4, 0, 100, 20),
                     treeVersionDropdownList,
-                    Some(Rc::new(move |cx: &mut Cx, _index: usize, selected: Option<&DropItem>| {
-                        // L886
-                        let entry = Self::GetActiveCompare(cx, me);
-                        // L887 (`entry.spec` is always set)
-                        let (Some(entry), Some(v)) =
-                            (entry, selected.and_then(|s| s.get::<TreeVersionValue>()).copied())
-                        else {
-                            return;
-                        };
-                        // L888
-                        if v != entry.model.spec.get().treeVersion.get() {
-                            // L889
-                            let f = compare_hooks().entry_open_version_convert_popup;
-                            f(cx, &entry, v);
-                        }
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, _index: usize, selected: Option<&DropItem>| {
+                            // L886
+                            let entry = Self::GetActiveCompare(cx, me);
+                            // L887 (`entry.spec` is always set)
+                            let (Some(entry), Some(v)) = (
+                                entry,
+                                selected.and_then(|s| s.get::<TreeVersionValue>()).copied(),
+                            ) else {
+                                return;
+                            };
+                            // L888
+                            if v != entry.model.spec.get().treeVersion.get() {
+                                // L889
+                                let f = compare_hooks().entry_open_version_convert_popup;
+                                f(cx, &entry, v);
+                            }
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -1810,10 +1946,15 @@ impl CompareTab {
             .add(
                 me,
                 "copySpecBtn",
-                ButtonControl::new(Anchor::new(Left, rightVersionSelect, Right), rect(4, 0, 76, 20), "Copy tree", move |cx| {
-                    // L897
-                    Self::CopyCompareSpecToPrimary(cx, me, false);
-                }),
+                ButtonControl::new(
+                    Anchor::new(Left, rightVersionSelect, Right),
+                    rect(4, 0, 76, 20),
+                    "Copy tree",
+                    move |cx| {
+                        // L897
+                        Self::CopyCompareSpecToPrimary(cx, me, false);
+                    },
+                ),
             )
             .id();
         // L899
@@ -1825,7 +1966,9 @@ impl CompareTab {
             // L902
             entry.is_some_and(|e| {
                 let tt = &e.model.treeTab;
-                tt.specList.with(|l| at_num(l, tt.activeSpec.get())).is_some()
+                tt.specList
+                    .with(|l| at_num(l, tt.activeSpec.get()))
+                    .is_some()
             })
         });
         cx.base_mut(copySpecBtn).enabled = Prop::Fn(copySpecEnabled.clone());
@@ -1835,10 +1978,15 @@ impl CompareTab {
             .add(
                 me,
                 "copySpecUseBtn",
-                ButtonControl::new(Anchor::new(Left, copySpecBtn, Right), rect(2, 0, 100, 20), "Copy and use", move |cx| {
-                    // L906
-                    Self::CopyCompareSpecToPrimary(cx, me, true);
-                }),
+                ButtonControl::new(
+                    Anchor::new(Left, copySpecBtn, Right),
+                    rect(2, 0, 100, 20),
+                    "Copy and use",
+                    move |cx| {
+                        // L906
+                        Self::CopyCompareSpecToPrimary(cx, me, true);
+                    },
+                ),
             )
             .id();
         // L908
@@ -1874,16 +2022,22 @@ impl CompareTab {
     /// The config view and Compare Power Report controls and the scroll bars of InitControls
     /// (L920-1071).
     fn init_config_and_power_controls(cx: &mut Cx, me: CtrlId) {
-        let configShown = move || Prop::f(move |cx, _| mode_is(cx, me, "CONFIG") && has_active(cx, me));
+        let configShown =
+            move || Prop::f(move |cx, _| mode_is(cx, me, "CONFIG") && has_active(cx, me));
         // Config view: "Copy Config from Compare Build" button
         // L921-923
         let copyConfigBtn = cx
             .add(
                 me,
                 "copyConfigBtn",
-                ButtonControl::new(Anchor::NONE, rect(0, 0, 240, 20), "Copy Config from Compare Build", move |cx| {
-                    Self::CopyCompareConfig(cx, me);
-                }),
+                ButtonControl::new(
+                    Anchor::NONE,
+                    rect(0, 0, 240, 20),
+                    "Copy Config from Compare Build",
+                    move |cx| {
+                        Self::CopyCompareConfig(cx, me);
+                    },
+                ),
             )
             .id();
         // L924-926
@@ -1944,7 +2098,11 @@ impl CompareTab {
         // L947-949 (`configShown` above)
         // L950
         let configPrimarySetLabel = cx
-            .add(me, "configPrimarySetLabel", LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Config set:"))
+            .add(
+                me,
+                "configPrimarySetLabel",
+                LabelControl::new(Anchor::NONE, rect(0, 0, 0, 16), "^7Config set:"),
+            )
             .id();
         // L951
         cx.base_mut(configPrimarySetLabel).shown = configShown();
@@ -1955,25 +2113,31 @@ impl CompareTab {
             "configPrimarySetSelect".into(),
             Anchor::NONE,
             rect(0, 0, 150, 20),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L953
-                let m = primary(cx);
-                // L954
-                let setId = at_num(&m.configTab.configSetOrderList.with(Clone::clone), index as f64);
-                // L955
-                if let Some(setId) = setId {
-                    // L956
-                    let f = build_init::hooks(cx).config_set_active_config_set;
-                    f(cx, id_num(setId));
-                    // L957
-                    st_mut(cx, me).configNeedsRebuild = true;
-                }
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L953
+                    let m = primary(cx);
+                    // L954
+                    let setId = at_num(
+                        &m.configTab.configSetOrderList.with(Clone::clone),
+                        index as f64,
+                    );
+                    // L955
+                    if let Some(setId) = setId {
+                        // L956
+                        let f = build_init::hooks(cx).config_set_active_config_set;
+                        f(cx, id_num(setId));
+                        // L957
+                        st_mut(cx, me).configNeedsRebuild = true;
+                    }
+                },
+            ),
         );
         // L960
         cx.base_mut(configPrimarySetSelect).shown = configShown();
         // L961
-        cx.w_mut::<DropDownControl>(configPrimarySetSelect).enable_dropped_width = true;
+        cx.w_mut::<DropDownControl>(configPrimarySetSelect)
+            .enable_dropped_width = true;
         // L962-964
         cx.base_mut(configPrimarySetSelect).enabled =
             Prop::f(|cx, _| primary(cx).configTab.configSetOrderList.len() > 1);
@@ -1982,17 +2146,24 @@ impl CompareTab {
         // Compare Power Report controls (Summary view)
         // ============================================================
         // L969-971
-        let powerReportShown = move || Prop::f(move |cx, _| mode_is(cx, me, "SUMMARY") && has_entries(cx, me));
+        let powerReportShown =
+            move || Prop::f(move |cx, _| mode_is(cx, me, "SUMMARY") && has_entries(cx, me));
 
         // Metric dropdown
         // L974
-        let mut powerStatList = vec![DropItem::new("-- Select Metric --", Rc::new(PowerStatValue(None)))];
+        let mut powerStatList = vec![DropItem::new(
+            "-- Select Metric --",
+            Rc::new(PowerStatValue(None)),
+        )];
         // L975
         for entry in &model::data().powerStatList.stats {
             // L976
             if entry.stat.is_some() && !entry.ignoreForNodes {
                 // L977
-                powerStatList.push(DropItem::new(entry.label.to_string(), Rc::new(PowerStatValue(Some(entry)))));
+                powerStatList.push(DropItem::new(
+                    entry.label.to_string(),
+                    Rc::new(PowerStatValue(Some(entry))),
+                ));
             }
         }
         // L980-990
@@ -2004,33 +2175,37 @@ impl CompareTab {
                     Anchor::NONE,
                     rect(0, 0, 200, 20),
                     powerStatList,
-                    Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                        let value = value.and_then(|v| v.get::<PowerStatValue>()).copied();
-                        let s = st_mut(cx, me);
-                        match value {
-                            // L981
-                            Some(PowerStatValue(Some(stat)))
-                                if !s.comparePowerStat.is_some_and(|c| std::ptr::eq(c, stat)) =>
-                            {
-                                // L982
-                                s.comparePowerStat = Some(stat);
-                                // L983
-                                s.comparePowerDirty = true;
+                    Some(Rc::new(
+                        move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                            let value = value.and_then(|v| v.get::<PowerStatValue>()).copied();
+                            let s = st_mut(cx, me);
+                            match value {
+                                // L981
+                                Some(PowerStatValue(Some(stat)))
+                                    if !s
+                                        .comparePowerStat
+                                        .is_some_and(|c| std::ptr::eq(c, stat)) =>
+                                {
+                                    // L982
+                                    s.comparePowerStat = Some(stat);
+                                    // L983
+                                    s.comparePowerDirty = true;
+                                }
+                                // L984
+                                Some(PowerStatValue(None)) => {
+                                    // L985
+                                    s.comparePowerStat = None;
+                                    // L986
+                                    s.comparePowerResults = None;
+                                    // L987
+                                    s.comparePowerCoroutine = None;
+                                    // L988
+                                    s.comparePowerListSynced = false;
+                                }
+                                _ => {}
                             }
-                            // L984
-                            Some(PowerStatValue(None)) => {
-                                // L985
-                                s.comparePowerStat = None;
-                                // L986
-                                s.comparePowerResults = None;
-                                // L987
-                                s.comparePowerCoroutine = None;
-                                // L988
-                                s.comparePowerListSynced = false;
-                            }
-                            _ => {}
-                        }
-                    })),
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -2039,18 +2214,25 @@ impl CompareTab {
         // L991
         cx.base_mut(comparePowerStatSelect).shown = powerReportShown();
         // L992-998
-        cx.w_mut::<DropDownControl>(comparePowerStatSelect).tt.tooltip_func =
-            Some(Rc::new(move |cx: &mut Cx, tooltip: &mut Tooltip, (mode, _index, _value): DropTipArgs| {
+        cx.w_mut::<DropDownControl>(comparePowerStatSelect)
+            .tt
+            .tooltip_func = Some(Rc::new(
+            move |cx: &mut Cx, tooltip: &mut Tooltip, (mode, _index, _value): DropTipArgs| {
                 // L993
                 tooltip.clear(false);
                 // L994
-                if mode == DropTipMode::Out || cx.w::<DropDownControl>(ctl(cx, me, "comparePowerStatSelect")).dropped {
+                if mode == DropTipMode::Out
+                    || cx
+                        .w::<DropDownControl>(ctl(cx, me, "comparePowerStatSelect"))
+                        .dropped
+                {
                     // L995
                     return;
                 }
                 // L997
                 tooltip.add_line(cx, 14.0, "Select a metric to calculate power report");
-            }));
+            },
+        ));
 
         // Category checkboxes: L1001-1006, L1008-1013, L1015-1020, L1022-1027, L1029-1034
         let power_check = |cx: &mut Cx,
@@ -2093,9 +2275,15 @@ impl CompareTab {
             "Include passive tree nodes from compared build",
             |c, v| c.treeNodes = v,
         );
-        power_check(cx, "comparePowerItemsCheck", "Items:", "Include items from compared build", |c, v| {
-            c.items = v;
-        });
+        power_check(
+            cx,
+            "comparePowerItemsCheck",
+            "Items:",
+            "Include items from compared build",
+            |c, v| {
+                c.items = v;
+            },
+        );
         power_check(
             cx,
             "comparePowerGemsCheck",
@@ -2131,7 +2319,13 @@ impl CompareTab {
             .add(
                 me,
                 "calcsScrollBar",
-                ScrollBarControl::new(Anchor::NONE, rect(0, 0, 18, 0), Some(50.0), Some(ScrollDir::Vertical), true),
+                ScrollBarControl::new(
+                    Anchor::NONE,
+                    rect(0, 0, 18, 0),
+                    Some(50.0),
+                    Some(ScrollDir::Vertical),
+                    true,
+                ),
             )
             .id();
         // L1043 local calcsScrollBar
@@ -2146,7 +2340,13 @@ impl CompareTab {
             .add(
                 me,
                 "viewScrollBar",
-                ScrollBarControl::new(Anchor::NONE, rect(0, 0, 18, 0), Some(50.0), Some(ScrollDir::Vertical), true),
+                ScrollBarControl::new(
+                    Anchor::NONE,
+                    rect(0, 0, 18, 0),
+                    Some(50.0),
+                    Some(ScrollDir::Vertical),
+                    true,
+                ),
             )
             .id();
         // L1050 local viewScrollBar
@@ -2218,34 +2418,55 @@ impl CompareTab {
             // L258
             let charData = {
                 let w = cx.w::<DropDownControl>(charSelect);
-                w.sel_index.checked_sub(1).and_then(|i| w.list.get(i)).cloned()
+                w.sel_index
+                    .checked_sub(1)
+                    .and_then(|i| w.list.get(i))
+                    .cloned()
             };
             // L259
-            let ch = charData.as_ref().and_then(|d| d.get::<CharEntry>()).map(|e| e.char.clone());
+            let ch = charData
+                .as_ref()
+                .and_then(|d| d.get::<CharEntry>())
+                .map(|e| e.char.clone());
             if let Some(ch) = ch.filter(|c| !c.is_null()) {
                 let field = |k: &str| -> String {
                     match json_get(&ch, k) {
                         Some(serde_json::Value::String(s)) => s.clone(),
-                        Some(serde_json::Value::Number(n)) => pob_lua::tostring_num(n.as_f64().unwrap_or(0.0)),
+                        Some(serde_json::Value::Number(n)) => {
+                            pob_lua::tostring_num(n.as_f64().unwrap_or(0.0))
+                        }
                         _ => lua_error!("attempt to concatenate field '{k}' (a nil value)"),
                     }
                 };
                 // L260
                 tooltip.add_line(cx, 16.0, "Re-import character from the game server:");
                 // L261
-                let line = format!("^7{} ({}, {})", field("name"), field("class"), field("league"));
+                let line = format!(
+                    "^7{} ({}, {})",
+                    field("name"),
+                    field("class"),
+                    field("league")
+                );
                 tooltip.add_line(cx, 14.0, &line);
             } else {
                 // L263
                 tooltip.add_line(cx, 16.0, "Re-import the currently selected character.");
             }
             // L265
-            tooltip.add_line(cx, 14.0, "^7Refreshes passive tree, jewels, items, and skills.");
+            tooltip.add_line(
+                cx,
+                14.0,
+                "^7Refreshes passive tree, jewels, items, and skills.",
+            );
         } else {
             // L267
             tooltip.add_line(cx, 16.0, "^7No character selected.");
             // L268
-            tooltip.add_line(cx, 14.0, "^7Go to Import/Export Build tab and select a character first.");
+            tooltip.add_line(
+                cx,
+                14.0,
+                "^7Go to Import/Export Build tab and select a character first.",
+            );
         }
     }
 
@@ -2256,9 +2477,15 @@ impl CompareTab {
     /// self.primaryBuild.spec:SetWindowTitleWithBuildClass() end end`.
     fn sel_compare_spec(cx: &mut Cx, me: CtrlId, index: usize) {
         // L299 / L825 / L872
-        let Some((entry, m)) = active_model(cx, me) else { return };
+        let Some((entry, m)) = active_model(cx, me) else {
+            return;
+        };
         // L300 / L826 / L873
-        if m.treeTab.specList.with(|l| at_num(l, index as f64)).is_none() {
+        if m.treeTab
+            .specList
+            .with(|l| at_num(l, index as f64))
+            .is_none()
+        {
             return;
         }
         // L301 / L827 / L874
@@ -2274,9 +2501,14 @@ impl CompareTab {
     /// L325-330, `compareItemSetSelect2` L798-803).
     fn sel_compare_item_set(cx: &mut Cx, me: CtrlId, index: usize) {
         // L326 / L799
-        let Some((entry, m)) = active_model(cx, me) else { return };
+        let Some((entry, m)) = active_model(cx, me) else {
+            return;
+        };
         // L327 / L800 (`entry.itemsTab` always exists)
-        let Some(id) = at_num(&m.itemsTab.itemSetOrderList.with(Clone::clone), index as f64) else {
+        let Some(id) = at_num(
+            &m.itemsTab.itemSetOrderList.with(Clone::clone),
+            index as f64,
+        ) else {
             return;
         };
         // L328 / L801
@@ -2293,8 +2525,12 @@ impl CompareTab {
         r: [Prop<f64>; 4],
         sel: pob_ui_core::controls::drop_down::SelFunc,
     ) -> CtrlId {
-        cx.add(me, key, DropDownControl::new(anchor, r, Vec::new(), Some(sel), None, false))
-            .id()
+        cx.add(
+            me,
+            key,
+            DropDownControl::new(anchor, r, Vec::new(), Some(sel), None, false),
+        )
+        .id()
     }
 
     /// `self.controls[key] = new("EditControl"):EditControl(anchor, rect, "", nil, "%D", 5,
@@ -2348,14 +2584,16 @@ impl CompareTab {
             key("CalcsSocketGroup").into(),
             Anchor::NONE,
             rect(0, 0, 200, 18),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L598-599
-                let Some(m) = build_of(cx) else { return };
-                // L496 / L600
-                m.calcsTab.input.set(n!("skill_number"), index as f64);
-                // L497 / L601
-                m.buildFlag.set(true);
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L598-599
+                    let Some(m) = build_of(cx) else { return };
+                    // L496 / L600
+                    m.calcsTab.input.set(n!("skill_number"), index as f64);
+                    // L497 / L601
+                    m.buildFlag.set(true);
+                },
+            ),
         );
         // L499 / L604
         cx.base_mut(socketGroup).shown = Prop::Val(false);
@@ -2374,17 +2612,19 @@ impl CompareTab {
             key("CalcsMainSkill").into(),
             Anchor::NONE,
             rect(0, 0, 200, 18),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                let Some(m) = build_of(cx) else { return };
-                // L504 / L611
-                // L505 / L612
-                if let Some(mainSocketGroup) = calcs_socket_group(&m) {
-                    // L506 / L613
-                    mainSocketGroup.mainActiveSkillCalcs.set(index as f64);
-                    // L507 / L614
-                    m.buildFlag.set(true);
-                }
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    let Some(m) = build_of(cx) else { return };
+                    // L504 / L611
+                    // L505 / L612
+                    if let Some(mainSocketGroup) = calcs_socket_group(&m) {
+                        // L506 / L613
+                        mainSocketGroup.mainActiveSkillCalcs.set(index as f64);
+                        // L507 / L614
+                        m.buildFlag.set(true);
+                    }
+                },
+            ),
         );
         // L510 / L618
         cx.base_mut(mainSkill).shown = Prop::Val(false);
@@ -2396,15 +2636,17 @@ impl CompareTab {
             key("CalcsSkillPart").into(),
             Anchor::NONE,
             rect(0, 0, 150, 18),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L513-517 / L621-627
-                with_active_effect(build_of(cx).as_ref(), SkillList::Calcs, &|effect| {
-                    // L518 / L628
-                    src_of(effect).skillPartCalcs.set(Some(index as f64));
-                    // L519 / L629
-                    true
-                });
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L513-517 / L621-627
+                    with_active_effect(build_of(cx).as_ref(), SkillList::Calcs, &|effect| {
+                        // L518 / L628
+                        src_of(effect).skillPartCalcs.set(Some(index as f64));
+                        // L519 / L629
+                        true
+                    });
+                },
+            ),
         );
         // L523 / L634
         cx.base_mut(skillPart).shown = Prop::Val(false);
@@ -2420,7 +2662,9 @@ impl CompareTab {
                 // L526-530 / L637-643
                 with_active_effect(build_of(cx).as_ref(), SkillList::Calcs, &|effect| {
                     // L531 / L644
-                    src_of(effect).skillStageCountCalcs.set(pob_lua::tonumber(buf));
+                    src_of(effect)
+                        .skillStageCountCalcs
+                        .set(pob_lua::tonumber(buf));
                     // L532 / L645
                     true
                 });
@@ -2440,7 +2684,9 @@ impl CompareTab {
                 // L539-543 / L653-659
                 with_active_effect(build_of(cx).as_ref(), SkillList::Calcs, &|effect| {
                     // L544 / L660
-                    src_of(effect).skillMineCountCalcs.set(pob_lua::tonumber(buf));
+                    src_of(effect)
+                        .skillMineCountCalcs
+                        .set(pob_lua::tonumber(buf));
                     // L545 / L661
                     true
                 });
@@ -2466,7 +2712,9 @@ impl CompareTab {
                         // L553 / L672
                         m.buildFlag.set(true);
                     })),
-                    Some(Prop::Val(Some("Show stats for the minion instead of the player.".to_owned()))),
+                    Some(Prop::Val(Some(
+                        "Show stats for the minion instead of the player.".to_owned(),
+                    ))),
                     false,
                 ),
             )
@@ -2482,16 +2730,18 @@ impl CompareTab {
             minion_key.clone().into(),
             Anchor::NONE,
             rect(0, 0, 140, 18),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L558-562 / L678-684
-                let dd = cx
-                    .child(me, minion_key.clone())
-                    .unwrap_or_else(|| lua_error!("attempt to index field '{minion_key}' (a nil value)"));
-                let selected = minion_sel(cx, dd, index);
-                with_active_effect(build_of(cx).as_ref(), SkillList::Calcs, &|effect| {
-                    set_minion(effect, selected, SkillList::Calcs)
-                });
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L558-562 / L678-684
+                    let dd = cx.child(me, minion_key.clone()).unwrap_or_else(|| {
+                        lua_error!("attempt to index field '{minion_key}' (a nil value)")
+                    });
+                    let selected = minion_sel(cx, dd, index);
+                    with_active_effect(build_of(cx).as_ref(), SkillList::Calcs, &|effect| {
+                        set_minion(effect, selected, SkillList::Calcs)
+                    });
+                },
+            ),
         );
         // L575 / L698
         cx.base_mut(minion).shown = Prop::Val(false);
@@ -2503,15 +2753,17 @@ impl CompareTab {
             key("CalcsMinionSkill").into(),
             Anchor::NONE,
             rect(0, 0, 140, 18),
-            Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                // L578-582 / L701-707
-                with_active_effect(build_of(cx).as_ref(), SkillList::Calcs, &|effect| {
-                    // L583 / L708
-                    src_of(effect).skillMinionSkillCalcs.set(Some(index as f64));
-                    // L584 / L709
-                    true
-                });
-            }),
+            Rc::new(
+                move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                    // L578-582 / L701-707
+                    with_active_effect(build_of(cx).as_ref(), SkillList::Calcs, &|effect| {
+                        // L583 / L708
+                        src_of(effect).skillMinionSkillCalcs.set(Some(index as f64));
+                        // L584 / L709
+                        true
+                    });
+                },
+            ),
         );
         // L588 / L714
         cx.base_mut(minionSkill).shown = Prop::Val(false);
@@ -2525,17 +2777,22 @@ impl CompareTab {
                     Anchor::NONE,
                     rect(0, 0, 120, 18),
                     buffModes,
-                    Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                        // L717-718
-                        let Some(m) = build_of(cx) else { return };
-                        // L591 / L719 value.buffMode
-                        let value = value
-                            .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
-                        let bm = value.get::<BuffModeValue>().map_or(Val::Nil, |v| Val::from(v.buffMode));
-                        m.calcsTab.input.set(n!("misc_buffMode"), bm);
-                        // L592 / L720
-                        m.buildFlag.set(true);
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                            // L717-718
+                            let Some(m) = build_of(cx) else { return };
+                            // L591 / L719 value.buffMode
+                            let value = value.unwrap_or_else(|| {
+                                lua_error!("attempt to index local 'value' (a nil value)")
+                            });
+                            let bm = value
+                                .get::<BuffModeValue>()
+                                .map_or(Val::Nil, |v| Val::from(v.buffMode));
+                            m.calcsTab.input.set(n!("misc_buffMode"), bm);
+                            // L592 / L720
+                            m.buildFlag.set(true);
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -2564,7 +2821,10 @@ fn search_args(change: Rc<dyn Fn(&mut Cx, &str)>) -> EditArgs {
 /// self.primaryBuild.treeTab.viewer.searchStr = buf end` (L774-776, L875-877).
 fn set_primary_viewer_search(cx: &mut Cx, buf: &str) {
     if let Some(tt) = crate::tabs::tree::core::tab(cx) {
-        cx.w_mut::<crate::tabs::tree::TreeTab>(tt).core.viewer.search_str = buf.to_owned();
+        cx.w_mut::<crate::tabs::tree::TreeTab>(tt)
+            .core
+            .viewer
+            .search_str = buf.to_owned();
     }
 }
 
@@ -2574,7 +2834,11 @@ fn set_primary_viewer_search(cx: &mut Cx, buf: &str) {
 fn sel_primary_spec(cx: &mut Cx, index: usize) {
     let m = primary(cx);
     // L822 / L857
-    if m.treeTab.specList.with(|l| at_num(l, index as f64)).is_none() {
+    if m.treeTab
+        .specList
+        .with(|l| at_num(l, index as f64))
+        .is_none()
+    {
         return;
     }
     // L823 / L858
@@ -2604,17 +2868,26 @@ impl SetTab<'_> {
         match self {
             SetTab::Items(t) => {
                 let order = t.itemSetOrderList.with(Clone::clone);
-                let sets = order.iter().map(|id| t.itemSets.with(|s| s.get(id).map(title))).collect();
+                let sets = order
+                    .iter()
+                    .map(|id| t.itemSets.with(|s| s.get(id).map(title)))
+                    .collect();
                 (order, sets, t.activeItemSetId.get())
             }
             SetTab::Skills(t) => {
                 let order = t.skillSetOrderList.with(Clone::clone);
-                let sets = order.iter().map(|id| t.skillSets.with(|s| s.get(id).map(title))).collect();
+                let sets = order
+                    .iter()
+                    .map(|id| t.skillSets.with(|s| s.get(id).map(title)))
+                    .collect();
                 (order, sets, t.activeSkillSetId.get())
             }
             SetTab::Config(t) => {
                 let order = t.configSetOrderList.with(Clone::clone);
-                let sets = order.iter().map(|id| t.configSets.with(|s| s.get(id).map(title))).collect();
+                let sets = order
+                    .iter()
+                    .map(|id| t.configSets.with(|s| s.get(id).map(title)))
+                    .collect();
                 (order, sets, t.activeConfigSetId.get())
             }
         }
@@ -2627,7 +2900,9 @@ impl CompareTab {
     /// @pob Classes/CompareTab.lua:1073-1081 h=2f8a215f
     pub fn GetShortBuildName(fullName: Option<&str>) -> String {
         // L1075
-        let Some(fullName) = fullName else { return "Your Build".to_owned() };
+        let Some(fullName) = fullName else {
+            return "Your Build".to_owned();
+        };
         // L1076
         let dashPos = pob_lua::pattern::find(fullName, " %- ", None, false).map(|(a, _, _)| a);
         // L1077
@@ -2657,7 +2932,10 @@ impl CompareTab {
             let index = i0 + 1;
             // L1094 local set = sets[setId]
             // L1095 (set and set.title) or "Default"
-            let label = sets[i0].clone().flatten().unwrap_or_else(|| "Default".to_owned());
+            let label = sets[i0]
+                .clone()
+                .flatten()
+                .unwrap_or_else(|| "Default".to_owned());
             list.push(DropItem::str(label));
             // L1096
             if f64::from(*setId) == activeId {
@@ -2739,7 +3017,9 @@ impl CompareTab {
     ) -> Option<(CtrlId, VarClass)> {
         let build = target.model(cx);
         let inputTable = build.configTab.input.clone();
-        let var = varData.var.unwrap_or_else(|| lua_error!("table index is nil"));
+        let var = varData
+            .var
+            .unwrap_or_else(|| lua_error!("table index is nil"));
         // the callbacks' `inputTable[varData.var] = v; configTab:UpdateControls();
         // configTab:BuildModList(); buildObj.buildFlag = true`
         let after = {
@@ -2801,7 +3081,11 @@ impl CompareTab {
                 "%D"
             };
             // L1147-1155
-            let init = tostring_val(&if pVal.truthy() { pVal.clone() } else { Val::from("") });
+            let init = tostring_val(&if pVal.truthy() {
+                pVal.clone()
+            } else {
+                Val::from("")
+            });
             let c = cx
                 .add_free(
                     Some(me),
@@ -2827,7 +3111,9 @@ impl CompareTab {
             // L1157-1163 (the list's entries are `varData.list`'s)
             let items: Vec<DropItem> = list
                 .iter()
-                .map(|item| DropItem::new(item.label.to_string(), Rc::new(Val::from_value(&item.val))))
+                .map(|item| {
+                    DropItem::new(item.label.to_string(), Rc::new(Val::from_value(&item.val)))
+                })
                 .collect();
             let c = cx
                 .add_free(
@@ -2836,14 +3122,17 @@ impl CompareTab {
                         Anchor::NONE,
                         rect(0, 0, 150, 18),
                         items,
-                        Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                            // L1159 value.val
-                            let value = value
-                                .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
-                            let v = value.get::<Val>().cloned().unwrap_or(Val::Nil);
-                            // L1159-1162
-                            after(cx, v);
-                        })),
+                        Some(Rc::new(
+                            move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                                // L1159 value.val
+                                let value = value.unwrap_or_else(|| {
+                                    lua_error!("attempt to index local 'value' (a nil value)")
+                                });
+                                let v = value.get::<Val>().cloned().unwrap_or(Val::Nil);
+                                // L1159-1162
+                                after(cx, v);
+                            },
+                        )),
                         None,
                         false,
                     ),
@@ -2901,7 +3190,9 @@ impl CompareTab {
         s.configSections = Vec::new();
 
         // L1189
-        let Some(compareEntry) = compareEntry else { return };
+        let Some(compareEntry) = compareEntry else {
+            return;
+        };
 
         // L1191
         let configOptions = st(cx, me).configOptions;
@@ -2949,7 +3240,13 @@ impl CompareTab {
                 // L1209
                 let pCtrl = Self::makeConfigControl(cx, me, varData, Target::Primary, pSource);
                 // L1210
-                let cCtrl = Self::makeConfigControl(cx, me, varData, Target::Entry(compareEntry.clone()), cSource);
+                let cCtrl = Self::makeConfigControl(
+                    cx,
+                    me,
+                    varData,
+                    Target::Entry(compareEntry.clone()),
+                    cSource,
+                );
 
                 // L1212
                 if let (Some((pCtrl, _)), Some((cCtrl, _))) = (pCtrl, cCtrl) {
@@ -2987,7 +3284,9 @@ impl CompareTab {
     /// @pob Classes/CompareTab.lua:1230-1242 h=8024a1ac
     pub fn CopyCompareConfig(cx: &mut Cx, me: CtrlId) {
         // L1232
-        let Some(compareEntry) = Self::GetActiveCompare(cx, me) else { return };
+        let Some(compareEntry) = Self::GetActiveCompare(cx, me) else {
+            return;
+        };
         // L1234
         let cInput = compareEntry.model.configTab.input.clone();
         let p = primary(cx);
@@ -3079,7 +3378,8 @@ pub fn tab(cx: &Cx) -> Option<CtrlId> {
 /// `ImportHooks::compare_import_build` (U43, CCR-0109 §5): `self.build.compareTab:ImportBuild(
 /// xml, label)` (ImportTab.lua:658).
 pub fn import_build_hook(cx: &mut Cx, xml: Option<&str>, label: &str) -> bool {
-    let me = tab(cx).unwrap_or_else(|| lua_error!("attempt to index field 'compareTab' (a nil value)"));
+    let me =
+        tab(cx).unwrap_or_else(|| lua_error!("attempt to index field 'compareTab' (a nil value)"));
     CompareTab::ImportBuild(cx, me, xml, Some(label))
 }
 
@@ -3090,7 +3390,10 @@ mod tests {
     #[test]
     fn short_build_name_strips_the_account() {
         assert_eq!(CompareTab::GetShortBuildName(None), "Your Build");
-        assert_eq!(CompareTab::GetShortBuildName(Some("Acc - My Build")), "My Build");
+        assert_eq!(
+            CompareTab::GetShortBuildName(Some("Acc - My Build")),
+            "My Build"
+        );
         assert_eq!(CompareTab::GetShortBuildName(Some("A - B - C")), "B - C");
         assert_eq!(CompareTab::GetShortBuildName(Some("NoDash")), "NoDash");
         assert_eq!(CompareTab::GetShortBuildName(Some("a-b")), "a-b");
@@ -3102,10 +3405,22 @@ mod tests {
         assert!(matchFlags(None, None, &flags));
         assert!(matchFlags(Some(FlagSpec::Str("attack")), None, &flags));
         assert!(!matchFlags(Some(FlagSpec::Str("spell")), None, &flags));
-        assert!(matchFlags(Some(FlagSpec::List(&["attack", "projectile"])), None, &flags));
-        assert!(!matchFlags(Some(FlagSpec::List(&["attack", "spell"])), None, &flags));
+        assert!(matchFlags(
+            Some(FlagSpec::List(&["attack", "projectile"])),
+            None,
+            &flags
+        ));
+        assert!(!matchFlags(
+            Some(FlagSpec::List(&["attack", "spell"])),
+            None,
+            &flags
+        ));
         assert!(!matchFlags(None, Some(FlagSpec::Str("attack")), &flags));
-        assert!(matchFlags(None, Some(FlagSpec::List(&["spell", "minion"])), &flags));
+        assert!(matchFlags(
+            None,
+            Some(FlagSpec::List(&["spell", "minion"])),
+            &flags
+        ));
     }
 
     #[test]

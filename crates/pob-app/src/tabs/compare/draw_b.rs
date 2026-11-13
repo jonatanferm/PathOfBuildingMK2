@@ -73,9 +73,9 @@ use pob_ui_core::controls::list::{ListControl, ListValue};
 use pob_ui_core::controls::ScrollBarControl;
 use pob_ui_core::prelude::*;
 
+use crate::model::gamedata::{GemDataRef, GrantedEffectRef};
 use pob_calc::actor::ActorRef;
 use pob_calc::modules::calc_format::formatCalcStr;
-use crate::model::gamedata::{GemDataRef, GrantedEffectRef};
 
 use super::calcs_helpers as calcsHelpers;
 use super::init::{ctl, st, st_mut, wrapInfoLine, CompareEntryRef, LAYOUT};
@@ -137,7 +137,10 @@ fn concat(v: &Val, what: &str) -> String {
     match v {
         Val::Str(s) => s.to_string(),
         Val::Num(x) => tostring_num(*x),
-        other => lua_error!("attempt to concatenate {what} (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to concatenate {what} (a {} value)",
+            other.lua_type()
+        ),
     }
 }
 
@@ -303,7 +306,12 @@ struct RenderPair {
 type ImbuedCache = RefCell<Vec<(SocketGroupRef, Rc<ImbuedGem>)>>;
 
 /// The local `getImbuedGem(group, skillsTab)` (L4061-4081).
-fn getImbuedGem(cx: &Cx, cache: &ImbuedCache, group: &SocketGroupRef, skillsTab: &model::SkillsTab) -> Option<DGem> {
+fn getImbuedGem(
+    cx: &Cx,
+    cache: &ImbuedCache,
+    group: &SocketGroupRef,
+    skillsTab: &model::SkillsTab,
+) -> Option<DGem> {
     // L4062
     let imbuedSupport = group.extra.get(n!("imbuedSupport"));
     if !imbuedSupport.truthy() {
@@ -326,7 +334,10 @@ fn getImbuedGem(cx: &Cx, cache: &ImbuedCache, group: &SocketGroupRef, skillsTab:
         // L4068
         let lower = pob_lua::string::lower(&concat(&imbuedSupport, "field 'imbuedSupport'"));
         let data = model::data();
-        let gemId = data.gemForBaseName.get(format!("{lower} support").as_str()).copied();
+        let gemId = data
+            .gemForBaseName
+            .get(format!("{lower} support").as_str())
+            .copied();
         // L4069
         grantedEffect = gemId.and_then(|id| data.gems.get(&id).map(|g| g.grantedEffect.clone()));
     }
@@ -349,11 +360,17 @@ fn getImbuedGem(cx: &Cx, cache: &ImbuedCache, group: &SocketGroupRef, skillsTab:
 
 /// The local `getGemName(gem)` (L4211-4213); also the name of `getGemNameSet` (L4087, L4094).
 fn getGemName(gem: &DGem) -> String {
-    gem.grantedEffect().map_or_else(|| gem.nameSpec(), |ge| ge.name.to_string())
+    gem.grantedEffect()
+        .map_or_else(|| gem.nameSpec(), |ge| ge.name.to_string())
 }
 
 /// The local `getGemNameSet(group, skillsTab)` (L4084-4100).
-fn getGemNameSet(cx: &Cx, cache: &ImbuedCache, group: &SocketGroupRef, skillsTab: &model::SkillsTab) -> IndexSet<String> {
+fn getGemNameSet(
+    cx: &Cx,
+    cache: &ImbuedCache,
+    group: &SocketGroupRef,
+    skillsTab: &model::SkillsTab,
+) -> IndexSet<String> {
     // L4085
     let mut set = IndexSet::new();
     // L4086-4091
@@ -400,7 +417,9 @@ fn checkSupporting(gemA: &DGem, gemB: &DGem) -> bool {
     // L4172
     if gemA.isImbuedSupport() {
         // L4173
-        let bEffect = gemB.grantedEffect().or_else(|| gemB.gemData().map(|g| g.grantedEffect.clone()));
+        let bEffect = gemB
+            .grantedEffect()
+            .or_else(|| gemB.gemData().map(|g| g.grantedEffect.clone()));
         // L4174
         return bEffect.is_some_and(|e| !e.support);
     }
@@ -411,12 +430,18 @@ fn checkSupporting(gemA: &DGem, gemB: &DGem) -> bool {
     let DGem::Real(a) = gemA else { return false };
     // `gemA.supportEffect and gemA.supportEffect.isSupporting and gemA.supportEffect.isSupporting[gemB]`
     let supporting = || match (a.supportEffect.get(), gemB) {
-        (Some(se), DGem::Real(b)) => se.isSupporting.get().is_some_and(|s| s.with(|s| s.contains(b))),
+        (Some(se), DGem::Real(b)) => se
+            .isSupporting
+            .get()
+            .is_some_and(|s| s.with(|s| s.contains(b))),
         _ => false,
     };
     // L4177-4185
     (aData.grantedEffect.support && !bData.grantedEffect.support && supporting())
-        || (aData.secondaryGrantedEffect.as_ref().is_some_and(|s| s.support)
+        || (aData
+            .secondaryGrantedEffect
+            .as_ref()
+            .is_some_and(|s| s.support)
             && !bData.grantedEffect.support
             && supporting())
 }
@@ -430,13 +455,19 @@ fn buildGemDisplayString(cx: &Cx, entry: &DisplayEntry) -> String {
         format!("{}- {}^7", cc.NEGATIVE, entry.name)
     } else if let Some(gem) = &entry.gem {
         // L4196
-        let gemName = gem.grantedEffect().map_or_else(|| gem.nameSpec(), |ge| ge.name.to_string());
+        let gemName = gem
+            .grantedEffect()
+            .map_or_else(|| gem.nameSpec(), |ge| ge.name.to_string());
         // L4197
         let gemColor = gem.color().unwrap_or_else(|| cc.GEM.clone());
         // L4198
-        let levelStr = gem.level().map_or_else(String::new, |l| format!(" {}", tostring_num(l)));
+        let levelStr = gem
+            .level()
+            .map_or_else(String::new, |l| format!(" {}", tostring_num(l)));
         // L4199
-        let qualStr = gem.quality().map_or_else(String::new, |q| format!("/{}", tostring_num(q)));
+        let qualStr = gem
+            .quality()
+            .map_or_else(String::new, |q| format!("/{}", tostring_num(q)));
         // L4200-4203
         let mut prefix = String::new();
         if entry.status == Status::Additional {
@@ -451,11 +482,24 @@ fn buildGemDisplayString(cx: &Cx, entry: &DisplayEntry) -> String {
 }
 
 /// The local `getGemsWithImbued(group, skillsTab)` (L4216-4227).
-fn getGemsWithImbued(cx: &Cx, cache: &ImbuedCache, group: Option<&SocketGroupRef>, skillsTab: &model::SkillsTab) -> Vec<DGem> {
+fn getGemsWithImbued(
+    cx: &Cx,
+    cache: &ImbuedCache,
+    group: Option<&SocketGroupRef>,
+    skillsTab: &model::SkillsTab,
+) -> Vec<DGem> {
     // L4217
-    let Some(group) = group else { return Vec::new() };
+    let Some(group) = group else {
+        return Vec::new();
+    };
     // L4218-4221
-    let mut gems: Vec<DGem> = group.gemList.get().snapshot().into_iter().map(DGem::Real).collect();
+    let mut gems: Vec<DGem> = group
+        .gemList
+        .get()
+        .snapshot()
+        .into_iter()
+        .map(DGem::Real)
+        .collect();
     // L4222-4225
     if let Some(imbuedGem) = getImbuedGem(cx, cache, group, skillsTab) {
         gems.push(imbuedGem);
@@ -512,7 +556,10 @@ fn buildAlignedGemLists(
                 name: name.clone(),
                 status: Status::Common,
             });
-            let cg = cGemByName.iter().find(|(n, _)| *n == name).map(|(_, g)| g.clone());
+            let cg = cGemByName
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, g)| g.clone());
             cDisplay.push(DisplayEntry {
                 gem: cg,
                 name,
@@ -548,8 +595,16 @@ fn buildAlignedGemLists(
     // L4271
     if p.pGroup.is_some() && p.cGroup.is_some() {
         // L4272-4279 (ORDER: module notes)
-        let mut pMissing: Vec<String> = cSet.iter().filter(|n| !pSet.contains(*n)).cloned().collect();
-        let mut cMissing: Vec<String> = pSet.iter().filter(|n| !cSet.contains(*n)).cloned().collect();
+        let mut pMissing: Vec<String> = cSet
+            .iter()
+            .filter(|n| !pSet.contains(*n))
+            .cloned()
+            .collect();
+        let mut cMissing: Vec<String> = pSet
+            .iter()
+            .filter(|n| !cSet.contains(*n))
+            .cloned()
+            .collect();
         // L4280-4281
         pob_lua::sort::sort(&mut pMissing, |a, b| a.as_bytes() < b.as_bytes());
         pob_lua::sort::sort(&mut cMissing, |a, b| a.as_bytes() < b.as_bytes());
@@ -627,14 +682,16 @@ fn drawGemList(
         if entry.gem.as_ref().is_some_and(|g| in_set(highlightSet, g)) {
             // L4310-4311
             cx.sg.set_draw_color_a(0.33, 1.0, 0.33, 0.25);
-            cx.sg.draw_image(None, xOffset, y, gemTextWidth, gemLineHeight);
+            cx.sg
+                .draw_image(None, xOffset, y, gemTextWidth, gemLineHeight);
         }
         // L4313
         let line = buildGemDisplayString(cx, entry);
         // L4314
         if !line.is_empty() {
             // L4315
-            cx.sg.draw_string(xOffset, y, Align::Left, gemFontSize, Font::Var, &line);
+            cx.sg
+                .draw_string(xOffset, y, Align::Left, gemFontSize, Font::Var, &line);
         }
         // L4317
         y += gemLineHeight;
@@ -648,7 +705,8 @@ fn getGroupLabel(group: &SocketGroupRef, idx: usize) -> String {
     // L4324
     let mut groupLabel = match group.displayLabel.get() {
         Some(l) => l.to_string(),
-        None => model::skills_tab::socketGroup_label(group).map_or_else(|| format!("Group {idx}"), |l| l.to_string()),
+        None => model::skills_tab::socketGroup_label(group)
+            .map_or_else(|| format!("Group {idx}"), |l| l.to_string()),
     };
     // L4325
     if let Some(slot) = group.slot.get() {
@@ -667,18 +725,25 @@ enum Side<'a> {
 }
 
 /// The local `getGroupSlotIcon(skillsTab, idx, group)` (L4330-4336).
-fn getGroupSlotIcon(cx: &mut Cx, side: Side<'_>, idx: usize, group: &SocketGroupRef) -> Option<ImageHandle> {
+fn getGroupSlotIcon(
+    cx: &mut Cx,
+    side: Side<'_>,
+    idx: usize,
+    group: &SocketGroupRef,
+) -> Option<ImageHandle> {
     match side {
         Side::Primary => {
             // L4331
-            let groupList = crate::tabs::skills::core::tab(cx).and_then(|t| cx.child(t, "groupList"))?;
+            let groupList =
+                crate::tabs::skills::core::tab(cx).and_then(|t| cx.child(t, "groupList"))?;
             // L4332
             let w = cx.w::<ListControl>(groupList);
-            let f: Rc<pob_ui_core::controls::list::GetRowIconFn> = match (&w.ov.get_row_icon, w.hooks.get_row_icon) {
-                (Some(f), _) => f.clone(),
-                (None, Some(f)) => Rc::new(f),
-                (None, None) => return None,
-            };
+            let f: Rc<pob_ui_core::controls::list::GetRowIconFn> =
+                match (&w.ov.get_row_icon, w.hooks.get_row_icon) {
+                    (Some(f), _) => f.clone(),
+                    (None, Some(f)) => Rc::new(f),
+                    (None, None) => return None,
+                };
             // L4335
             f(cx, groupList, 1, idx, &ListValue::of(group.clone()))
         }
@@ -733,7 +798,11 @@ fn slot_icon(cx: &mut Cx, slot: &str) -> Option<ImageHandle> {
 /// CCR-0144: SkillListControl.lua:241-267 `GetRowIcon(1, index, socketGroup)` of the comparison
 /// build's group list (its `self.skillsTab.build.itemsTab` is the entry's), statement for
 /// statement as U30's port.
-fn entry_row_icon(cx: &mut Cx, m: &model::BuildRef, socketGroup: &SocketGroupRef) -> Option<ImageHandle> {
+fn entry_row_icon(
+    cx: &mut Cx,
+    m: &model::BuildRef,
+    socketGroup: &SocketGroupRef,
+) -> Option<ImageHandle> {
     // L243
     let mut slot = socketGroup.slot.get().map(|s| s.to_string());
     // L244
@@ -783,7 +852,9 @@ fn entry_row_icon(cx: &mut Cx, m: &model::BuildRef, socketGroup: &SocketGroupRef
     if slot.as_deref() == Some("Weapon 2") && (weapon2Type == "Quiver" || weapon2Type == "Shield") {
         slot = Some(weapon2Type);
     }
-    if slot.as_deref() == Some("Weapon 2 Swap") && (weapon2SwapType == "Quiver" || weapon2SwapType == "Shield") {
+    if slot.as_deref() == Some("Weapon 2 Swap")
+        && (weapon2SwapType == "Quiver" || weapon2SwapType == "Shield")
+    {
         slot = Some(format!("{weapon2SwapType} Swap"));
     }
     // L265
@@ -822,7 +893,10 @@ fn calcRowMatchesBetweenBuilds(
     // L4646
     for (_, sectionData) in colData.ipairs() {
         let Some(sectionData) = sectionData.table() else {
-            lua_error!("attempt to index local 'sectionData' (a {} value)", sectionData.lua_type())
+            lua_error!(
+                "attempt to index local 'sectionData' (a {} value)",
+                sectionData.lua_type()
+            )
         };
         // L4647
         if sectionData.truthy(n!("modName")) {
@@ -838,12 +912,20 @@ fn calcRowMatchesBetweenBuilds(
             let mut counts: indexmap::IndexMap<String, usize> = indexmap::IndexMap::new();
             // L4652-4655
             for row in &primaryRows {
-                let key = format!("{}|{}", calcsHelpers::ModRowKey(row), tostring_val(&row.get(n!("value"))));
+                let key = format!(
+                    "{}|{}",
+                    calcsHelpers::ModRowKey(row),
+                    tostring_val(&row.get(n!("value")))
+                );
                 *counts.entry(key).or_insert(0) += 1;
             }
             // L4656-4661
             for row in &compareRows {
-                let key = format!("{}|{}", calcsHelpers::ModRowKey(row), tostring_val(&row.get(n!("value"))));
+                let key = format!(
+                    "{}|{}",
+                    calcsHelpers::ModRowKey(row),
+                    tostring_val(&row.get(n!("value")))
+                );
                 let Some(&count) = counts.get(&key) else {
                     return false;
                 };
@@ -859,7 +941,8 @@ fn calcRowMatchesBetweenBuilds(
             // Compare breakdown to see if they are the same
             // L4664-4665
             let primaryBreakdownLines = calcsHelpers::GetBreakdownLines(&sectionData, primaryBuild);
-            let compareBreakdownLines = calcsHelpers::GetBreakdownLines(&sectionData, &compareEntry.model);
+            let compareBreakdownLines =
+                calcsHelpers::GetBreakdownLines(&sectionData, &compareEntry.model);
             // L4666-4668
             let primaryLineCount = primaryBreakdownLines.as_ref().map_or(0, Vec::len);
             let compareLineCount = compareBreakdownLines.as_ref().map_or(0, Vec::len);
@@ -868,7 +951,9 @@ fn calcRowMatchesBetweenBuilds(
             }
             // L4669-4671
             for i in 0..primaryLineCount {
-                if primaryBreakdownLines.as_ref().map(|l| &l[i]) != compareBreakdownLines.as_ref().map(|l| &l[i]) {
+                if primaryBreakdownLines.as_ref().map(|l| &l[i])
+                    != compareBreakdownLines.as_ref().map(|l| &l[i])
+                {
                     return false;
                 }
             }
@@ -881,9 +966,15 @@ fn calcRowMatchesBetweenBuilds(
 /// lua: CompareTab.lua:4677-4682 `local function subSectionExtraMatches(subSecData,
 /// primaryActor, compareActor)`
 /// @pob Classes/CompareTab.lua:4677-4682 h=f0e95480
-fn subSectionExtraMatches(subSecData: Option<&Table>, primaryActor: &ActorRef, compareActor: &ActorRef) -> bool {
+fn subSectionExtraMatches(
+    subSecData: Option<&Table>,
+    primaryActor: &ActorRef,
+    compareActor: &ActorRef,
+) -> bool {
     // L4678
-    let Some(subSecData) = subSecData else { return true };
+    let Some(subSecData) = subSecData else {
+        return true;
+    };
     let extra = subSecData.get(n!("extra"));
     if !extra.truthy() {
         return true;
@@ -939,10 +1030,14 @@ impl CompareTab {
 
         // Build gem name sets for all groups
         // L4120-4127
-        let pSets: Vec<IndexSet<String>> =
-            pGroups.iter().map(|g| getGemNameSet(cx, &imbuedGemCache, g, pSkillsTab)).collect();
-        let cSets: Vec<IndexSet<String>> =
-            cGroups.iter().map(|g| getGemNameSet(cx, &imbuedGemCache, g, cSkillsTab)).collect();
+        let pSets: Vec<IndexSet<String>> = pGroups
+            .iter()
+            .map(|g| getGemNameSet(cx, &imbuedGemCache, g, pSkillsTab))
+            .collect();
+        let cSets: Vec<IndexSet<String>> = cGroups
+            .iter()
+            .map(|g| getGemNameSet(cx, &imbuedGemCache, g, cSkillsTab))
+            .collect();
 
         // Compute all pairwise similarity scores
         // L4130-4138
@@ -951,7 +1046,11 @@ impl CompareTab {
             for ci in 1..=cGroups.len() {
                 let score = groupSimilarity(&pSets[pi - 1], &cSets[ci - 1]);
                 if score > 0.0 {
-                    scorePairs.push(ScorePair { pIdx: pi, cIdx: ci, score });
+                    scorePairs.push(ScorePair {
+                        pIdx: pi,
+                        cIdx: ci,
+                        score,
+                    });
                 }
             }
         }
@@ -980,14 +1079,20 @@ impl CompareTab {
         // L4156-4160
         for i in 1..=pGroups.len() {
             if !pMatched[i] {
-                renderPairs.push(RenderPair { pIdx: Some(i), cIdx: None });
+                renderPairs.push(RenderPair {
+                    pIdx: Some(i),
+                    cIdx: None,
+                });
             }
         }
         // Add unmatched compare groups
         // L4162-4166
         for i in 1..=cGroups.len() {
             if !cMatched[i] {
-                renderPairs.push(RenderPair { pIdx: None, cIdx: Some(i) });
+                renderPairs.push(RenderPair {
+                    pIdx: None,
+                    cIdx: Some(i),
+                });
             }
         }
 
@@ -1003,18 +1108,32 @@ impl CompareTab {
         let groupHeaderTextX = groupHeaderX + groupHeaderTextIndent;
         // L4342-4344 `getGroupHeaderWidth(group, idx)`
         let getGroupHeaderWidth = |cx: &Cx, group: &SocketGroupRef, idx: usize| -> f64 {
-            groupHeaderTextX + cx.sg.draw_string_width(18.0, Font::Var, &format!("^7{}", getGroupLabel(group, idx)))
+            groupHeaderTextX
+                + cx.sg.draw_string_width(
+                    18.0,
+                    Font::Var,
+                    &format!("^7{}", getGroupLabel(group, idx)),
+                )
         };
         // L4345-4353 `drawGroupHeader(skillsTab, group, idx, x, y)`
-        let drawGroupHeader = |cx: &mut Cx, side: Side<'_>, group: &SocketGroupRef, idx: usize, x: f64, y: f64| {
-            let icon = getGroupSlotIcon(cx, side, idx, group);
-            let textX = x + groupHeaderTextIndent;
-            if let Some(icon) = icon {
-                cx.sg.set_draw_color(1.0, 1.0, 1.0);
-                cx.sg.draw_image(Some(&icon), x, y, groupHeaderIconSize, groupHeaderIconSize);
-            }
-            cx.sg.draw_string(textX, y, Align::Left, 18.0, Font::Var, &format!("^7{}", getGroupLabel(group, idx)));
-        };
+        let drawGroupHeader =
+            |cx: &mut Cx, side: Side<'_>, group: &SocketGroupRef, idx: usize, x: f64, y: f64| {
+                let icon = getGroupSlotIcon(cx, side, idx, group);
+                let textX = x + groupHeaderTextIndent;
+                if let Some(icon) = icon {
+                    cx.sg.set_draw_color(1.0, 1.0, 1.0);
+                    cx.sg
+                        .draw_image(Some(&icon), x, y, groupHeaderIconSize, groupHeaderIconSize);
+                }
+                cx.sg.draw_string(
+                    textX,
+                    y,
+                    Align::Left,
+                    18.0,
+                    Font::Var,
+                    &format!("^7{}", getGroupLabel(group, idx)),
+                );
+            };
 
         // Build display lists once and measure widest primary-side content
         // L4355-4374
@@ -1026,8 +1145,14 @@ impl CompareTab {
             let cSet = pair.cIdx.map_or(&empty, |i| &cSets[i - 1]);
             let pGroup = pair.pIdx.map(|i| &pGroups[i - 1]);
             let cGroup = pair.cIdx.map(|i| &cGroups[i - 1]);
-            let p = Pair { pGroup, cGroup, pSet, cSet };
-            let (pDisplay, cDisplay) = buildAlignedGemLists(cx, &imbuedGemCache, &p, pSkillsTab, cSkillsTab);
+            let p = Pair {
+                pGroup,
+                cGroup,
+                pSet,
+                cSet,
+            };
+            let (pDisplay, cDisplay) =
+                buildAlignedGemLists(cx, &imbuedGemCache, &p, pSkillsTab, cSkillsTab);
 
             if let Some(pGroup) = pGroup {
                 let w = getGroupHeaderWidth(cx, pGroup, pair.pIdx.expect("pGroup"));
@@ -1073,14 +1198,24 @@ impl CompareTab {
         st_mut(cx, me).skillsScrollX = cx.w::<ScrollBarControl>(hBar).offset;
 
         // L4394-4396
-        let bottomReserve = if needsHScroll { LAYOUT::skillsHScrollBarHeight } else { 0.0 };
+        let bottomReserve = if needsHScroll {
+            LAYOUT::skillsHScrollBarHeight
+        } else {
+            0.0
+        };
         let scrollViewH = vp.height - headerReserve - bottomReserve;
         let scrollOffsetX = -st(cx, me).skillsScrollX;
 
         // L4398-4402
         cx.sg.set_draw_color(1.0, 1.0, 1.0);
-        cx.sg
-            .draw_string(vp.x + scrollOffsetX + 10.0, vp.y + 4.0, Align::Left, 18.0, Font::Var, &primaryName);
+        cx.sg.draw_string(
+            vp.x + scrollOffsetX + 10.0,
+            vp.y + 4.0,
+            Align::Left,
+            18.0,
+            Font::Var,
+            &primaryName,
+        );
         let cmpName = format!("{}{}", cx.main.cc.WARNING, compareEntry.label);
         cx.sg.draw_string(
             vp.x + scrollOffsetX + colWidth + 10.0,
@@ -1091,10 +1226,12 @@ impl CompareTab {
             &cmpName,
         );
         cx.sg.set_draw_color(0.5, 0.5, 0.5);
-        cx.sg.draw_image(None, vp.x + 4.0, vp.y + headerReserve, vp.width - 8.0, 2.0);
+        cx.sg
+            .draw_image(None, vp.x + 4.0, vp.y + headerReserve, vp.width - 8.0, 2.0);
 
         // L4404-4405
-        cx.sg.set_viewport(vp.x, vp.y + headerReserve, vp.width, scrollViewH);
+        cx.sg
+            .set_viewport(vp.x, vp.y + headerReserve, vp.width, scrollViewH);
         let scrollY = st(cx, me).scrollY;
         let mut drawY = 4.0 - scrollY;
 
@@ -1136,7 +1273,11 @@ impl CompareTab {
         let localCursorX = cursorX - vp.x;
         let localCursorY = cursorY - (vp.y + headerReserve);
         let mut hoveredEntry: Option<&GemEntry> = None;
-        if localCursorX >= 0.0 && localCursorX < vp.width && localCursorY >= 0.0 && localCursorY < scrollViewH {
+        if localCursorX >= 0.0
+            && localCursorX < vp.width
+            && localCursorY >= 0.0
+            && localCursorY < scrollViewH
+        {
             for entry in &gemEntries {
                 if localCursorX >= entry.x
                     && localCursorX < entry.x + gemTextWidth
@@ -1162,7 +1303,8 @@ impl CompareTab {
                 };
                 if same_group
                     && !entry.gem.ptr_eq(&hovered.gem)
-                    && (checkSupporting(&hovered.gem, &entry.gem) || checkSupporting(&entry.gem, &hovered.gem))
+                    && (checkSupporting(&hovered.gem, &entry.gem)
+                        || checkSupporting(&entry.gem, &hovered.gem))
                     && !in_set(&highlightSet, &entry.gem)
                 {
                     highlightSet.push(entry.gem.clone());
@@ -1192,7 +1334,14 @@ impl CompareTab {
             let cGroup = pair.cIdx.map(|i| &cGroups[i - 1]);
 
             if let Some(pGroup) = pGroup {
-                drawGroupHeader(cx, Side::Primary, pGroup, pair.pIdx.expect("pGroup"), scrollOffsetX + groupHeaderX, drawY);
+                drawGroupHeader(
+                    cx,
+                    Side::Primary,
+                    pGroup,
+                    pair.pIdx.expect("pGroup"),
+                    scrollOffsetX + groupHeaderX,
+                    drawY,
+                );
             }
             if let Some(cGroup) = cGroup {
                 drawGroupHeader(
@@ -1307,22 +1456,32 @@ impl CompareTab {
         // L4518-4522
         cx.sg.set_draw_color(1.0, 1.0, 1.0);
         let primaryName = format!("{}{}", cx.main.cc.POSITIVE, primary_short_name(cx));
-        cx.sg.draw_string(leftX, y + 2.0, Align::Left, 18.0, Font::Var, &primaryName);
+        cx.sg
+            .draw_string(leftX, y + 2.0, Align::Left, 18.0, Font::Var, &primaryName);
         let cmpName = format!("{}{}", cx.main.cc.WARNING, compareEntry.label);
-        cx.sg.draw_string(rightX, y + 2.0, Align::Left, 18.0, Font::Var, &cmpName);
+        cx.sg
+            .draw_string(rightX, y + 2.0, Align::Left, 18.0, Font::Var, &cmpName);
         // L4523
         y += rowH;
 
         // Draw labels next to each control row
         // L4526-4532
-        let drawLabel = |cx: &mut Cx, label: &str, x: f64, cy: f64, control: &'static str| -> bool {
-            let control = ctl(cx, me, control);
-            if control_hidden(cx, control) {
-                return false;
-            }
-            cx.sg.draw_string(x, cy + 2.0, Align::Left, 14.0, Font::Var, &format!("^7{label}:"));
-            true
-        };
+        let drawLabel =
+            |cx: &mut Cx, label: &str, x: f64, cy: f64, control: &'static str| -> bool {
+                let control = ctl(cx, me, control);
+                if control_hidden(cx, control) {
+                    return false;
+                }
+                cx.sg.draw_string(
+                    x,
+                    cy + 2.0,
+                    Align::Left,
+                    14.0,
+                    Font::Var,
+                    &format!("^7{label}:"),
+                );
+                true
+            };
 
         // L4534-4535
         let mut leftY = y;
@@ -1341,9 +1500,17 @@ impl CompareTab {
             ("Skill Part", "primCalcsSkillPart", "cmpCalcsSkillPart"),
             ("Stages", "primCalcsStageCount", "cmpCalcsStageCount"),
             ("Mines", "primCalcsMineCount", "cmpCalcsMineCount"),
-            ("Show Minion Stats", "primCalcsShowMinion", "cmpCalcsShowMinion"),
+            (
+                "Show Minion Stats",
+                "primCalcsShowMinion",
+                "cmpCalcsShowMinion",
+            ),
             ("Minion", "primCalcsMinion", "cmpCalcsMinion"),
-            ("Minion Skill", "primCalcsMinionSkill", "cmpCalcsMinionSkill"),
+            (
+                "Minion Skill",
+                "primCalcsMinionSkill",
+                "cmpCalcsMinionSkill",
+            ),
         ] {
             if drawLabel(cx, label, leftX, leftY, prim) {
                 leftY += rowH;
@@ -1388,13 +1555,15 @@ impl CompareTab {
                 if nonEmpty(&primaryValue) || nonEmpty(&compareValue) {
                     // L4594-4595
                     let primaryLines = if nonEmpty(&primaryValue) {
-                        let s = format!("{label}: {}", concat(&primaryValue, "local 'primaryValue'"));
+                        let s =
+                            format!("{label}: {}", concat(&primaryValue, "local 'primaryValue'"));
                         wrapInfoLine(cx, Some(&s), wrapWidth)
                     } else {
                         Vec::new()
                     };
                     let compareLines = if nonEmpty(&compareValue) {
-                        let s = format!("{label}: {}", concat(&compareValue, "local 'compareValue'"));
+                        let s =
+                            format!("{label}: {}", concat(&compareValue, "local 'compareValue'"));
                         wrapInfoLine(cx, Some(&s), wrapWidth)
                     } else {
                         Vec::new()
@@ -1405,7 +1574,9 @@ impl CompareTab {
                     let rowH = m_max(m_max(primaryHeight, compareHeight), 18.0);
                     // Check hover per-side for lines that have breakdown data
                     // L4600
-                    if let Some(breakdown) = breakdown.filter(|_| cursorY >= textY && cursorY < textY + rowH) {
+                    if let Some(breakdown) =
+                        breakdown.filter(|_| cursorY >= textY && cursorY < textY + rowH)
+                    {
                         // L4601-4602
                         let onLeft = cursorX >= leftX
                             && cursorX < rightX
@@ -1419,7 +1590,8 @@ impl CompareTab {
                         if onLeft {
                             // L4604-4605
                             cx.sg.set_draw_color(0.15, 0.25, 0.15);
-                            cx.sg.draw_image(None, leftX, textY, colWidth, primaryHeight);
+                            cx.sg
+                                .draw_image(None, leftX, textY, colWidth, primaryHeight);
                             // L4606-4611
                             let build = cx.build().model.clone();
                             bst_mut(cx, me).calcsSkillHeaderHover = Some(SkillHeaderHover {
@@ -1434,7 +1606,8 @@ impl CompareTab {
                         } else if onRight {
                             // L4613-4614
                             cx.sg.set_draw_color(0.15, 0.25, 0.15);
-                            cx.sg.draw_image(None, rightX, textY, colWidth, compareHeight);
+                            cx.sg
+                                .draw_image(None, rightX, textY, colWidth, compareHeight);
                             // L4615-4620
                             bst_mut(cx, me).calcsSkillHeaderHover = Some(SkillHeaderHover {
                                 breakdown,
@@ -1477,7 +1650,13 @@ impl CompareTab {
         // Separator line
         // L4635-4636
         cx.sg.set_draw_color(0.4, 0.4, 0.4);
-        cx.sg.draw_image(None, vp.x + 2.0, vp.y + headerHeight - 2.0, vp.width - 4.0, 2.0);
+        cx.sg.draw_image(
+            None,
+            vp.x + 2.0,
+            vp.y + headerHeight - 2.0,
+            vp.width - 4.0,
+            2.0,
+        );
     }
 
     /// lua: CompareTab.lua:4684-4931 `CompareTabClass:DrawCalcs(vp, compareEntry)`
@@ -1510,7 +1689,15 @@ impl CompareTab {
         // Draw skill detail header background and labels
         // L4697-4699
         if skillHeaderHeight > 0.0 {
-            Self::DrawCalcsSkillHeader(cx, me, vp, compareEntry, skillHeaderHeight, &primaryEnv, &compareEnv);
+            Self::DrawCalcsSkillHeader(
+                cx,
+                me,
+                vp,
+                compareEntry,
+                skillHeaderHeight,
+                &primaryEnv,
+                &compareEnv,
+            );
         }
 
         // Reserve space on the right for the scrollbar
@@ -1567,28 +1754,41 @@ impl CompareTab {
                 let mut sectionHasRows = false;
                 // L4730
                 for (_, subSec) in subSections.ipairs() {
-                    let subSec = subSec
-                        .table()
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'subSec' (a {} value)", subSec.lua_type()));
+                    let subSec = subSec.table().unwrap_or_else(|| {
+                        lua_error!(
+                            "attempt to index local 'subSec' (a {} value)",
+                            subSec.lua_type()
+                        )
+                    });
                     let data = subSec.table(n!("data"));
                     // L4731
                     let mut rows: Vec<Table> = Vec::new();
                     // L4732
                     let dataRows = data
                         .as_ref()
-                        .unwrap_or_else(|| lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"))
+                        .unwrap_or_else(|| {
+                            lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)")
+                        })
                         .ipairs();
                     for (_, rowData) in dataRows {
                         let Some(rowData) = rowData.table() else {
-                            lua_error!("attempt to index local 'rowData' (a {} value)", rowData.lua_type())
+                            lua_error!(
+                                "attempt to index local 'rowData' (a {} value)",
+                                rowData.lua_type()
+                            )
                         };
                         // Only include rows with a label and a first column with a format string
                         // L4734
                         let col1 = rowData.get(1.0);
-                        if rowData.truthy(n!("label")) && col1.truthy() && col1.get(n!("format")).truthy() {
+                        if rowData.truthy(n!("label"))
+                            && col1.truthy()
+                            && col1.get(n!("format")).truthy()
+                        {
                             // L4735-4736
-                            let primaryVisible = check_flag(cx, &rowData, Some(&primaryActor), None);
-                            let compareVisible = check_flag(cx, &rowData, Some(&compareActor), None);
+                            let primaryVisible =
+                                check_flag(cx, &rowData, Some(&primaryActor), None);
+                            let compareVisible =
+                                check_flag(cx, &rowData, Some(&compareActor), None);
                             // L4737
                             if primaryVisible || compareVisible {
                                 // L4738
@@ -1597,7 +1797,10 @@ impl CompareTab {
                                 if showOnlyDifferences && primaryVisible && compareVisible {
                                     // L4740
                                     let colData = col1.table().unwrap_or_else(|| {
-                                        lua_error!("attempt to index field '?' (a {} value)", col1.lua_type())
+                                        lua_error!(
+                                            "attempt to index field '?' (a {} value)",
+                                            col1.lua_type()
+                                        )
                                     });
                                     keepRow = !calcRowMatchesBetweenBuilds(
                                         &primaryBuild,
@@ -1616,7 +1819,12 @@ impl CompareTab {
                     }
                     // L4748
                     let keepSubSection = !rows.is_empty()
-                        || (showOnlyDifferences && !subSectionExtraMatches(data.as_ref(), &primaryActor, &compareActor));
+                        || (showOnlyDifferences
+                            && !subSectionExtraMatches(
+                                data.as_ref(),
+                                &primaryActor,
+                                &compareActor,
+                            ));
                     // L4749
                     if keepSubSection {
                         // L4750-4751
@@ -1680,11 +1888,21 @@ impl CompareTab {
             b.y = Prop::Val(vp.y + skillHeaderHeight);
             b.height = Prop::Val(vp.height - skillHeaderHeight);
         }
-        ScrollBarControl::set_content_dimension(cx, scrollBar, maxY + 26.0, vp.height - skillHeaderHeight);
+        ScrollBarControl::set_content_dimension(
+            cx,
+            scrollBar,
+            maxY + 26.0,
+            vp.height - skillHeaderHeight,
+        );
 
         // Set viewport for scroll clipping, offset below skill header so cards can't bleed into it
         // L4798
-        cx.sg.set_viewport(vp.x, vp.y + skillHeaderHeight, gridWidth, vp.height - skillHeaderHeight);
+        cx.sg.set_viewport(
+            vp.x,
+            vp.y + skillHeaderHeight,
+            gridWidth,
+            vp.height - skillHeaderHeight,
+        );
 
         // Cursor position relative to viewport (for hover detection)
         // L4801-4806
@@ -1713,7 +1931,8 @@ impl CompareTab {
                 cx.sg.draw_image(None, x, y, cardWidth, sec.height);
                 // Draw background
                 cx.sg.set_draw_color(0.10, 0.10, 0.10);
-                cx.sg.draw_image(None, x + 2.0, y + 2.0, cardWidth - 4.0, sec.height - 4.0);
+                cx.sg
+                    .draw_image(None, x + 2.0, y + 2.0, cardWidth - 4.0, sec.height - 4.0);
                 cx.sg.set_draw_layer(None, Some(0));
 
                 // L4824
@@ -1727,14 +1946,25 @@ impl CompareTab {
                     // Header text
                     // L4830
                     let label = concat(&subSec.label, "field 'label'");
-                    cx.sg
-                        .draw_string(x + 3.0, lineY + 3.0, Align::Left, 16.0, Font::VarBold, &format!("^7{label}:"));
+                    cx.sg.draw_string(
+                        x + 3.0,
+                        lineY + 3.0,
+                        Align::Left,
+                        16.0,
+                        Font::VarBold,
+                        &format!("^7{label}:"),
+                    );
                     // Show extra info (e.g. "4521/5000 | 3800/4200")
                     // L4832
-                    let extra = subSec.data.as_ref().map_or(Val::Nil, |d| d.get(n!("extra")));
+                    let extra = subSec
+                        .data
+                        .as_ref()
+                        .map_or(Val::Nil, |d| d.get(n!("extra")));
                     if extra.truthy() {
                         // L4833-4834
-                        let extraTextW = cx.sg.draw_string_width(16.0, Font::VarBold, &format!("{label}:"));
+                        let extraTextW =
+                            cx.sg
+                                .draw_string_width(16.0, Font::VarBold, &format!("{label}:"));
                         let extraX = x + 3.0 + extraTextW + 8.0;
                         // L4835-4836
                         let primaryExtra = pformat(&extra, &primaryActor, &Val::Nil);
@@ -1744,13 +1974,21 @@ impl CompareTab {
                             // L4838-4839
                             let cc = &cx.main.cc;
                             let text = format!("{}{p}  ^8|  {}{c}", cc.POSITIVE, cc.WARNING);
-                            cx.sg.draw_string(extraX, lineY + 3.0, Align::Left, 16.0, Font::Var, &text);
+                            cx.sg.draw_string(
+                                extraX,
+                                lineY + 3.0,
+                                Align::Left,
+                                16.0,
+                                Font::Var,
+                                &text,
+                            );
                         }
                     }
                     // Separator below header
                     // L4843-4845
                     cx.sg.set_draw_color_esc(&sec.colour);
-                    cx.sg.draw_image(None, x + 2.0, lineY + 20.0, cardWidth - 4.0, 2.0);
+                    cx.sg
+                        .draw_image(None, x + 2.0, lineY + 20.0, cardWidth - 4.0, 2.0);
                     lineY += 22.0;
 
                     // Draw rows
@@ -1759,7 +1997,11 @@ impl CompareTab {
                         // L4849-4850
                         let colData = rowData.get(1.0);
                         let textSize = rowData.get(n!("textSize"));
-                        let textSize = if textSize.truthy() { textSize.num() } else { 14.0 };
+                        let textSize = if textSize.truthy() {
+                            textSize.num()
+                        } else {
+                            14.0
+                        };
 
                         // Hover highlight
                         // L4853-4856
@@ -1775,12 +2017,15 @@ impl CompareTab {
                             // Draw green border around hovered row (matching normal CalcsTab style)
                             // L4859-4862
                             cx.sg.set_draw_color(0.25, 1.0, 0.25);
-                            cx.sg.draw_image(None, x + 2.0, lineY, cardWidth - 4.0, 18.0);
+                            cx.sg
+                                .draw_image(None, x + 2.0, lineY, cardWidth - 4.0, 18.0);
                             set_color_val(cx, &rowData.get(n!("bgCol")));
-                            cx.sg.draw_image(None, x + 3.0, lineY + 1.0, cardWidth - 6.0, 16.0);
+                            cx.sg
+                                .draw_image(None, x + 3.0, lineY + 1.0, cardWidth - 6.0, 16.0);
                             // L4863-4868
                             hoverColData = colData.table();
-                            hoverRowLabel = Some(concat(&rowData.get(n!("label")), "field 'label'"));
+                            hoverRowLabel =
+                                Some(concat(&rowData.get(n!("label")), "field 'label'"));
                             hoverRowX = x;
                             hoverRowY = lineY;
                             hoverRowW = cardWidth;
@@ -1790,11 +2035,16 @@ impl CompareTab {
                         // Label background and text
                         // L4872
                         let bgCol = rowData.get(n!("bgCol"));
-                        let bgCol = if bgCol.truthy() { bgCol } else { Val::from("^0") };
+                        let bgCol = if bgCol.truthy() {
+                            bgCol
+                        } else {
+                            Val::from("^0")
+                        };
                         // L4873-4876
                         if !rowHovered {
                             set_color_val(cx, &bgCol);
-                            cx.sg.draw_image(None, x + 2.0, lineY, labelWidth - 2.0, 18.0);
+                            cx.sg
+                                .draw_image(None, x + 2.0, lineY, labelWidth - 2.0, 18.0);
                         }
                         // L4877-4878
                         let textColor = rowData.get(n!("color"));
@@ -1818,9 +2068,11 @@ impl CompareTab {
                         // L4881-4886
                         if !rowHovered {
                             cx.sg.set_draw_color_esc(&sec.colour);
-                            cx.sg.draw_image(None, x + valCol1X - sepW, lineY, sepW, 18.0);
+                            cx.sg
+                                .draw_image(None, x + valCol1X - sepW, lineY, sepW, 18.0);
                             set_color_val(cx, &bgCol);
-                            cx.sg.draw_image(None, x + valCol1X, lineY, valColWidth, 18.0);
+                            cx.sg
+                                .draw_image(None, x + valCol1X, lineY, valColWidth, 18.0);
                         }
                         // L4887-4892
                         if colData.truthy() && format.truthy() {
@@ -1840,9 +2092,11 @@ impl CompareTab {
                         // L4895-4900
                         if !rowHovered {
                             cx.sg.set_draw_color_esc(&sec.colour);
-                            cx.sg.draw_image(None, x + valCol2X - sepW, lineY, sepW, 18.0);
+                            cx.sg
+                                .draw_image(None, x + valCol2X - sepW, lineY, sepW, 18.0);
                             set_color_val(cx, &bgCol);
-                            cx.sg.draw_image(None, x + valCol2X, lineY, valColWidth, 18.0);
+                            cx.sg
+                                .draw_image(None, x + valCol2X, lineY, valColWidth, 18.0);
                         }
                         // L4901-4906
                         if colData.truthy() && format.truthy() {
@@ -1913,7 +2167,13 @@ impl CompareTab {
     /// lua: CompareTab.lua:4936-5032 `CompareTabClass:DrawConfig(vp, compareEntry, headerOnly)`
     /// @pob Classes/CompareTab.lua:4936-5032 h=03d91a08
     #[allow(clippy::too_many_lines)]
-    pub fn DrawConfig(cx: &mut Cx, me: CtrlId, vp: &ViewPort, compareEntry: &CompareEntryRef, headerOnly: bool) {
+    pub fn DrawConfig(
+        cx: &mut Cx,
+        me: CtrlId,
+        vp: &ViewPort,
+        compareEntry: &CompareEntryRef,
+        headerOnly: bool,
+    ) {
         // L4937-4942
         let rowHeight = LAYOUT::configRowHeight;
         let columnHeaderHeight = LAYOUT::configColumnHeaderHeight;
@@ -1926,7 +2186,8 @@ impl CompareTab {
         // L4945-4947
         cx.sg.set_viewport(vp.x, vp.y, vp.width, fixedHeaderHeight);
         cx.sg.set_draw_color(0.05, 0.05, 0.05);
-        cx.sg.draw_image(None, 0.0, 0.0, vp.width, fixedHeaderHeight);
+        cx.sg
+            .draw_image(None, 0.0, 0.0, vp.width, fixedHeaderHeight);
         // Controls are drawn by ControlHost (positioned in LayoutConfigView)
         // L4949-4950
         let colHeaderY = 54.0;
@@ -1954,7 +2215,13 @@ impl CompareTab {
         );
         // L4957-4958
         cx.sg.set_draw_color(0.5, 0.5, 0.5);
-        cx.sg.draw_image(None, 4.0, colHeaderY + columnHeaderHeight + 4.0, vp.width - 8.0, 2.0);
+        cx.sg.draw_image(
+            None,
+            4.0,
+            colHeaderY + columnHeaderHeight + 4.0,
+            vp.width - 8.0,
+            2.0,
+        );
         // L4959-4962
         if headerOnly {
             cx.sg.reset_viewport();
@@ -1968,7 +2235,8 @@ impl CompareTab {
             cx.sg.reset_viewport();
             return;
         }
-        cx.sg.set_viewport(vp.x, vp.y + fixedHeaderHeight, vp.width, scrollH);
+        cx.sg
+            .set_viewport(vp.x, vp.y + fixedHeaderHeight, vp.width, scrollH);
 
         // Draw section boxes
         // L4973
@@ -1989,7 +2257,8 @@ impl CompareTab {
                 cx.sg.set_draw_color(0.66, 0.66, 0.66);
                 cx.sg.draw_image(None, boxX, boxY, sectionWidth, boxH);
                 cx.sg.set_draw_color(0.1, 0.1, 0.1);
-                cx.sg.draw_image(None, boxX + 2.0, boxY + 2.0, sectionWidth - 4.0, boxH - 4.0);
+                cx.sg
+                    .draw_image(None, boxX + 2.0, boxY + 2.0, sectionWidth - 4.0, boxH - 4.0);
                 cx.sg.set_draw_layer(None, Some(0));
 
                 // Draw section label badge
@@ -2001,11 +2270,20 @@ impl CompareTab {
                 // L4993-4999
                 let labelWidth = cx.sg.draw_string_width(14.0, Font::Var, &labelText);
                 cx.sg.set_draw_color(0.66, 0.66, 0.66);
-                cx.sg.draw_image(None, boxX + 6.0, boxY - 8.0, labelWidth + 6.0, 18.0);
+                cx.sg
+                    .draw_image(None, boxX + 6.0, boxY - 8.0, labelWidth + 6.0, 18.0);
                 cx.sg.set_draw_color(0.0, 0.0, 0.0);
-                cx.sg.draw_image(None, boxX + 7.0, boxY - 7.0, labelWidth + 4.0, 16.0);
+                cx.sg
+                    .draw_image(None, boxX + 7.0, boxY - 7.0, labelWidth + 4.0, 16.0);
                 cx.sg.set_draw_color(1.0, 1.0, 1.0);
-                cx.sg.draw_string(boxX + 9.0, boxY - 6.0, Align::Left, 14.0, Font::Var, &labelText);
+                cx.sg.draw_string(
+                    boxX + 9.0,
+                    boxY - 6.0,
+                    Align::Left,
+                    14.0,
+                    Font::Var,
+                    &labelText,
+                );
 
                 // Draw rows inside section
                 // L5002
@@ -2021,7 +2299,8 @@ impl CompareTab {
                         if row.isDiff {
                             cx.sg.set_draw_layer(None, Some(-5));
                             cx.sg.set_draw_color(0.18, 0.14, 0.08);
-                            cx.sg.draw_image(None, boxX + 3.0, rowY, sectionWidth - 6.0, rowHeight);
+                            cx.sg
+                                .draw_image(None, boxX + 3.0, rowY, sectionWidth - 6.0, rowHeight);
                             cx.sg.set_draw_layer(None, Some(0));
                         }
                         // Label (reduce font size for long labels, matching ConfigTab behavior)
@@ -2029,10 +2308,17 @@ impl CompareTab {
                         let labelStr: String = match (&varData.label, &varData.var) {
                             (Some(l), _) => l.to_string(),
                             (None, Some(v)) => v.to_string(),
-                            (None, None) => lua_error!("bad argument #3 to 'DrawStringWidth' (string expected, got nil)"),
+                            (None, None) => lua_error!(
+                                "bad argument #3 to 'DrawStringWidth' (string expected, got nil)"
+                            ),
                         };
                         // L5015
-                        let labelSize = if cx.sg.draw_string_width(14.0, Font::Var, &labelStr) > 228.0 { 12.0 } else { 14.0 };
+                        let labelSize =
+                            if cx.sg.draw_string_width(14.0, Font::Var, &labelStr) > 228.0 {
+                                12.0
+                            } else {
+                                14.0
+                            };
                         // L5016-5018
                         cx.sg.set_draw_color(1.0, 1.0, 1.0);
                         cx.sg.draw_string(
@@ -2053,8 +2339,12 @@ impl CompareTab {
 
         // L5026-5029
         if layout.is_empty() {
-            let text = format!("{}No configuration options to display.", cx.main.cc.POSITIVE);
-            cx.sg.draw_string(10.0, -scrollY, Align::Left, 16.0, Font::Var, &text);
+            let text = format!(
+                "{}No configuration options to display.",
+                cx.main.cc.POSITIVE
+            );
+            cx.sg
+                .draw_string(10.0, -scrollY, Align::Left, 16.0, Font::Var, &text);
         }
 
         // L5031

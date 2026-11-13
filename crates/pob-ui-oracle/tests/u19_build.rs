@@ -58,10 +58,7 @@ const POINT_STR: &str = "^7 12 / 123   ^7 0 / 8";
 const POINT_REQ: &str = "Required Level: 90\nEstimated Progress:\nActs: 10";
 
 fn inputs() -> Option<PathBuf> {
-    let root = pob_testpaths::require(
-        pob_testpaths::pob_root(),
-        "PoB checkout (.PathOfBuilding)",
-    )?;
+    let root = pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)")?;
     let dump = pob_testpaths::require(pob_testpaths::dump_dir(), "data/dump")?;
     assert!(pob_oracle::testkit::init_data(&dump), "data dump");
     let src = std::fs::canonicalize(root.join("src")).unwrap_or_else(|_| root.join("src"));
@@ -155,7 +152,10 @@ fn rust_setup(cx: &mut Cx, name: &str) {
         "newbuild" => pob_app::main_mode::on_frame::set_mode(
             cx,
             "BUILD",
-            vec![ModeArg::Bool(false), ModeArg::Str("Unnamed build".to_owned())],
+            vec![
+                ModeArg::Bool(false),
+                ModeArg::Str("Unnamed build".to_owned()),
+            ],
         ),
         other => panic!("unknown u19-setup {other}"),
     }
@@ -323,7 +323,7 @@ impl RustSide {
         });
         let mut app = pob_app::PobApp::new(parts);
         effects.borrow_mut().clear(); // Launch.lua:11 runs at script load, before tracing
-        // pob-ui-oracle patch 4's equivalent (CCR-0091)
+                                      // pob-ui-oracle patch 4's equivalent (CCR-0091)
         app.cx.app_mut().launch.force_release_install = true;
         RustSide {
             app,
@@ -522,7 +522,9 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
         .filter(|c| {
             matches!(
                 c.call,
-                ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
             )
         })
         .count()

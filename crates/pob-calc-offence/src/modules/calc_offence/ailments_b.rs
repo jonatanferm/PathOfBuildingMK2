@@ -116,8 +116,12 @@ fn ailmentDataOf(ctx: &OffenceCtx, ailment: Name) -> &'static pob_gamedata::Ailm
     let ad = ctx
         .ailmentData
         .unwrap_or_else(|| lua_error!("attempt to index upvalue 'ailmentData' (a nil value)"));
-    ad.get(&ailment)
-        .unwrap_or_else(|| lua_error!("attempt to index field '{}' (a nil value)", ailment.as_str()))
+    ad.get(&ailment).unwrap_or_else(|| {
+        lua_error!(
+            "attempt to index field '{}' (a nil value)",
+            ailment.as_str()
+        )
+    })
 }
 
 /// A sequence constructor `{ a, b, … }` of strings.
@@ -318,8 +322,9 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
         let overrideStackPotential: Option<f64> =
             if ov(skillModList.Override(None, nm!["IgniteStackPotentialOverride"])).is_some() {
                 Some(
-                    nn(ov(skillModList.Override(None, nm!["IgniteStackPotentialOverride"])))
-                        / maxStacks,
+                    nn(ov(
+                        skillModList.Override(None, nm!["IgniteStackPotentialOverride"])
+                    )) / maxStacks,
                 )
             } else {
                 None
@@ -425,8 +430,9 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                         k,
                         lfmt!(
                             "= %d / %d ^8(stack potential override / max ignite stacks)",
-                            nn(ov(skillModList
-                                .Override(None, nm!["IgniteStackPotentialOverride"]))),
+                            nn(ov(
+                                skillModList.Override(None, nm!["IgniteStackPotentialOverride"])
+                            )),
                             maxStacks
                         ),
                     );
@@ -449,7 +455,10 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                 tins(
                     gb,
                     k,
-                    lfmt!("%.2f ^8(chance to hit)", output.num(n!("HitChance")) / 100.0),
+                    lfmt!(
+                        "%.2f ^8(chance to hit)",
+                        output.num(n!("HitChance")) / 100.0
+                    ),
                 );
                 // L5057
                 tins(gb, k, lfmt!("* %.2f ^8(chance to ignite)", igniteChance));
@@ -546,22 +555,14 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
             // L5090
             if igniteStacks >= maxStacks {
                 // L5091
-                tins(
-                    gb,
-                    k,
-                    lfmt!("%.2f - (%.2f - 1)/2", igniteStacks, maxStacks),
-                );
+                tins(gb, k, lfmt!("%.2f - (%.2f - 1)/2", igniteStacks, maxStacks));
                 // L5092
                 tins(gb, k, lfmt!("/ (%.2f + 1)", igniteStacks));
                 // L5093
                 tins(gb, k, lfmt!("= %.2f%%", igniteRollAverage));
             } else {
                 // L5095
-                tins(
-                    gb,
-                    k,
-                    lfmt!("50%% (averaging <= %d ignites)", maxStacks),
-                );
+                tins(gb, k, lfmt!("50%% (averaging <= %d ignites)", maxStacks));
             }
         }
 
@@ -602,8 +603,7 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                 totalMax = totalMax + max;
             }
             // L5110
-            if canDeal.truthy(n!("Lightning")) && skillModList.Flag(c, nm!["LightningCanIgnite"])
-            {
+            if canDeal.truthy(n!("Lightning")) && skillModList.Flag(c, nm!["LightningCanIgnite"]) {
                 // L5111
                 let (min, max) = calcAilmentSourceDamage(
                     &activeSkill,
@@ -780,7 +780,11 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
         // -- over-stacking ignite stacks increases the chance a critical ignite is present
         // L5183
         let ailmentCritChance = 100.0
-            * (1.0 - m_pow(1.0 - output.num(n!("CritChance")) / 100.0, m_max(1.0, igniteStacks)));
+            * (1.0
+                - m_pow(
+                    1.0 - output.num(n!("CritChance")) / 100.0,
+                    m_max(1.0, igniteStacks),
+                ));
         // L5184
         let baseMinVal = closures::calcAilmentDamage(
             ctx,
@@ -857,7 +861,11 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                     // L5197
                     if let Some(b) = breakdown.as_ref().filter(|_| effMult != 1.0) {
                         // L5198
-                        let sourceRes = if env.modDB.get().Flag(None, nm!["EnemyChaosResistEqualToYours"]) {
+                        let sourceRes = if env
+                            .modDB
+                            .get()
+                            .Flag(None, nm!["EnemyChaosResistEqualToYours"])
+                        {
                             n!("Your Chaos Resistance")
                         } else if partyModDBFlag(&env, n!("EnemyChaosResistEqualToYours")) {
                             n!("Party Member Chaos Resistance")
@@ -912,7 +920,11 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                     // L5207
                     if let Some(b) = breakdown.as_ref().filter(|_| effMult != 1.0) {
                         // L5208
-                        let sourceRes = if env.modDB.get().Flag(None, nm!["EnemyFireResistEqualToYours"]) {
+                        let sourceRes = if env
+                            .modDB
+                            .get()
+                            .Flag(None, nm!["EnemyFireResistEqualToYours"])
+                        {
                             n!("Your Fire Resistance")
                         } else if partyModDBFlag(&env, n!("EnemyFireResistEqualToYours")) {
                             n!("Party Member Fire Resistance")
@@ -1090,7 +1102,10 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                     tins(
                         b,
                         k,
-                        lfmt!("x %.3f ^8(effective DPS modifier from enemy debuffs)", effMult),
+                        lfmt!(
+                            "x %.3f ^8(effective DPS modifier from enemy debuffs)",
+                            effMult
+                        ),
                     );
                 }
                 // L5272
@@ -1278,10 +1293,7 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                     let gb = gbOrRaise(&globalBreakdown);
                     let k = n!("IgniteDuration");
                     // L5314
-                    gb.set(
-                        k,
-                        seq(vec![lfmt!("%.2fs ^8(base duration)", durationBase)]),
-                    );
+                    gb.set(k, seq(vec![lfmt!("%.2fs ^8(base duration)", durationBase)]));
                     // L5317
                     if durationMod != 1.0 {
                         // L5318
@@ -1317,7 +1329,8 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
 
     // -- Calculate non-damaging ailments effect and duration modifiers
     // L5333
-    let isBoss = !matches!(env.configInput.get(n!("enemyIsBoss")), Val::Str(ref s) if &**s == "None");
+    let isBoss =
+        !matches!(env.configInput.get(n!("enemyIsBoss")), Val::Str(ref s) if &**s == "None");
     let enemyLevel = env.enemyLevel.get();
     // L5334
     let enemyAilmentThreshold = seqIndex(&data().monsterAilmentThresholdTable, enemyLevel);
@@ -1351,7 +1364,9 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
     // L5341
     let enemyTypeMult = if isBoss { 7.68 } else { 1.0 };
     // L5342
-    let enemyThreshold = nn(enemyAilmentThreshold) * enemyTypeMult * nn(enemyMapLifeMult)
+    let enemyThreshold = nn(enemyAilmentThreshold)
+        * enemyTypeMult
+        * nn(enemyMapLifeMult)
         * enemyDB.More(None, nm!["Life"])
         * nn(enemyMapAilmentMult)
         * enemyDB.More(None, nm!["AilmentThreshold"]);
@@ -1493,7 +1508,11 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                 n!("FreezeDurationMod"),
                 seq(vec![lfmt!(
                     "Ailment mode: %s ^8(can be changed in the Configuration tab)",
-                    if isCritMode { "Crits Only" } else { "Average Damage" }
+                    if isCritMode {
+                        "Crits Only"
+                    } else {
+                        "Average Damage"
+                    }
                 )]),
             );
         }
@@ -1564,7 +1583,11 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                     cat!(ailment, "EffectMod"),
                     seq(vec![lfmt!(
                         "Ailment mode: %s ^8(can be changed in the Configuration tab)",
-                        if isCritMode { "Crits Only" } else { "Average Damage" }
+                        if isCritMode {
+                            "Crits Only"
+                        } else {
+                            "Average Damage"
+                        }
                     )]),
                 );
             }
@@ -1687,7 +1710,10 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                         val.effList.push(current);
                     }
                     // L5455
-                    if desired > 0.0 && isValueInArray(&val.effList, &desired).is_none() && current == 0.0 {
+                    if desired > 0.0
+                        && isValueInArray(&val.effList, &desired).is_none()
+                        && current == 0.0
+                    {
                         // L5456
                         val.effList.push(desired);
                     }
@@ -1701,10 +1727,7 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                     } else {
                         String::new()
                     };
-                    sub(b, dpsKey).set(
-                        n!("label"),
-                        format!("Resulting ailment effect{suffix}"),
-                    );
+                    sub(b, dpsKey).set(n!("label"), format!("Resulting ailment effect{suffix}"));
                     // L5459
                     sub(b, dpsKey).set(
                         n!("footer"),
@@ -1718,7 +1741,10 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                     // L5461
                     let colList = Table::new();
                     colList.push(tbl!(label = "Ailment Threshold", key = "thresh"));
-                    colList.push(tbl!(label = format!("{} Effect", ailment.as_str()), key = "effect"));
+                    colList.push(tbl!(
+                        label = format!("{} Effect", ailment.as_str()),
+                        key = "effect"
+                    ));
                     sub(b, dpsKey).set(n!("colList"), colList);
                     // L5465
                     pob_lua::sort::sort_default(&mut val.effList);
@@ -1810,7 +1836,10 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                         tins(
                             b,
                             k,
-                            lfmt!("x %.2f ^8(increased/reduced duration)", 1.0 + incDur / 100.0),
+                            lfmt!(
+                                "x %.2f ^8(increased/reduced duration)",
+                                1.0 + incDur / 100.0
+                            ),
                         );
                     }
                     // L5503
@@ -1831,7 +1860,11 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
                         );
                     }
                     // L5509
-                    tins(b, k, lfmt!("= %.2fs", output.num(cat!(ailment, "Duration"))));
+                    tins(
+                        b,
+                        k,
+                        lfmt!("= %.2fs", output.num(cat!(ailment, "Duration"))),
+                    );
                 }
             }
         }
@@ -2019,7 +2052,11 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
             // L5586
             if enemyActionSpeed != 1.0 {
                 // L5587
-                tins(b, k, lfmt!("/ %.2f ^8(enemy action speed)", enemyActionSpeed));
+                tins(
+                    b,
+                    k,
+                    lfmt!("/ %.2f ^8(enemy action speed)", enemyActionSpeed),
+                );
                 // L5588
                 tins(
                     b,
@@ -2061,7 +2098,8 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
         // L5601
         let maxStacks = skillModList.Sum(ModType::BASE, c, nm!["ImpaleStacksMax"])
             * (1.0
-                + skillModList.Sum(ModType::BASE, c, nm!["ImpaleAdditionalDurationChance"]) / 100.0);
+                + skillModList.Sum(ModType::BASE, c, nm!["ImpaleAdditionalDurationChance"])
+                    / 100.0);
         // L5602
         let configStacks = enemyDB.Sum(ModType::BASE, c, nm!["Multiplier:ImpaleStacks"]);
         // L5603
@@ -2102,11 +2140,7 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
             m_max(
                 0.0,
                 enemyDB.Sum(ModType::BASE, None, nm!["PhysicalDamageReduction"])
-                    + skillModList.Sum(
-                        ModType::BASE,
-                        c,
-                        nm!["EnemyImpalePhysicalDamageReduction"],
-                    )
+                    + skillModList.Sum(ModType::BASE, c, nm!["EnemyImpalePhysicalDamageReduction"])
                     + impaleArmourReduction,
             ),
             misc.EnemyPhysicalDamageReductionCap,
@@ -2197,7 +2231,11 @@ pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) 
             // L5642
             if impaleTaken != 1.0 {
                 // L5643
-                tins(b, k, lfmt!("x %.2f ^8(impale enemy damage taken)", impaleTaken));
+                tins(
+                    b,
+                    k,
+                    lfmt!("x %.2f ^8(impale enemy damage taken)", impaleTaken),
+                );
             }
             // L5645
             tins(

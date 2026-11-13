@@ -112,7 +112,10 @@ fn xml_unescape(s: &str) -> String {
             "quot" => out.push('"'),
             "apos" => out.push('\''),
             e if e.starts_with("#x") => {
-                if let Some(c) = u32::from_str_radix(&e[2..], 16).ok().and_then(char::from_u32) {
+                if let Some(c) = u32::from_str_radix(&e[2..], 16)
+                    .ok()
+                    .and_then(char::from_u32)
+                {
                     out.push(c);
                 }
             }
@@ -277,7 +280,11 @@ fn fix_json(j: &mut J) {
             let entries: Vec<(String, J)> = std::mem::take(o).into_iter().collect();
             for (k, mut v) in entries {
                 fix_json(&mut v);
-                let k = if k.bytes().any(|b| b >= 0x80) { bytes_str(&k) } else { k };
+                let k = if k.bytes().any(|b| b >= 0x80) {
+                    bytes_str(&k)
+                } else {
+                    k
+                };
                 o.insert(k, v);
             }
         }
@@ -335,12 +342,19 @@ fn norm(m: &Mod) -> Mod {
 
 fn mods_eq(rust: &[Mod], lua: &[Mod], path: &str, diffs: &mut Vec<String>) {
     if rust.len() != lua.len() {
-        diffs.push(format!("{path}: {} mods in rust, {} in lua", rust.len(), lua.len()));
+        diffs.push(format!(
+            "{path}: {} mods in rust, {} in lua",
+            rust.len(),
+            lua.len()
+        ));
         let n = rust.len().max(lua.len());
         for i in 0..n {
             let (a, b) = (rust.get(i).map(norm), lua.get(i).map(norm));
             if a != b {
-                diffs.push(format!("{path}[{}]: first difference\n      rust={a:?}\n      lua ={b:?}", i + 1));
+                diffs.push(format!(
+                    "{path}[{}]: first difference\n      rust={a:?}\n      lua ={b:?}",
+                    i + 1
+                ));
                 break;
             }
         }
@@ -349,7 +363,10 @@ fn mods_eq(rust: &[Mod], lua: &[Mod], path: &str, diffs: &mut Vec<String>) {
     for (i, (a, b)) in rust.iter().zip(lua).enumerate() {
         let (a, b) = (norm(a), norm(b));
         if a != b {
-            diffs.push(format!("{path}[{}]:\n      rust={a:?}\n      lua ={b:?}", i + 1));
+            diffs.push(format!(
+                "{path}[{}]:\n      rust={a:?}\n      lua ={b:?}",
+                i + 1
+            ));
         }
     }
 }
@@ -403,7 +420,10 @@ fn cshow(c: &C) -> String {
         C::Other(r) => r.clone(),
     };
     if s.len() > 300 {
-        format!("{}…", &s[..s.char_indices().nth(300).map_or(s.len(), |(i, _)| i)])
+        format!(
+            "{}…",
+            &s[..s.char_indices().nth(300).map_or(s.len(), |(i, _)| i)]
+        )
     } else {
         s
     }
@@ -424,7 +444,12 @@ fn ceq(a: &C, b: &C, path: &str, diffs: &mut Vec<String>) {
         (C::T(x), C::T(y)) => {
             for k in x.keys().chain(y.keys().filter(|k| !x.contains_key(k))) {
                 let p = format!("{path}.{}", ck_show(k));
-                ceq(x.get(k).unwrap_or(&C::Nil), y.get(k).unwrap_or(&C::Nil), &p, diffs);
+                ceq(
+                    x.get(k).unwrap_or(&C::Nil),
+                    y.get(k).unwrap_or(&C::Nil),
+                    &p,
+                    diffs,
+                );
             }
             true
         }
@@ -482,7 +507,10 @@ fn c_from_value(v: &Value) -> C {
         Value::Num(n) => C::N(*n),
         Value::Str(s) => C::S(s.to_string()),
         Value::Mod(m) => C::Mods(vec![(**m).clone()]),
-        Value::JewelFunc(f) => C::S(format!("$jf:{}", f.r#type.map_or("nil".to_owned(), |t| t.to_string()))),
+        Value::JewelFunc(f) => C::S(format!(
+            "$jf:{}",
+            f.r#type.map_or("nil".to_owned(), |t| t.to_string())
+        )),
         Value::Table(t) => {
             let mut m = BTreeMap::new();
             for (i, x) in t.array.iter().enumerate() {
@@ -539,7 +567,8 @@ fn shared_list(l: &pob_lua::Shared<Vec<Table>>) -> C {
 }
 
 fn list_mods(l: &Option<ModList>) -> Option<Vec<Mod>> {
-    l.as_ref().map(|l| l.ipairs().into_iter().map(|m| (*m).clone()).collect())
+    l.as_ref()
+        .map(|l| l.ipairs().into_iter().map(|m| (*m).clone()).collect())
 }
 
 /// The jewelData table with `funcList` as `$jf:<type>` strings (as the oracle writes it).
@@ -550,10 +579,12 @@ fn jewel_c(t: Option<Table>) -> C {
         if let Some(C::T(fl)) = m.get_mut(&CK::S("funcList".into())) {
             for v in fl.values_mut() {
                 if let C::T(f) = v {
-                    let ty = f.get(&CK::S("type".into())).map_or("false".to_owned(), |x| match x {
-                        C::S(s) => s.clone(),
-                        _ => "false".into(),
-                    });
+                    let ty = f
+                        .get(&CK::S("type".into()))
+                        .map_or("false".to_owned(), |x| match x {
+                            C::S(s) => s.clone(),
+                            _ => "false".into(),
+                        });
                     *v = C::S(format!("$jf:{ty}"));
                 }
             }
@@ -577,7 +608,11 @@ impl Tally {
             e.0 += 1;
         } else {
             e.1 += 1;
-            let n = self.fails.iter().filter(|f| f.starts_with(&format!("[{cat}]"))).count();
+            let n = self
+                .fails
+                .iter()
+                .filter(|f| f.starts_with(&format!("[{cat}]")))
+                .count();
             if self.fails.len() < 80 && n < 6 {
                 self.fails.push(format!("[{cat}] {}", what()));
             }
@@ -596,10 +631,22 @@ fn mods_check(t: &mut Tally, cat: &'static str, src: &str, rust: Option<Vec<Mod>
     match (&rust, &lua) {
         (None, None) => {}
         (Some(a), Some(b)) => mods_eq(a, b, cat, &mut diffs),
-        _ => diffs.push(format!("{cat}: rust is {}, lua is {}", rust.is_some(), lua.is_some())),
+        _ => diffs.push(format!(
+            "{cat}: rust is {}, lua is {}",
+            rust.is_some(),
+            lua.is_some()
+        )),
     }
     t.check(cat, diffs.is_empty(), || {
-        format!("{src}: {}", diffs.iter().take(3).cloned().collect::<Vec<_>>().join("\n    "))
+        format!(
+            "{src}: {}",
+            diffs
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n    ")
+        )
     });
 }
 
@@ -607,7 +654,15 @@ fn c_check(t: &mut Tally, cat: &'static str, src: &str, rust: &C, lua: &C) {
     let mut diffs = Vec::new();
     ceq(rust, lua, cat, &mut diffs);
     t.check(cat, diffs.is_empty(), || {
-        format!("{src}: {}", diffs.iter().take(4).cloned().collect::<Vec<_>>().join("\n    "))
+        format!(
+            "{src}: {}",
+            diffs
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n    ")
+        )
     });
 }
 
@@ -615,34 +670,56 @@ fn c_check(t: &mut Tally, cat: &'static str, src: &str, rust: &C, lua: &C) {
 fn rust_fields(item: &Item) -> BTreeMap<&'static str, C> {
     let num = |x: Option<f64>| x.map_or(C::Nil, C::N);
     let mut m = BTreeMap::new();
-    m.insert("requirements", c_from_val(&Val::Table(item.requirements.clone())));
+    m.insert(
+        "requirements",
+        c_from_val(&Val::Table(item.requirements.clone())),
+    );
     m.insert("grantedSkills", shared_list(&item.grantedSkills.get()));
     // the sockets list carries the string key `colourAlwaysMatches` in Lua (CCR-0019 §7: the
     // port keeps it in `Item.extra`)
     let mut sockets = shared_list(&item.sockets.get());
-    if let (C::T(s), cam @ Val::Bool(true)) = (&mut sockets, item.extra.get(Name::from("colourAlwaysMatches"))) {
+    if let (C::T(s), cam @ Val::Bool(true)) = (
+        &mut sockets,
+        item.extra.get(Name::from("colourAlwaysMatches")),
+    ) {
         s.insert(CK::S("colourAlwaysMatches".into()), c_from_val(&cam));
     }
     m.insert("sockets", sockets);
     m.insert("abyssalSocketCount", C::N(item.abyssalSocketCount.get()));
-    for k in ["selectableSocketCount", "socketedJewelEffectModifier", "hasModTags", "craftedQuality", "corruptImplicitCount"] {
+    for k in [
+        "selectableSocketCount",
+        "socketedJewelEffectModifier",
+        "hasModTags",
+        "craftedQuality",
+        "corruptImplicitCount",
+    ] {
         m.insert(k, c_from_val(&item.extra.get(Name::from(k))));
     }
     m.insert(
         "classRestriction",
-        item.classRestriction.get().map_or(C::Nil, |n| C::S(n.to_string())),
+        item.classRestriction
+            .get()
+            .map_or(C::Nil, |n| C::S(n.to_string())),
     );
     m.insert("quality", num(item.quality.get()));
     m.insert(
         "clusterJewelSkill",
-        item.clusterJewelSkill.get().map_or(C::Nil, |n| C::S(n.to_string())),
+        item.clusterJewelSkill
+            .get()
+            .map_or(C::Nil, |n| C::S(n.to_string())),
     );
-    m.insert("clusterJewelNodeCount", num(item.clusterJewelNodeCount.get()));
+    m.insert(
+        "clusterJewelNodeCount",
+        num(item.clusterJewelNodeCount.get()),
+    );
     m.insert(
         "modSource",
         item.modSource.get().map_or(C::Nil, |s| C::S(s.to_string())),
     );
-    m.insert("colourAlwaysMatches", c_from_val(&item.extra.get(Name::from("colourAlwaysMatches"))));
+    m.insert(
+        "colourAlwaysMatches",
+        c_from_val(&item.extra.get(Name::from("colourAlwaysMatches"))),
+    );
     m
 }
 
@@ -692,7 +769,8 @@ fn check_parse(t: &mut Tally, src: &str, item: &Item, p: &J, can: &Rc<RefCell<Ca
         c.mismatches.clear();
         c.calls = 0;
         for e in p["can"].as_array().into_iter().flatten() {
-            c.lua.insert(e[0].as_str().unwrap().to_owned(), e[1].as_bool().unwrap());
+            c.lua
+                .insert(e[0].as_str().unwrap().to_owned(), e[1].as_bool().unwrap());
         }
     }
     // set-up (ItemsTab.lua:1224-1243)
@@ -725,7 +803,12 @@ fn check_parse(t: &mut Tally, src: &str, item: &Item, p: &J, can: &Rc<RefCell<Ca
     {
         let c = can.borrow();
         t.check("CanHaveMod results", c.mismatches.is_empty(), || {
-            format!("{src}: {} of {} calls differ: {:?}", c.mismatches.len(), c.calls, &c.mismatches[..c.mismatches.len().min(5)])
+            format!(
+                "{src}: {} of {} calls differ: {:?}",
+                c.mismatches.len(),
+                c.calls,
+                &c.mismatches[..c.mismatches.len().min(5)]
+            )
         });
     }
     if r.is_err() || lua_err.is_some() {
@@ -737,26 +820,94 @@ fn check_parse(t: &mut Tally, src: &str, item: &Item, p: &J, can: &Rc<RefCell<Ca
         return;
     }
     // mod lists
-    mods_check(t, "modList", src, list_mods(&item.modList.get()), &out["modList"]);
+    mods_check(
+        t,
+        "modList",
+        src,
+        list_mods(&item.modList.get()),
+        &out["modList"],
+    );
     match out["slotModList"].as_array() {
         Some(s) => {
-            mods_check(t, "slotModList[1]", src, list_mods(&item.slotModList[0].get()), &s[0]);
-            mods_check(t, "slotModList[2]", src, list_mods(&item.slotModList[1].get()), &s[1]);
-            mods_check(t, "slotModList[3]", src, list_mods(&item.slotModList[2].get()), &s[2]);
+            mods_check(
+                t,
+                "slotModList[1]",
+                src,
+                list_mods(&item.slotModList[0].get()),
+                &s[0],
+            );
+            mods_check(
+                t,
+                "slotModList[2]",
+                src,
+                list_mods(&item.slotModList[1].get()),
+                &s[1],
+            );
+            mods_check(
+                t,
+                "slotModList[3]",
+                src,
+                list_mods(&item.slotModList[2].get()),
+                &s[2],
+            );
         }
         None => {
             let any = item.slotModList.iter().any(|l| l.get().is_some());
-            t.check("slotModList[1]", !any, || format!("{src}: rust has slot lists, lua none"));
+            t.check("slotModList[1]", !any, || {
+                format!("{src}: rust has slot lists, lua none")
+            });
         }
     }
-    mods_check(t, "baseModList", src, list_mods(&item.baseModList.get()), &out["baseModList"]);
-    mods_check(t, "buffModList", src, list_mods(&item.buffModList.get()), &out["buffModList"]);
+    mods_check(
+        t,
+        "baseModList",
+        src,
+        list_mods(&item.baseModList.get()),
+        &out["baseModList"],
+    );
+    mods_check(
+        t,
+        "buffModList",
+        src,
+        list_mods(&item.buffModList.get()),
+        &out["buffModList"],
+    );
     // data tables
-    c_check(t, "weaponData", src, &opt_table(item.weaponData.get()), &c_from_lua(&out["weaponData"]));
-    c_check(t, "armourData", src, &opt_table(item.armourData.get()), &c_from_lua(&out["armourData"]));
-    c_check(t, "flaskData", src, &opt_table(item.flaskData.get()), &c_from_lua(&out["flaskData"]));
-    c_check(t, "tinctureData", src, &opt_table(item.tinctureData.get()), &c_from_lua(&out["tinctureData"]));
-    c_check(t, "jewelData", src, &jewel_c(item.jewelData.get()), &c_from_lua(&out["jewelData"]));
+    c_check(
+        t,
+        "weaponData",
+        src,
+        &opt_table(item.weaponData.get()),
+        &c_from_lua(&out["weaponData"]),
+    );
+    c_check(
+        t,
+        "armourData",
+        src,
+        &opt_table(item.armourData.get()),
+        &c_from_lua(&out["armourData"]),
+    );
+    c_check(
+        t,
+        "flaskData",
+        src,
+        &opt_table(item.flaskData.get()),
+        &c_from_lua(&out["flaskData"]),
+    );
+    c_check(
+        t,
+        "tinctureData",
+        src,
+        &opt_table(item.tinctureData.get()),
+        &c_from_lua(&out["tinctureData"]),
+    );
+    c_check(
+        t,
+        "jewelData",
+        src,
+        &jewel_c(item.jewelData.get()),
+        &c_from_lua(&out["jewelData"]),
+    );
     // fields
     let rf = rust_fields(item);
     let lf = out["fields"].as_object().expect("fields");
@@ -769,7 +920,15 @@ fn check_parse(t: &mut Tally, src: &str, item: &Item, p: &J, can: &Rc<RefCell<Ca
         ceq(rv, &lv, k, &mut diffs);
     }
     t.check("item fields", diffs.is_empty(), || {
-        format!("{src}: {}", diffs.iter().take(4).cloned().collect::<Vec<_>>().join("\n    "))
+        format!(
+            "{src}: {}",
+            diffs
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n    ")
+        )
     });
     // rangeLineList
     let rl = match item.extra.get(Name::from("rangeLineList")) {
@@ -783,17 +942,35 @@ fn check_parse(t: &mut Tally, src: &str, item: &Item, p: &J, can: &Rc<RefCell<Ca
         }
         _ => C::Nil,
     };
-    c_check(t, "rangeLineList", src, &rl, &c_from_lua(&out["rangeLineList"]));
+    c_check(
+        t,
+        "rangeLineList",
+        src,
+        &rl,
+        &c_from_lua(&out["rangeLineList"]),
+    );
     // mod lines
     for name in LINE_LISTS {
         let lua_lines = out["lines"][name].as_array().cloned().unwrap_or_default();
         let rust_lines = line_list(item, name);
-        t.check("mod line count", lua_lines.len() == rust_lines.len(), || {
-            format!("{src}: {name}: rust {} lua {}", rust_lines.len(), lua_lines.len())
-        });
+        t.check(
+            "mod line count",
+            lua_lines.len() == rust_lines.len(),
+            || {
+                format!(
+                    "{src}: {name}: rust {} lua {}",
+                    rust_lines.len(),
+                    lua_lines.len()
+                )
+            },
+        );
         for (i, (rl, ll)) in rust_lines.iter().zip(&lua_lines).enumerate() {
             let at = format!("{src} {name}[{}] {:?}", i + 1, rl.get(Name::from("line")));
-            t.check("mod line showSlider", rl.truthy(Name::from("showSlider")) == (ll["showSlider"] == J::Bool(true)), || at.clone());
+            t.check(
+                "mod line showSlider",
+                rl.truthy(Name::from("showSlider")) == (ll["showSlider"] == J::Bool(true)),
+                || at.clone(),
+            );
             let rm: Option<Vec<Mod>> = rl.table(Name::from("modList")).map(|m| {
                 m.ipairs()
                     .into_iter()
@@ -807,7 +984,13 @@ fn check_parse(t: &mut Tally, src: &str, item: &Item, p: &J, can: &Rc<RefCell<Ca
             let f = fmt_c(catch(|| itemLib::formatModLine(rl, false)));
             c_check(t, "formatModLine", &at, &f, &c_from_lua(&ll["fmt"]));
             let f = fmt_c(catch(|| itemLib::formatModLine(rl, true)));
-            c_check(t, "formatModLine (dbMode)", &at, &f, &c_from_lua(&ll["fmtDb"]));
+            c_check(
+                t,
+                "formatModLine (dbMode)",
+                &at,
+                &f,
+                &c_from_lua(&ll["fmtDb"]),
+            );
             if !ll["scal"].is_null() {
                 let line = rl.get(Name::from("line"));
                 let s = catch(|| {
@@ -821,7 +1004,9 @@ fn check_parse(t: &mut Tally, src: &str, item: &Item, p: &J, can: &Rc<RefCell<Ca
                     Ok(b) => J::Bool(b),
                     Err(_) => J::String("err".into()),
                 };
-                t.check("isModLineScalable", rc == ll["scal"], || format!("{at}: rust={rc} lua={}", ll["scal"]));
+                t.check("isModLineScalable", rc == ll["scal"], || {
+                    format!("{at}: rust={rc} lua={}", ll["scal"])
+                });
             }
         }
     }
@@ -939,13 +1124,25 @@ fn item_mods_vs_pob() {
     t.check(
         "main.defaultItemAffixQuality",
         daq == item_parse::main_defaultItemAffixQuality(),
-        || format!("rust={:?} lua={daq:?}", item_parse::main_defaultItemAffixQuality()),
+        || {
+            format!(
+                "rust={:?} lua={daq:?}",
+                item_parse::main_defaultItemAffixQuality()
+            )
+        },
     );
     t.check(
         "main.notSupportedModTooltips",
-        header["notSupportedModTooltips"].as_bool() == Some(itemLib::main_notSupportedModTooltips())
-            && header["notSupportedTooltipText"].as_str() == Some(itemLib::main_notSupportedTooltipText),
-        || format!("lua={} {}", header["notSupportedModTooltips"], header["notSupportedTooltipText"]),
+        header["notSupportedModTooltips"].as_bool()
+            == Some(itemLib::main_notSupportedModTooltips())
+            && header["notSupportedTooltipText"].as_str()
+                == Some(itemLib::main_notSupportedTooltipText),
+        || {
+            format!(
+                "lua={} {}",
+                header["notSupportedModTooltips"], header["notSupportedTooltipText"]
+            )
+        },
     );
     t.check(
         "launch.devModeAlt",
@@ -999,7 +1196,9 @@ fn item_mods_vs_pob() {
             })),
         });
     }
-    tools_replay::set(tools_replay::Hooks { parseMod: Some(pm.clone()) });
+    tools_replay::set(tools_replay::Hooks {
+        parseMod: Some(pm.clone()),
+    });
 
     let t1 = std::time::Instant::now();
     let only = std::env::var("IT_C_ONLY").ok();
@@ -1021,7 +1220,10 @@ fn item_mods_vs_pob() {
         fix_json(&mut rec);
         match rec["t"].as_str() {
             Some("P") => {
-                let key = (rec["line"].as_str().unwrap().to_owned(), rec["comb"].as_bool().unwrap());
+                let key = (
+                    rec["line"].as_str().unwrap().to_owned(),
+                    rec["comb"].as_bool().unwrap(),
+                );
                 let mods = decode_mods(&rec["mods"]);
                 let extra = rec["extra"].as_str().map(str::to_owned);
                 parse.borrow_mut().entry(key).or_insert((mods, extra));
@@ -1052,7 +1254,9 @@ fn item_mods_vs_pob() {
                 if only.as_deref().is_some_and(|o| !src.contains(o)) {
                     continue;
                 }
-                *kinds.entry(rec["kind"].as_str().unwrap_or("?").to_owned()).or_default() += 1;
+                *kinds
+                    .entry(rec["kind"].as_str().unwrap_or("?").to_owned())
+                    .or_default() += 1;
                 let item = Item::default();
                 for p in rec["parses"].as_array().unwrap() {
                     check_parse(&mut t, &src, &item, p, &can);
@@ -1079,7 +1283,10 @@ fn item_mods_vs_pob() {
     tools_replay::clear();
     let nmiss = misses.borrow().len();
     t.check("parseMod replay misses", nmiss == 0, || {
-        format!("{nmiss} calls PoB did not make, e.g. {:?}", &misses.borrow()[..nmiss.min(5)])
+        format!(
+            "{nmiss} calls PoB did not make, e.g. {:?}",
+            &misses.borrow()[..nmiss.min(5)]
+        )
     });
 
     eprintln!(
@@ -1093,11 +1300,19 @@ fn item_mods_vs_pob() {
     for f in &t.fails {
         eprintln!("FAIL {f}");
     }
-    assert_eq!(t.failed(), 0, "{} IT-C mismatches (first ones above)", t.failed());
+    assert_eq!(
+        t.failed(),
+        0,
+        "{} IT-C mismatches (first ones above)",
+        t.failed()
+    );
     if std::env::var_os("IT_C_ONLY").is_some() {
         return;
     }
-    assert!(kinds.get("unique").copied().unwrap_or(0) > 0, "no uniques checked");
+    assert!(
+        kinds.get("unique").copied().unwrap_or(0) > 0,
+        "no uniques checked"
+    );
     assert_eq!(
         kinds.get("synthetic").copied().unwrap_or(0),
         SYNTH.len(),
@@ -1141,16 +1356,32 @@ fn item_tools_units() {
     assert!(itemLib::isZeroValueLine("+0% to Fire Resistance"));
     assert!(itemLib::isZeroValueLine("Adds 0-0 Fire Damage"));
     assert!(!itemLib::isZeroValueLine("Adds 0 to 10 Fire Damage"));
-    assert_eq!(itemLib::applyValueScalar("+10 to Strength", None, None, Some(1.0), None), "+10 to Strength");
-    assert_eq!(itemLib::applyValueScalar("+10 to Strength", Some(1.5), None, Some(1.0), None), "+15 to Strength");
-    assert_eq!(itemLib::formatValue(0.5, None, None, Some(10.0), Some(1.0), false), "0.5");
+    assert_eq!(
+        itemLib::applyValueScalar("+10 to Strength", None, None, Some(1.0), None),
+        "+10 to Strength"
+    );
+    assert_eq!(
+        itemLib::applyValueScalar("+10 to Strength", Some(1.5), None, Some(1.0), None),
+        "+15 to Strength"
+    );
+    assert_eq!(
+        itemLib::formatValue(0.5, None, None, Some(10.0), Some(1.0), false),
+        "0.5"
+    );
     // a nil precision raises (Lua `value * precision`)
     assert!(catch(|| itemLib::formatValue(1.0, None, None, None, None, false)).is_err());
     if init_data() {
         // fallback path with a list range raises: `range * …` on a table (ItemTools.lua:310)
         let t = Table::new();
         t.push(0.5);
-        let r = catch(|| itemLib::applyRange("+(10-20) to Unscalable Nonsense Stat - x", &Val::Table(t), None, None));
+        let r = catch(|| {
+            itemLib::applyRange(
+                "+(10-20) to Unscalable Nonsense Stat - x",
+                &Val::Table(t),
+                None,
+                None,
+            )
+        });
         let _ = r; // the result depends on modScalability; both outcomes are checked by the oracle test
         assert_eq!(
             itemLib::applyRange("+(10-20) to maximum Life", &Val::Num(0.5), None, None),

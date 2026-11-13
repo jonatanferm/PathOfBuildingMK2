@@ -640,7 +640,11 @@ mod tests {
             body: None,
             user_agent: None,
         });
-        assert!(!h.join().unwrap().to_ascii_lowercase().contains("content-type"));
+        assert!(!h
+            .join()
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("content-type"));
         let (url, h) = serve("404 Not Found", "nope");
         let r = download(&HttpRequest {
             url,

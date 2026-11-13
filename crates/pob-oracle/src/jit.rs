@@ -318,7 +318,10 @@ impl JitPob {
     /// encoder's own table, not a global. A no-op when no encoder was loaded.
     pub fn install_probe_upvalue_reader(&self) -> Result<(), String> {
         let g = self.lua.globals();
-        let Some(s) = g.raw_get::<Option<mlua::Table>>("__state_dump").map_err(err)? else {
+        let Some(s) = g
+            .raw_get::<Option<mlua::Table>>("__state_dump")
+            .map_err(err)?
+        else {
             return Ok(());
         };
         let f = new_upvalue_reader(&self.lua).map_err(err)?;

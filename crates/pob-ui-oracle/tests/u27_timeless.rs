@@ -165,10 +165,12 @@ fn rust_stubs() {
         let all_tabs = h.draw_tab.clone();
         h.draw_tab = Rc::new(move |cx, tab, vp, ev| {
             if tab == of::BuildTab::Items {
-                let sel = pob_app::tabs::tree::core::items_spec_select(cx).expect("U33's specSelect");
+                let sel =
+                    pob_app::tabs::tree::core::items_spec_select(cx).expect("U33's specSelect");
                 let line = format!(
                     "^7specSelect: {}",
-                    cx.w::<pob_ui_core::controls::DropDownControl>(sel).sel_index
+                    cx.w::<pob_ui_core::controls::DropDownControl>(sel)
+                        .sel_index
                 );
                 cx.sg.draw_string(
                     vp.x + 4.0,
@@ -195,7 +197,11 @@ fn rust_stubs() {
                 14.0,
                 &format!(
                     "^7{} {}",
-                    if node.alloc.get() { "allocated" } else { "unallocated" },
+                    if node.alloc.get() {
+                        "allocated"
+                    } else {
+                        "unallocated"
+                    },
                     node.r#type.get()
                 ),
             );
@@ -210,7 +216,11 @@ fn rust_stubs() {
                 14.0,
                 &format!(
                     "^7{} {}",
-                    if node.alloc.get() { "allocated" } else { "unallocated" },
+                    if node.alloc.get() {
+                        "allocated"
+                    } else {
+                        "unallocated"
+                    },
                     node.r#type.get()
                 ),
             );
@@ -221,7 +231,8 @@ fn rust_stubs() {
         });
         h.build_power = Rc::new(|cx| {
             let m = cx.build().model.clone();
-            let ct = pob_calc::model::build_xml::build_extra(&m).get_or_new_table(pob_lua::n!("calcsTab"));
+            let ct = pob_calc::model::build_xml::build_extra(&m)
+                .get_or_new_table(pob_lua::n!("calcsTab"));
             let pm = pob_calc::lua_table::Table::new();
             pm.set(pob_lua::n!("offence"), 6.0);
             pm.set(pob_lua::n!("defence"), 4.0);
@@ -413,7 +424,10 @@ thread_local! {
 /// replace the Rust calc's, so everything else the app draws is the bridge's).
 struct HybridCalc {
     lua: LuaCalcBridge,
-    misc: Option<(Rc<pob_calc::modules::calcs::MiscCalculator>, pob_app::model::Output)>,
+    misc: Option<(
+        Rc<pob_calc::modules::calcs::MiscCalculator>,
+        pob_app::model::Output,
+    )>,
 }
 
 impl pob_app::calc::CalcFacade for HybridCalc {
@@ -432,7 +446,11 @@ impl pob_app::calc::CalcFacade for HybridCalc {
 }
 
 impl RustSide {
-    fn new(mut parts: PlatformParts, src: PathBuf, net: pob_ui_oracle::sg_bridge::NetFixtures) -> RustSide {
+    fn new(
+        mut parts: PlatformParts,
+        src: PathBuf,
+        net: pob_ui_oracle::sg_bridge::NetFixtures,
+    ) -> RustSide {
         let held = Rc::new(RefCell::new(Vec::new()));
         parts.sys.net = Box::new(DeferredNet {
             inner: Box::new(boot::ScriptedNet::new(net)),
@@ -605,7 +623,9 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
             }
             // a Spec's URL lists the nodes in the same allocNodes order: compared in compare_t4
             // where the `nodes` attributes match byte for byte (module notes)
-            XmlChild::Text(_) if &*node.elem == "URL" => kids.push("<URL: allocNodes order>".to_owned()),
+            XmlChild::Text(_) if &*node.elem == "URL" => {
+                kids.push("<URL: allocNodes order>".to_owned())
+            }
             XmlChild::Text(t) => kids.push(format!("{t:?}")),
         }
     }
@@ -662,8 +682,16 @@ fn spec_urls(root: &XmlNode) -> Vec<(String, String)> {
         .flat_map(|t| nodes(&t))
         .filter(|n| &*n.elem == "Spec")
         .map(|spec| {
-            let ids = spec.attrib.get("nodes").map(|v| v.to_string()).unwrap_or_default();
-            let url = nodes(&spec).iter().filter(|n| &*n.elem == "URL").map(text).collect();
+            let ids = spec
+                .attrib
+                .get("nodes")
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            let url = nodes(&spec)
+                .iter()
+                .filter(|n| &*n.elem == "URL")
+                .map(text)
+                .collect();
             (ids, url)
         })
         .collect()
@@ -676,7 +704,10 @@ fn compare_t4(what: &str, lua: &str, rust: &str, notes: &mut T4Notes) -> Result<
     // the same allocNodes order on both sides: EncodeURL's text must match too (module notes)
     for (i, ((ln, lu), (rn, ru))) in spec_urls(&lr).iter().zip(&spec_urls(&rr)).enumerate() {
         if ln == rn && lu != ru {
-            return Err(format!("{what}: Spec {} URL differs: lua {lu:?} | rust {ru:?}", i + 1));
+            return Err(format!(
+                "{what}: Spec {} URL differs: lua {lu:?} | rust {ru:?}",
+                i + 1
+            ));
         }
     }
     let mut local = T4Notes::default();
@@ -719,7 +750,9 @@ fn tree_image_loads(frames: &[FrameTrace]) -> Vec<String> {
         .flat_map(|f| &f.effects)
         .filter_map(|e| match e {
             SideEffect::ImageLoad(img)
-                if img.path.contains("TreeData/") || img.path.contains("ring.png") || img.path.contains("Ring") =>
+                if img.path.contains("TreeData/")
+                    || img.path.contains("ring.png")
+                    || img.path.contains("Ring") =>
             {
                 Some(format!("{} {:?}", img.path, img.flags))
             }
@@ -854,7 +887,9 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
         .filter(|c| {
             matches!(
                 c.call,
-                ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
             )
         })
         .count()
@@ -939,7 +974,12 @@ fn op_key(op: &DrawOp) -> String {
             height,
             font,
             text,
-        } => format!("S {} {} {align:?} {} {font:?} {text}", r(*x), r(*y), r(*height)),
+        } => format!(
+            "S {} {} {align:?} {} {font:?} {text}",
+            r(*x),
+            r(*y),
+            r(*height)
+        ),
         other => format!("{other:?}"),
     };
     format!("{:?} {} {call}", op.color, rs(&op.viewport))
@@ -1013,7 +1053,11 @@ fn describe(d: &Divergence) -> String {
             idx,
             lua,
             rust,
-        } => format!("changed {bucket:?}#{idx}: lua {} | rust {}", op(lua), op(rust)),
+        } => format!(
+            "changed {bucket:?}#{idx}: lua {} | rust {}",
+            op(lua),
+            op(rust)
+        ),
         Divergence::Effect { lua, rust } => format!("effect: lua {lua:?} rust {rust:?}"),
     }
 }
@@ -1067,7 +1111,10 @@ fn scenario_runs() -> Vec<(String, PathBuf, Vec<(i32, i32, f32)>)> {
     let mut out = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
-        if filter.as_ref().is_some_and(|f| !f.split('|').any(|p| stem.contains(p))) {
+        if filter
+            .as_ref()
+            .is_some_and(|f| !f.split('|').any(|p| stem.contains(p)))
+        {
             continue;
         }
         let (script, _) = runner::load_script(&path).unwrap();
@@ -1110,7 +1157,13 @@ fn run_one(root: &Path, path: &Path, own_screen: bool, (w, h, s): (i32, i32, f32
     let text = std::fs::read_to_string(path).unwrap();
     RUST_MISC_CALC.with(|c| c.set(text.lines().any(|l| l.trim() == "#! u27-rust-misc-calc")));
     let tag = run_tag(&stem, own_screen, (w, h, s));
-    let (lua, rust) = match run_sides(root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s), &fx.net) {
+    let (lua, rust) = match run_sides(
+        root,
+        &script,
+        fx.user_dir.as_deref(),
+        runner::screen(w, h, s),
+        &fx.net,
+    ) {
         Ok(s) => s,
         Err(e) => {
             out.failures.push(format!("{tag}: {e:#}"));
@@ -1136,14 +1189,16 @@ fn run_one(root: &Path, path: &Path, own_screen: bool, (w, h, s): (i32, i32, f32
     let first = divs.first().map(|(fi, d)| {
         format!(
             "frame {fi}: {}",
-            d.first().map_or_else(|| "frame missing".to_owned(), describe)
+            d.first()
+                .map_or_else(|| "frame missing".to_owned(), describe)
         )
     });
     let ops = draw_ops(&run.lua);
     out.ops = ops;
     let expect_errs = check_expectations(&text, &run.lua);
     if !expect_errs.is_empty() {
-        out.failures.push(format!("{tag}: expectations: {}", expect_errs.join("; ")));
+        out.failures
+            .push(format!("{tag}: expectations: {}", expect_errs.join("; ")));
     }
     let t4_line = match &t4r {
         Ok((p, b)) => {
@@ -1256,7 +1311,12 @@ fn u27_scenarios() {
         for &(w, h, s) in &screens {
             let tag = run_tag(&stem, screens.len() == 1, (w, h, s));
             let child = std::process::Command::new(&exe)
-                .args(["u27_scenarios", "--exact", "--nocapture", "--test-threads=1"])
+                .args([
+                    "u27_scenarios",
+                    "--exact",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
                 .env(CHILD_ENV, format!("{stem}@{w}x{h}@{s}"))
                 .stdin(std::process::Stdio::null())
                 .output()
@@ -1313,12 +1373,15 @@ fn u27_scenarios() {
 #[ignore = "authoring aid"]
 fn u27_probe() {
     let Some(root) = inputs() else { return };
-    let Ok(steps) = std::env::var("U27_PROBE") else { return };
+    let Ok(steps) = std::env::var("U27_PROBE") else {
+        return;
+    };
     let scr = std::env::var("U27_SCREEN").unwrap_or_else(|_| "1280x800@1".to_owned());
     let (wh, s) = scr.split_once('@').unwrap();
     let (w, h) = wh.split_once('x').unwrap();
     let (w, h, s): (i32, i32, f32) = (w.parse().unwrap(), h.parse().unwrap(), s.parse().unwrap());
-    let script = runner::parse_script(&format!("{}\nframes 1\n", steps.replace(';', "\n"))).unwrap();
+    let script =
+        runner::parse_script(&format!("{}\nframes 1\n", steps.replace(';', "\n"))).unwrap();
     let fx = runner::fixtures(&script, &test_dir()).unwrap();
     let user = UserDir::new(fx.user_dir.as_deref()).unwrap();
     let handles = OracleHandles::default();
@@ -1336,20 +1399,52 @@ fn u27_probe() {
     if let Some(&p) = cx.main.popups.first() {
         println!("popup {:?} {:?}", cx.pos(p), cx.size(p));
         let mut keys: Vec<String> = [
-            "devotionSelectLabel", "devotionSelect1", "devotionSelect2", "jewelSelect", "conquerorSelect", "socketSelect",
-            "socketFilter", "socketAllocate", "protectAllocatedLabel", "abyssAscendancyLabel", "abyssAscendancySelect",
-            "socketFilterAdditionalDistance", "socketFilterAdditionalDistanceValue", "nodeSlider", "nodeSliderValue",
-            "nodeSlider2", "nodeSlider2Value", "nodeSlider3", "nodeSlider3Value", "nodeSelect", "fallbackWeightsList",
-            "fallbackWeightsButton", "totalMinimumWeight", "searchList", "searchListFallback", "searchListButton",
-            "searchListFallbackButton", "searchResults", "msg", "searchTradeButton", "searchTradeLeagueSelect",
-            "realmSelection", "tradeTypeSelection", "searchMore", "resetButton", "closeButton", "searchButton",
+            "devotionSelectLabel",
+            "devotionSelect1",
+            "devotionSelect2",
+            "jewelSelect",
+            "conquerorSelect",
+            "socketSelect",
+            "socketFilter",
+            "socketAllocate",
+            "protectAllocatedLabel",
+            "abyssAscendancyLabel",
+            "abyssAscendancySelect",
+            "socketFilterAdditionalDistance",
+            "socketFilterAdditionalDistanceValue",
+            "nodeSlider",
+            "nodeSliderValue",
+            "nodeSlider2",
+            "nodeSlider2Value",
+            "nodeSlider3",
+            "nodeSlider3Value",
+            "nodeSelect",
+            "fallbackWeightsList",
+            "fallbackWeightsButton",
+            "totalMinimumWeight",
+            "searchList",
+            "searchListFallback",
+            "searchListButton",
+            "searchListFallbackButton",
+            "searchResults",
+            "msg",
+            "searchTradeButton",
+            "searchTradeLeagueSelect",
+            "realmSelection",
+            "tradeTypeSelection",
+            "searchMore",
+            "resetButton",
+            "closeButton",
+            "searchButton",
         ]
         .iter()
         .map(|s| (*s).to_owned())
         .collect();
         keys.extend((1..=12).map(|i| format!("protectAllocatedBox{i}")));
         for key in keys {
-            let Some(c) = cx.child(p, key.clone()) else { continue };
+            let Some(c) = cx.child(p, key.clone()) else {
+                continue;
+            };
             println!(
                 "  {key} {} pos {:?} size {:?} shown {}",
                 cx.ui.class_name(c),
@@ -1359,7 +1454,11 @@ fn u27_probe() {
             );
             if let Some(dd) = cx.try_w::<pob_ui_core::controls::DropDownControl>(c) {
                 let labels: Vec<_> = dd.list.iter().take(60).map(|i| i.label.clone()).collect();
-                println!("    sel {} n {} list {labels:?}", dd.sel_index, dd.list.len());
+                println!(
+                    "    sel {} n {} list {labels:?}",
+                    dd.sel_index,
+                    dd.list.len()
+                );
             }
         }
     }

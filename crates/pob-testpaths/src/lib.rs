@@ -171,7 +171,11 @@ pub fn parity_dir() -> Option<PathBuf> {
     if let Some(p) = env_dir("POB_PARITY_DIR") {
         return Some(p).filter(|p| p.join("builds").is_dir());
     }
-    let name = if quick_corpus() { ".parity-quick" } else { ".parity" };
+    let name = if quick_corpus() {
+        ".parity-quick"
+    } else {
+        ".parity"
+    };
     find_where(name, |p| p.join("builds").is_dir())
 }
 
@@ -237,4 +241,3 @@ mod tests {
 pub fn quick_corpus() -> bool {
     std::env::var_os("POB_QUICK_CORPUS").is_some_and(|v| v == "1")
 }
-

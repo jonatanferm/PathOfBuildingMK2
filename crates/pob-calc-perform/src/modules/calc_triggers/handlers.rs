@@ -73,7 +73,9 @@ fn main_skill(actor: &ActorRef) -> ActiveSkillRef {
 
 /// `skill.triggeredBy` where the Lua indexes it (nil raises).
 fn trig_by(skill: &ActiveSkillRef) -> SkillEffectRef {
-    skill.triggeredBy.get()
+    skill
+        .triggeredBy
+        .get()
         .unwrap_or_else(|| lua_error!("attempt to index field 'triggeredBy' (a nil value)"))
 }
 
@@ -1769,7 +1771,9 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                 m_ceil(triggeredCDAdjusted * misc.ServerTickRate) / misc.ServerTickRate
             };
             // L583
-            let triggerCDTickRounded = if mainSkill.triggeredBy.get()
+            let triggerCDTickRounded = if mainSkill
+                .triggeredBy
+                .get()
                 .is_some_and(|tb| tb.extra.truthy(n!("ignoresTickRate")))
             {
                 triggerCDAdjusted
@@ -2048,7 +2052,9 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                 // L666
                 let displayCooldownRounding = (!mainData.truthy(n!("ignoresTickRate"))
                     && triggeredCDAdjusted != 0.0)
-                    || (mainSkill.triggeredBy.get()
+                    || (mainSkill
+                        .triggeredBy
+                        .get()
                         .is_some_and(|tb| !tb.extra.truthy(n!("ignoresTickRate")))
                         && triggerCDAdjusted != 0.0);
                 // L667
@@ -2141,7 +2147,10 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                 && doomBlastSource.str().as_deref() == Some("vixen")
             {
                 // L706
-                let gloves = env.player.itemList().with(|l| l.get(&n!("Gloves")).cloned());
+                let gloves = env
+                    .player
+                    .itemList()
+                    .with(|l| l.get(&n!("Gloves")).cloned());
                 if !gloves.is_some_and(|g| {
                     g.title
                         .get()

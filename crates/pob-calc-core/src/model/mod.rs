@@ -17,8 +17,8 @@ use crate::active_skill::{ActiveSkillRef, SkillEffectRef};
 use crate::actor::{Actor, ActorRef};
 use crate::classes::{ItemRef, ModList, ModStore, PassiveSpec, PassiveSpecRef, PassiveTreeRef};
 use crate::env::EnvRef;
-use crate::lua_table::{LStr, Output, Table};
 use crate::late::MiscCalculator;
+use crate::lua_table::{LStr, Output, Table};
 
 pub mod build_xml;
 pub mod calcs_tab;

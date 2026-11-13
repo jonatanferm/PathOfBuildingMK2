@@ -59,12 +59,9 @@ pub fn download_page(
                 .collect()
         })
         .unwrap_or_default();
-    let version = cx
-        .app()
-        .launch
-        .version_number
-        .clone()
-        .unwrap_or_else(|| lua_error!("attempt to concatenate field 'versionNumber' (a nil value)"));
+    let version = cx.app().launch.version_number.clone().unwrap_or_else(|| {
+        lua_error!("attempt to concatenate field 'versionNumber' (a nil value)")
+    });
     let req = HttpRequest {
         url: url.to_owned(),
         headers,

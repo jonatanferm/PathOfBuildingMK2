@@ -195,7 +195,10 @@ fn rust_stubs() {
             cx.add(
                 me,
                 "comparePowerReportList",
-                New::new(Base::new(Anchor::NONE, rect(0, 0, 750, 250)), ci::PendingPowerReportList),
+                New::new(
+                    Base::new(Anchor::NONE, rect(0, 0, 750, 250)),
+                    ci::PendingPowerReportList,
+                ),
             )
             .id()
         });
@@ -248,7 +251,11 @@ fn import_of(text: &str, user_dir: Option<&Path>) -> Option<(String, String)> {
     let f = directives(text, "u50-import").into_iter().next()?;
     let p = user_dir?.join("Path of Building/Builds").join(&f);
     let xml = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
-    let label = Path::new(&f).file_stem().unwrap().to_string_lossy().into_owned();
+    let label = Path::new(&f)
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
     Some((xml, label))
 }
 
@@ -323,14 +330,18 @@ impl pob_sg::Platform for RecordingPlatform {
         self.inner.time_ms()
     }
     fn copy(&mut self, text: &str) {
-        self.effects.borrow_mut().push(SideEffect::Copy(text.to_owned()));
+        self.effects
+            .borrow_mut()
+            .push(SideEffect::Copy(text.to_owned()));
         self.inner.copy(text);
     }
     fn paste(&mut self) -> Option<String> {
         self.inner.paste()
     }
     fn open_url(&mut self, url: &str) {
-        self.effects.borrow_mut().push(SideEffect::OpenUrl(url.to_owned()));
+        self.effects
+            .borrow_mut()
+            .push(SideEffect::OpenUrl(url.to_owned()));
         self.inner.open_url(url);
     }
     fn set_window_title(&mut self, title: &str) {
@@ -411,7 +422,11 @@ impl RustSide {
         effects.borrow_mut().clear(); // Launch.lua:11 runs at script load, before tracing
                                       // pob-ui-oracle patch 4's equivalent (CCR-0091)
         app.cx.app_mut().launch.force_release_install = true;
-        RustSide { app, effects, import }
+        RustSide {
+            app,
+            effects,
+            import,
+        }
     }
     fn flush(&mut self) {
         let e: Vec<_> = self.effects.borrow_mut().drain(..).collect();
@@ -484,7 +499,10 @@ impl ScenarioApp for RustSide {
 // ---- T4 (the rules are u20's; see its module notes) ----
 
 fn unordered_children(elem: &str) -> bool {
-    matches!(elem, "Calcs" | "ConfigSet" | "ItemSet" | "Sockets" | "Overrides")
+    matches!(
+        elem,
+        "Calcs" | "ConfigSet" | "ItemSet" | "Sockets" | "Overrides"
+    )
 }
 
 /// The UI-only savers compared separately (a difference is reported, not failed).
@@ -498,7 +516,8 @@ struct T4Notes {
 }
 
 fn ambiguous_variant(node: &XmlNode) -> bool {
-    let (Some(game_id), Some(skill_id)) = (node.attrib.get("gemId"), node.attrib.get("skillId")) else {
+    let (Some(game_id), Some(skill_id)) = (node.attrib.get("gemId"), node.attrib.get("skillId"))
+    else {
         return false;
     };
     let n = pob_gamedata::data()
@@ -513,14 +532,19 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
     let mut attrs: Vec<(String, String)> = Vec::new();
     for (k, v) in &node.attrib {
         let rust_default = match (&*node.elem, &**k) {
-            ("Gem", "enableGlobal1" | "enableGlobal2") | ("Skill", "includeInFullDPS") => Some("false"),
+            ("Gem", "enableGlobal1" | "enableGlobal2") | ("Skill", "includeInFullDPS") => {
+                Some("false")
+            }
             ("Skill", "mainActiveSkill" | "mainActiveSkillCalcs") => Some("0"),
             _ => None,
         };
         if let Some(d) = rust_default.filter(|_| &**v == "nil") {
             notes.gem_nil_bools += 1;
             attrs.push((k.to_string(), d.to_owned()));
-        } else if &*node.elem == "Gem" && matches!(&**k, "variantId" | "nameSpec") && ambiguous_variant(node) {
+        } else if &*node.elem == "Gem"
+            && matches!(&**k, "variantId" | "nameSpec")
+            && ambiguous_variant(node)
+        {
             if k.as_ref() == "variantId" {
                 notes.ambiguous_variants += 1;
             }
@@ -576,7 +600,9 @@ fn compare_t4(what: &str, lua: &str, rust: &str, notes: &mut T4Notes) -> Result<
     let mut local = T4Notes::default();
     let section = |root: &XmlNode, elem: &str, lua: bool| {
         root.children.iter().find_map(|ch| match ch {
-            XmlChild::Node(n) if *n.elem == *elem => Some(normalise(n, false, lua, &mut T4Notes::default())),
+            XmlChild::Node(n) if *n.elem == *elem => {
+                Some(normalise(n, false, lua, &mut T4Notes::default()))
+            }
             _ => None,
         })
     };
@@ -645,10 +671,15 @@ fn run_sides(
     let src = std::fs::canonicalize(root.join("src")).unwrap_or_else(|_| root.join("src"));
     let mut rust_side = RustSide::new(PlatformParts { sg, sys }, src, import);
     let mut d = Driver::new(screen, handles, user.path.clone());
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runner::drive(&mut rust_side, script, &mut d)));
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runner::drive(&mut rust_side, script, &mut d)
+    }));
     let (mut frames, error) = match res {
         Ok((frames, r)) => (frames, r.err().map(|e| e.to_string())),
-        Err(p) => (Vec::new(), Some(format!("panicked: {}", pob_host::panic_message(&*p)))),
+        Err(p) => (
+            Vec::new(),
+            Some(format!("panicked: {}", pob_host::panic_message(&*p))),
+        ),
     };
     drop(rust_side);
     drop_image_loads(&mut frames);
@@ -662,7 +693,10 @@ fn run_sides(
 
 fn out_dir() -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR")
-        .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"), PathBuf::from)
+        .map_or_else(
+            || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"),
+            PathBuf::from,
+        )
         .join("ui-parity")
 }
 
@@ -671,7 +705,14 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
     frames
         .iter()
         .flat_map(|f| &f.calls)
-        .filter(|c| matches!(c.call, ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }))
+        .filter(|c| {
+            matches!(
+                c.call,
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
+            )
+        })
         .count()
 }
 
@@ -714,7 +755,11 @@ fn t4(lua: &Side, rust: &Side, notes: &mut T4Notes) -> Result<(usize, usize), Ve
     let mut errs = Vec::new();
     let (mut n, mut same) = (0, 0);
     if lua.snapshots.len() != rust.snapshots.len() {
-        errs.push(format!("snapshots: lua {} rust {}", lua.snapshots.len(), rust.snapshots.len()));
+        errs.push(format!(
+            "snapshots: lua {} rust {}",
+            lua.snapshots.len(),
+            rust.snapshots.len()
+        ));
     }
     for ((ln, lx), (_, rx)) in lua.snapshots.iter().zip(&rust.snapshots) {
         n += 1;
@@ -743,7 +788,10 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
     }
     for d in directives(text, "u50-expect-snapshot") {
         let (name, want) = d.split_once(' ').unwrap_or((d.as_str(), ""));
-        let found = lua.snapshots.iter().any(|(n, x)| n == name && x.contains(want));
+        let found = lua
+            .snapshots
+            .iter()
+            .any(|(n, x)| n == name && x.contains(want));
         if !found {
             errs.push(format!("Lua snapshot {name} does not contain {want:?}"));
         }
@@ -753,7 +801,9 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
 
 #[test]
 fn u50_scenarios() {
-    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _g = LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u50")
@@ -776,7 +826,10 @@ fn u50_scenarios() {
         let text = std::fs::read_to_string(&path).unwrap();
         let (script, base_dir) = runner::load_script(&path).unwrap();
         let fx = runner::fixtures(&script, &base_dir).unwrap();
-        let own_screen = matches!(script.steps.first(), Some(pob_host::script::Step::Screen { .. }));
+        let own_screen = matches!(
+            script.steps.first(),
+            Some(pob_host::script::Step::Screen { .. })
+        );
         let screens: Vec<(i32, i32, f32)> = if own_screen {
             vec![(1280, 800, 1.0)]
         } else {
@@ -792,7 +845,13 @@ fn u50_scenarios() {
                 format!("u50_{stem}@{w}x{h}@{s}")
             };
             let import = import_of(&text, fx.user_dir.as_deref());
-            let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s), import) {
+            let (lua, rust) = match run_sides(
+                &root,
+                &script,
+                fx.user_dir.as_deref(),
+                runner::screen(w, h, s),
+                import,
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     failures.push(format!("{tag}: {e:#}"));

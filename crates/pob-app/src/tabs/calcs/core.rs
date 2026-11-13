@@ -323,14 +323,10 @@ pub fn check_flag(
     if playerFlag.truthy() {
         let player = match player {
             Some(p) => p.clone(),
-            None => {
-                calcs_env(cx)
-                    .unwrap_or_else(|| {
-                        lua_error!("attempt to index field 'calcsEnv' (a nil value)")
-                    })
-                    .player
-                    .clone()
-            }
+            None => calcs_env(cx)
+                .unwrap_or_else(|| lua_error!("attempt to index field 'calcsEnv' (a nil value)"))
+                .player
+                .clone(),
         };
         if !skill_flags(&player).truthy(key_of(&playerFlag)) {
             // L410
@@ -459,26 +455,29 @@ impl CalcsTab {
                     Anchor::NONE,
                     rect(0, 0, 300, 16),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        // L48
-                        input(cx).set(n!("skill_number"), index as f64);
-                        // L49
-                        CalcsTab::add_undo_state(cx, me);
-                        // L50
-                        cx.build().model.buildFlag.set(true);
-                    }) as SelFunc),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            // L48
+                            input(cx).set(n!("skill_number"), index as f64);
+                            // L49
+                            CalcsTab::add_undo_state(cx, me);
+                            // L50
+                            cx.build().model.buildFlag.set(true);
+                        },
+                    ) as SelFunc),
                     None,
                     false,
                 ),
             )
             .id();
         // L51-58 the mixin `{ tooltipFunc = ... }`
-        cx.w_mut::<DropDownControl>(main_socket_group).tt.tooltip_func = Some(Rc::new(
+        cx.w_mut::<DropDownControl>(main_socket_group)
+            .tt
+            .tooltip_func = Some(Rc::new(
             move |cx: &mut Cx, tooltip: &mut Tooltip, (_mode, index, _value): DropTipArgs| {
                 // L53
-                let socket_group = index.and_then(|i| {
-                    cx.build().model.skillsTab.socketGroupList.get().get(i)
-                });
+                let socket_group =
+                    index.and_then(|i| cx.build().model.skillsTab.socketGroupList.get().get(i));
                 // L54
                 if let Some(socket_group) = socket_group {
                     let rev = cx.build().model.outputRevision.get();
@@ -499,14 +498,16 @@ impl CalcsTab {
                     Anchor::NONE,
                     rect(0, 0, 300, 16),
                     Vec::new(),
-                    Some(Rc::new(|cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        // L62
-                        let mainSocketGroup = calcs_socket_group(cx);
-                        // L63
-                        mainSocketGroup.mainActiveSkillCalcs.set(index as f64);
-                        // L64
-                        cx.build().model.buildFlag.set(true);
-                    }) as SelFunc),
+                    Some(
+                        Rc::new(|cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            // L62
+                            let mainSocketGroup = calcs_socket_group(cx);
+                            // L63
+                            mainSocketGroup.mainActiveSkillCalcs.set(index as f64);
+                            // L64
+                            cx.build().model.buildFlag.set(true);
+                        }) as SelFunc,
+                    ),
                     None,
                     false,
                 ),
@@ -520,16 +521,18 @@ impl CalcsTab {
                     Anchor::NONE,
                     rect(0, 0, 250, 16),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        // L69-70
-                        let srcInstance = calcs_src_instance(cx);
-                        // L71
-                        srcInstance.skillPartCalcs.set(Some(index as f64));
-                        // L72
-                        CalcsTab::add_undo_state(cx, me);
-                        // L73
-                        cx.build().model.buildFlag.set(true);
-                    }) as SelFunc),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            // L69-70
+                            let srcInstance = calcs_src_instance(cx);
+                            // L71
+                            srcInstance.skillPartCalcs.set(Some(index as f64));
+                            // L72
+                            CalcsTab::add_undo_state(cx, me);
+                            // L73
+                            cx.build().model.buildFlag.set(true);
+                        },
+                    ) as SelFunc),
                     None,
                     false,
                 ),
@@ -612,28 +615,30 @@ impl CalcsTab {
                     Anchor::NONE,
                     rect(0, 0, 160, 16),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                        // L101-102
-                        let srcInstance = calcs_src_instance(cx);
-                        let value = value.unwrap_or_else(|| {
-                            lua_error!("attempt to index local 'value' (a nil value)")
-                        });
-                        let v = value.get::<MinionListValue>();
-                        // L103
-                        if let Some(item_set_id) = v.and_then(|v| v.item_set_id) {
-                            // L104
-                            srcInstance.skillMinionItemSetCalcs.set(Some(item_set_id));
-                        } else {
-                            // L106
-                            srcInstance
-                                .skillMinionCalcs
-                                .set(v.and_then(|v| v.minion_id));
-                        }
-                        // L108
-                        CalcsTab::add_undo_state(cx, me);
-                        // L109
-                        cx.build().model.buildFlag.set(true);
-                    }) as SelFunc),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                            // L101-102
+                            let srcInstance = calcs_src_instance(cx);
+                            let value = value.unwrap_or_else(|| {
+                                lua_error!("attempt to index local 'value' (a nil value)")
+                            });
+                            let v = value.get::<MinionListValue>();
+                            // L103
+                            if let Some(item_set_id) = v.and_then(|v| v.item_set_id) {
+                                // L104
+                                srcInstance.skillMinionItemSetCalcs.set(Some(item_set_id));
+                            } else {
+                                // L106
+                                srcInstance
+                                    .skillMinionCalcs
+                                    .set(v.and_then(|v| v.minion_id));
+                            }
+                            // L108
+                            CalcsTab::add_undo_state(cx, me);
+                            // L109
+                            cx.build().model.buildFlag.set(true);
+                        },
+                    ) as SelFunc),
                     None,
                     false,
                 ),
@@ -663,16 +668,18 @@ impl CalcsTab {
                     Anchor::NONE,
                     rect(0, 0, 200, 16),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        // L119-120
-                        let srcInstance = calcs_src_instance(cx);
-                        // L121
-                        srcInstance.skillMinionSkillCalcs.set(Some(index as f64));
-                        // L122
-                        CalcsTab::add_undo_state(cx, me);
-                        // L123
-                        cx.build().model.buildFlag.set(true);
-                    }) as SelFunc),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            // L119-120
+                            let srcInstance = calcs_src_instance(cx);
+                            // L121
+                            srcInstance.skillMinionSkillCalcs.set(Some(index as f64));
+                            // L122
+                            CalcsTab::add_undo_state(cx, me);
+                            // L123
+                            cx.build().model.buildFlag.set(true);
+                        },
+                    ) as SelFunc),
                     None,
                     false,
                 ),
@@ -691,20 +698,22 @@ impl CalcsTab {
                             DropItem::new(label, Rc::new(BuffModeValue(buff_mode)))
                         })
                         .collect(),
-                    Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                        // L129
-                        let v = value
-                            .and_then(|v| v.get::<BuffModeValue>())
-                            .map(|v| v.0)
-                            .unwrap_or_else(|| {
-                                lua_error!("attempt to index local 'value' (a nil value)")
-                            });
-                        input(cx).set(n!("misc_buffMode"), v);
-                        // L130
-                        CalcsTab::add_undo_state(cx, me);
-                        // L131
-                        cx.build().model.buildFlag.set(true);
-                    }) as SelFunc),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                            // L129
+                            let v = value
+                                .and_then(|v| v.get::<BuffModeValue>())
+                                .map(|v| v.0)
+                                .unwrap_or_else(|| {
+                                    lua_error!("attempt to index local 'value' (a nil value)")
+                                });
+                            input(cx).set(n!("misc_buffMode"), v);
+                            // L130
+                            CalcsTab::add_undo_state(cx, me);
+                            // L131
+                            cx.build().model.buildFlag.set(true);
+                        },
+                    ) as SelFunc),
                     Some(Prop::Val(Some(MODE_TOOLTIP.to_owned()))),
                     false,
                 ),
@@ -725,7 +734,12 @@ impl CalcsTab {
             row
         };
         // L46
-        rows.push(control_row("Socket Group", None, "mainSocketGroup", main_socket_group));
+        rows.push(control_row(
+            "Socket Group",
+            None,
+            "mainSocketGroup",
+            main_socket_group,
+        ));
         // L60
         rows.push(control_row("Active Skill", None, "mainSkill", main_skill));
         // L67
@@ -781,9 +795,19 @@ impl CalcsTab {
         rows.push(control_row("Calculation Mode", None, "mode", mode));
         // L141-143
         for (label, flag, format, breakdown) in [
-            ("Aura and Buff Skills", "buffs", "{output:BuffList}", Some("SkillBuffs")),
+            (
+                "Aura and Buff Skills",
+                "buffs",
+                "{output:BuffList}",
+                Some("SkillBuffs"),
+            ),
             ("Combat Buffs", "combat", "{output:CombatList}", None),
-            ("Curses and Debuffs", "effective", "{output:CurseList}", Some("SkillDebuffs")),
+            (
+                "Curses and Debuffs",
+                "effective",
+                "{output:CurseList}",
+                Some("SkillDebuffs"),
+            ),
         ] {
             let row = Table::new();
             row.set(n!("label"), label);
@@ -815,9 +839,9 @@ impl CalcsTab {
             f(cx, section, skill_number, "Calcs");
             // L146
             let show = input.truthy(n!("showMinion"));
-            let c = cx.child(section, "showMinion").unwrap_or_else(|| {
-                lua_error!("attempt to index field 'showMinion' (a nil value)")
-            });
+            let c = cx
+                .child(section, "showMinion")
+                .unwrap_or_else(|| lua_error!("attempt to index field 'showMinion' (a nil value)"));
             cx.w_mut::<CheckBoxControl>(c).state = show;
             // L147
             let buff_mode = input.get(n!("misc_buffMode"));
@@ -830,7 +854,16 @@ impl CalcsTab {
             });
         });
         let colour = cx.main.cc.NORMAL.clone();
-        Self::new_section(cx, me, 3.0, "SkillSelect", 1.0, &colour, &subSection, Some(update));
+        Self::new_section(
+            cx,
+            me,
+            3.0,
+            "SkillSelect",
+            1.0,
+            &colour,
+            &subSection,
+            Some(update),
+        );
 
         // Add sections from the CalcSections module
         // L151 local sectionData = LoadModule("Modules/CalcSections")
@@ -1285,8 +1318,9 @@ impl ColY {
     /// `colY[c]` in arithmetic or a comparison (nil raises)
     #[track_caller]
     fn req(&self, c: f64) -> f64 {
-        self.get(c)
-            .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on field '?' (a nil value)"))
+        self.get(c).unwrap_or_else(|| {
+            lua_error!("attempt to perform arithmetic on field '?' (a nil value)")
+        })
     }
     fn set(&mut self, c: f64, v: f64) {
         if c.fract() != 0.0 || c < 1.0 {
@@ -1316,7 +1350,10 @@ fn model_sub_section(cx: &Cx, k: usize, id: &str, subSection: &Table) -> Table {
     let subs = section.table(n!("subSection")).unwrap_or_default();
     for (i, src) in subSection.ipairs() {
         let Some(src) = src.table() else {
-            lua_error!("attempt to index local 'subSec' (a {} value)", src.lua_type())
+            lua_error!(
+                "attempt to index local 'subSec' (a {} value)",
+                src.lua_type()
+            )
         };
         let dst = subs.get(i).table().unwrap_or_else(|| {
             lua_error!("CalcsTab: the model's section {id} has no subsection {i}")
@@ -1337,7 +1374,14 @@ fn model_sub_section(cx: &Cx, k: usize, id: &str, subSection: &Table) -> Table {
 fn calcs_socket_group(cx: &Cx) -> model::SocketGroupRef {
     let n = input(cx).get(n!("skill_number")).opt_num();
     n.filter(|n| n.fract() == 0.0 && *n >= 1.0)
-        .and_then(|n| cx.build().model.skillsTab.socketGroupList.get().get(n as usize))
+        .and_then(|n| {
+            cx.build()
+                .model
+                .skillsTab
+                .socketGroupList
+                .get()
+                .get(n as usize)
+        })
         .unwrap_or_else(|| lua_error!("attempt to index local 'mainSocketGroup' (a nil value)"))
 }
 

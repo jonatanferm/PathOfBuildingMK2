@@ -129,8 +129,8 @@ use pob_lua::{lformat, round, tostring_num, LjIntMap};
 use pob_ui_core::controls::drop_down::{DropTipArgs, DropTipMode, SelFunc};
 use pob_ui_core::controls::slider::{ScrollWheelSpeedTbl, SliderControl};
 use pob_ui_core::controls::{
-    ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl,
-    LabelControl, ListControl,
+    ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl,
+    ListControl,
 };
 use pob_ui_core::input::InputEvents;
 use pob_ui_core::popups::{self, PopupOpts};
@@ -198,7 +198,11 @@ thread_local! {
 
 /// The installed hooks (a clone; entries are `Rc`s).
 pub fn timeless_hooks() -> TimelessHooks {
-    HOOKS.with(|h| h.borrow_mut().get_or_insert_with(default_timeless_hooks).clone())
+    HOOKS.with(|h| {
+        h.borrow_mut()
+            .get_or_insert_with(default_timeless_hooks)
+            .clone()
+    })
 }
 
 /// Replace hook entries (tests).
@@ -301,9 +305,9 @@ fn table_items(t: &Table) -> Vec<DropItem> {
         .into_iter()
         .map(|(_, v)| match v {
             Val::Table(e) => {
-                let label = e
-                    .str("label")
-                    .unwrap_or_else(|| lua_error!("attempt to concatenate field 'label' (a nil value)"));
+                let label = e.str("label").unwrap_or_else(|| {
+                    lua_error!("attempt to concatenate field 'label' (a nil value)")
+                });
                 DropItem::new(label.to_string(), Rc::new(e))
             }
             other => DropItem::str(cat(&other)),
@@ -321,9 +325,15 @@ fn sort_by_label(t: &Table) {
     let mut v: Vec<Table> = t
         .ipairs()
         .into_iter()
-        .map(|(_, e)| e.table().unwrap_or_else(|| lua_error!("attempt to index local 'a' (a nil value)")))
+        .map(|(_, e)| {
+            e.table()
+                .unwrap_or_else(|| lua_error!("attempt to index local 'a' (a nil value)"))
+        })
         .collect();
-    let label = |e: &Table| e.str("label").unwrap_or_else(|| lua_error!("attempt to compare two nil values"));
+    let label = |e: &Table| {
+        e.str("label")
+            .unwrap_or_else(|| lua_error!("attempt to compare two nil values"))
+    };
     pob_lua::sort(&mut v, |a, b| label(a).as_bytes() < label(b).as_bytes());
     for (i, e) in v.into_iter().enumerate() {
         t.set(i as i64 + 1, e);
@@ -345,7 +355,10 @@ fn val_pairs(v: &Val) -> Vec<(Val, Val)> {
                     .map(|(k, v)| (Val::Str(model::LStr::from(k.as_str())), Val::from_value(v))),
             )
             .collect(),
-        other => lua_error!("bad argument #1 to 'pairs' (table expected, got {})", other.lua_type()),
+        other => lua_error!(
+            "bad argument #1 to 'pairs' (table expected, got {})",
+            other.lua_type()
+        ),
     }
 }
 
@@ -416,7 +429,10 @@ impl Lp {
     fn sd(&self) -> Vec<model::LStr> {
         match self {
             Lp::Node(n) => n.sd.get().snapshot(),
-            Lp::Add(t) => val_ipairs(&t.get("sd")).iter().map(|s| model::LStr::from(cat(s).as_str())).collect(),
+            Lp::Add(t) => val_ipairs(&t.get("sd"))
+                .iter()
+                .map(|s| model::LStr::from(cat(s).as_str()))
+                .collect(),
         }
     }
     /// `x[k]` of an untyped field
@@ -466,7 +482,9 @@ fn parse_mod(line: &str) -> Option<ModList> {
 /// `modList[1].value` in arithmetic.
 #[track_caller]
 fn first_mod_value(ml: Option<&ModList>) -> f64 {
-    let Some(ml) = ml else { lua_error!("attempt to index field 'modList' (a nil value)") };
+    let Some(ml) = ml else {
+        lua_error!("attempt to index field 'modList' (a nil value)")
+    };
     match ml.all_mods().first() {
         Some(m) => Val::from_value(&m.value).num(),
         None => lua_error!("attempt to index field '?' (a nil value)"),
@@ -594,7 +612,12 @@ type LeaguesCallback = Rc<dyn Fn(&mut Cx, Vec<String>, Option<String>)>;
 /// lua: TradeQueryRequests.lua:468-495 `TradeQueryRequestsClass:FetchLeagues(realm, callback)`
 /// (U51's file, ported here for its one caller; CCR-0132).
 /// @pob Classes/TradeQueryRequests.lua:468-495 h=6d820187
-pub fn fetch_leagues(cx: &mut Cx, tqr: &TradeQueryRequests, realm: String, callback: LeaguesCallback) {
+pub fn fetch_leagues(
+    cx: &mut Cx,
+    tqr: &TradeQueryRequests,
+    realm: String,
+    callback: LeaguesCallback,
+) {
     use crate::tabs::import::poe_api::{dkjson_decode, json_get, Json as J};
     // L469
     let header = format!(
@@ -605,67 +628,80 @@ pub fn fetch_leagues(cx: &mut Cx, tqr: &TradeQueryRequests, realm: String, callb
     download_page(
         cx,
         &format!("{}api/trade/data/leagues", tqr.host_name),
-        Rc::new(move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
-            let fallback = || vec!["Standard".to_owned(), "Hardcore".to_owned()];
-            // L473
-            if let Some(e) = err_msg {
-                // L474
-                return callback(cx, fallback(), Some(e));
-            }
-            // L476
-            let Some(body) = response.body.as_deref() else {
-                lua_error!("bad argument #1 to 'decode' (string expected, got nil)")
-            };
-            let json_data = dkjson_decode(body);
-            // L477
-            let api_error = json_data.as_ref().and_then(|j| json_get(j, "error")).cloned();
-            if json_data.is_none() || api_error.as_ref().is_some_and(|e| !matches!(e, J::Bool(false))) {
-                // L478-483
-                let mut err = match &api_error {
-                    Some(J::String(s)) => s.clone(),
-                    Some(J::Number(n)) => tostring_num(n.as_f64().unwrap_or(f64::NAN)),
-                    _ => "Failed to parse trade leagues JSON".to_owned(),
+        Rc::new(
+            move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
+                let fallback = || vec!["Standard".to_owned(), "Hardcore".to_owned()];
+                // L473
+                if let Some(e) = err_msg {
+                    // L474
+                    return callback(cx, fallback(), Some(e));
+                }
+                // L476
+                let Some(body) = response.body.as_deref() else {
+                    lua_error!("bad argument #1 to 'decode' (string expected, got nil)")
                 };
-                // L480
-                if let Some(J::Object(_)) = &api_error {
-                    let e = api_error.as_ref().unwrap();
-                    // L481
-                    err = match (json_get(e, "message"), json_get(e, "code")) {
-                        (Some(J::String(m)), _) => m.clone(),
-                        (Some(J::Bool(true)), _) => lua_error!("attempt to concatenate a boolean value"),
-                        (_, Some(J::String(c))) => c.clone(),
-                        (_, Some(J::Number(c))) => tostring_num(c.as_f64().unwrap_or(f64::NAN)),
-                        (_, Some(J::Bool(true))) => "true".to_owned(),
+                let json_data = dkjson_decode(body);
+                // L477
+                let api_error = json_data
+                    .as_ref()
+                    .and_then(|j| json_get(j, "error"))
+                    .cloned();
+                if json_data.is_none()
+                    || api_error
+                        .as_ref()
+                        .is_some_and(|e| !matches!(e, J::Bool(false)))
+                {
+                    // L478-483
+                    let mut err = match &api_error {
+                        Some(J::String(s)) => s.clone(),
+                        Some(J::Number(n)) => tostring_num(n.as_f64().unwrap_or(f64::NAN)),
                         _ => "Failed to parse trade leagues JSON".to_owned(),
                     };
+                    // L480
+                    if let Some(J::Object(_)) = &api_error {
+                        let e = api_error.as_ref().unwrap();
+                        // L481
+                        err = match (json_get(e, "message"), json_get(e, "code")) {
+                            (Some(J::String(m)), _) => m.clone(),
+                            (Some(J::Bool(true)), _) => {
+                                lua_error!("attempt to concatenate a boolean value")
+                            }
+                            (_, Some(J::String(c))) => c.clone(),
+                            (_, Some(J::Number(c))) => tostring_num(c.as_f64().unwrap_or(f64::NAN)),
+                            (_, Some(J::Bool(true))) => "true".to_owned(),
+                            _ => "Failed to parse trade leagues JSON".to_owned(),
+                        };
+                    }
+                    // L483
+                    return callback(cx, fallback(), Some(err));
                 }
-                // L483
-                return callback(cx, fallback(), Some(err));
-            }
-            let json_data = json_data.unwrap();
-            // L485
-            let mut leagues = Vec::new();
-            // L486 ORDER: a JSON array, index order (c)
-            let result = json_get(&json_data, "result");
-            let entries: Vec<J> = match result {
-                Some(J::Array(a)) => a.clone(),
-                Some(J::Object(o)) => o.values().cloned().collect(),
-                _ => lua_error!("bad argument #1 to 'pairs' (table expected, got nil)"),
-            };
-            for value in &entries {
-                // L487
-                if json_get(value, "realm").and_then(J::as_str) == Some(realm.as_str()) {
-                    // L488
-                    match json_get(value, "id") {
-                        Some(J::String(s)) => leagues.push(s.clone()),
-                        Some(J::Number(n)) => leagues.push(tostring_num(n.as_f64().unwrap_or(f64::NAN))),
-                        _ => {}
+                let json_data = json_data.unwrap();
+                // L485
+                let mut leagues = Vec::new();
+                // L486 ORDER: a JSON array, index order (c)
+                let result = json_get(&json_data, "result");
+                let entries: Vec<J> = match result {
+                    Some(J::Array(a)) => a.clone(),
+                    Some(J::Object(o)) => o.values().cloned().collect(),
+                    _ => lua_error!("bad argument #1 to 'pairs' (table expected, got nil)"),
+                };
+                for value in &entries {
+                    // L487
+                    if json_get(value, "realm").and_then(J::as_str) == Some(realm.as_str()) {
+                        // L488
+                        match json_get(value, "id") {
+                            Some(J::String(s)) => leagues.push(s.clone()),
+                            Some(J::Number(n)) => {
+                                leagues.push(tostring_num(n.as_f64().unwrap_or(f64::NAN)))
+                            }
+                            _ => {}
+                        }
                     }
                 }
-            }
-            // L491
-            callback(cx, leagues, None);
-        }),
+                // L491
+                callback(cx, leagues, None);
+            },
+        ),
         Some(DownloadParams {
             header: Some(header),
             body: None,
@@ -687,11 +723,22 @@ fn total_mods(id: &Val) -> Option<&'static str> {
 
 /// `totalModIDs[a] and totalModIDs[a][b]`
 fn total_mod_ids(a: &Val, b: &Val) -> bool {
-    let (Some(a), Some(b)) = (a.str(), b.str()) else { return false };
+    let (Some(a), Some(b)) = (a.str(), b.str()) else {
+        return false;
+    };
     match &*a {
-        "total_strength" => matches!(&*b, "karui_notable_add_strength" | "karui_attribute_strength" | "karui_small_strength"),
-        "total_dexterity" => matches!(&*b, "maraketh_notable_add_dexterity" | "maraketh_attribute_dex" | "maraketh_small_dex"),
-        "total_devotion" => matches!(&*b, "templar_notable_devotion" | "templar_devotion_node" | "templar_small_devotion"),
+        "total_strength" => matches!(
+            &*b,
+            "karui_notable_add_strength" | "karui_attribute_strength" | "karui_small_strength"
+        ),
+        "total_dexterity" => matches!(
+            &*b,
+            "maraketh_notable_add_dexterity" | "maraketh_attribute_dex" | "maraketh_small_dex"
+        ),
+        "total_devotion" => matches!(
+            &*b,
+            "templar_notable_devotion" | "templar_devotion_node" | "templar_small_devotion"
+        ),
         _ => false,
     }
 }
@@ -942,7 +989,10 @@ impl Up {
             let dn = cat(&addition.dn());
             // exclude passives that are already added (vaal, attributes, devotion)
             // L1388
-            if lmatch(&id, &format!("^{name}_.+")) && !in_array(&IGNORED_MODS, &dn) && name != "vaal" {
+            if lmatch(&id, &format!("^{name}_.+"))
+                && !in_array(&IGNORED_MODS, &dn)
+                && name != "vaal"
+            {
                 // L1389-1394
                 let t = Table::new();
                 t.set("label", dn.as_str());
@@ -993,7 +1043,11 @@ impl Up {
             Val::from(pob_lua::string::lower(&pob_lua::string::sub(&l, 3, None)))
         };
         // L1415-1419
-        let mut nodeWeights = [w("nodeSliderValue"), w("nodeSlider2Value"), w("nodeSlider3Value")];
+        let mut nodeWeights = [
+            w("nodeSliderValue"),
+            w("nodeSlider2Value"),
+            w("nodeSlider3Value"),
+        ];
         // L1420
         for nodeWeight in &mut nodeWeights {
             // L1421
@@ -1045,20 +1099,31 @@ impl Up {
         } else {
             let (edit_key, tbl, td_key) = if fallback {
                 // searchListFallbackTbl => controls.searchListFallback
-                ("searchListFallback", self.search_list_fallback_tbl.borrow().clone(), "searchListFallback")
+                (
+                    "searchListFallback",
+                    self.search_list_fallback_tbl.borrow().clone(),
+                    "searchListFallback",
+                )
             } else {
                 // searchListTbl => controls.searchList
-                ("searchList", self.search_list_tbl.borrow().clone(), "searchList")
+                (
+                    "searchList",
+                    self.search_list_tbl.borrow().clone(),
+                    "searchList",
+                )
             };
             // L1458 / L1480
-            let (Some(edit), Some(_)) = (self.c_opt(cx, edit_key), self.c_opt(cx, "nodeSelect")) else {
+            let (Some(edit), Some(_)) = (self.c_opt(cx, edit_key), self.c_opt(cx, "nodeSelect"))
+            else {
                 return;
             };
             // L1459 / L1481
             let mut searchText = String::new();
             // L1460 / L1482
             for (_, curRow) in tbl.ipairs() {
-                let curRow = curRow.table().unwrap_or_else(|| lua_error!("attempt to index local 'curRow' (a nil value)"));
+                let curRow = curRow
+                    .table()
+                    .unwrap_or_else(|| lua_error!("attempt to index local 'curRow' (a nil value)"));
                 // L1461 / L1483
                 if curRow.get(1i64).raw_eq(&self.node_select_id(cx)) {
                     // L1462 / L1484
@@ -1078,7 +1143,11 @@ impl Up {
                 searchText.push_str(&t_concat(&curRow, ", "));
             }
             // L1472 / L1494
-            if !self.td().get(td_key).raw_eq(&Val::from(searchText.as_str())) {
+            if !self
+                .td()
+                .get(td_key)
+                .raw_eq(&Val::from(searchText.as_str()))
+            {
                 // L1473 / L1495
                 self.td().set(td_key, searchText.as_str());
                 // L1474 / L1496
@@ -1113,7 +1182,11 @@ impl Up {
 
     /// lua: TreeTab.lua:1538-1564 `local function buildNodeOptionCheckboxes(nodes)`
     /// @pob Classes/TreeTab.lua:1538-1564 h=d2607328
-    fn buildNodeOptionCheckboxes(self: &Rc<Self>, cx: &mut Cx, nodes: Option<Vec<(String, NodeRef)>>) {
+    fn buildNodeOptionCheckboxes(
+        self: &Rc<Self>,
+        cx: &mut Cx,
+        nodes: Option<Vec<(String, NodeRef)>>,
+    ) {
         // L1539
         let mut i = 1;
         // L1540
@@ -1124,7 +1197,10 @@ impl Up {
         // L1543
         while self.c_opt(cx, format!("protectAllocatedBox{i}")).is_some() {
             // L1544
-            cx.remove_child(self.p.get(), &CtrlKey::from(format!("protectAllocatedBox{i}")));
+            cx.remove_child(
+                self.p.get(),
+                &CtrlKey::from(format!("protectAllocatedBox{i}")),
+            );
             // L1545
             i += 1;
         }
@@ -1155,8 +1231,9 @@ impl Up {
                             // L1554
                             up.protected_nodes.borrow().set(l2.as_str(), state);
                             // L1555
-                            up.protected_nodes_count
-                                .set(up.protected_nodes_count.get() + if state { 1.0 } else { -1.0 });
+                            up.protected_nodes_count.set(
+                                up.protected_nodes_count.get() + if state { 1.0 } else { -1.0 },
+                            );
                         })),
                         None,
                         false,
@@ -1167,12 +1244,13 @@ impl Up {
             cx.w_mut::<CheckBoxControl>(box_).label_right = true;
             // L1558-1561
             let me = self.me;
-            cx.w_mut::<CheckBoxControl>(box_).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, _| {
-                // L1559
-                tooltip.clear(false);
-                // L1560
-                viewer_add_node_tooltip(cx, me, tooltip, &node);
-            }));
+            cx.w_mut::<CheckBoxControl>(box_).tt.tooltip_func =
+                Some(Rc::new(move |cx, tooltip, _| {
+                    // L1559
+                    tooltip.clear(false);
+                    // L1560
+                    viewer_add_node_tooltip(cx, me, tooltip, &node);
+                }));
             // L1562 (the `cx.add` above)
         }
     }
@@ -1259,11 +1337,17 @@ impl Up {
             Self::set_label(cx, self.c(cx, "nodeSliderValue"), lformat!("^7%.3f", 10.0));
         } else {
             // L1856
-            cx.w_mut::<SliderControl>(s1).val =
-                m_min(m_max(tonumber(&sliderData.get(2i64)).unwrap_or(0.0) / 10.0, 0.0), 1.0);
+            cx.w_mut::<SliderControl>(s1).val = m_min(
+                m_max(tonumber(&sliderData.get(2i64)).unwrap_or(0.0) / 10.0, 0.0),
+                1.0,
+            );
             // L1857
             let v = cx.w::<SliderControl>(s1).val;
-            Self::set_label(cx, self.c(cx, "nodeSliderValue"), lformat!("^7%.3f", v * 10.0));
+            Self::set_label(
+                cx,
+                self.c(cx, "nodeSliderValue"),
+                lformat!("^7%.3f", v * 10.0),
+            );
         }
         // L1859
         if cx.base(s2).enabled.raw() {
@@ -1275,11 +1359,17 @@ impl Up {
                 Self::set_label(cx, self.c(cx, "nodeSlider2Value"), lformat!("^7%.3f", 10.0));
             } else {
                 // L1864
-                cx.w_mut::<SliderControl>(s2).val =
-                    m_min(m_max(tonumber(&sliderData.get(3i64)).unwrap_or(0.0) / 10.0, 0.0), 1.0);
+                cx.w_mut::<SliderControl>(s2).val = m_min(
+                    m_max(tonumber(&sliderData.get(3i64)).unwrap_or(0.0) / 10.0, 0.0),
+                    1.0,
+                );
                 // L1865
                 let v = cx.w::<SliderControl>(s2).val;
-                Self::set_label(cx, self.c(cx, "nodeSlider2Value"), lformat!("^7%.3f", v * 10.0));
+                Self::set_label(
+                    cx,
+                    self.c(cx, "nodeSlider2Value"),
+                    lformat!("^7%.3f", v * 10.0),
+                );
             }
         }
         // L1868
@@ -1290,11 +1380,17 @@ impl Up {
             Self::set_label(cx, self.c(cx, "nodeSlider3Value"), "^7Required");
         } else {
             // L1872
-            cx.w_mut::<SliderControl>(s3).val =
-                m_min(m_max(tonumber(&sliderData.get(4i64)).unwrap_or(0.0) / 500.0, 0.0), 1.0);
+            cx.w_mut::<SliderControl>(s3).val = m_min(
+                m_max(tonumber(&sliderData.get(4i64)).unwrap_or(0.0) / 500.0, 0.0),
+                1.0,
+            );
             // L1873
             let v = cx.w::<SliderControl>(s3).val;
-            Self::set_label(cx, self.c(cx, "nodeSlider3Value"), lformat!("^7%.f", v * 500.0));
+            Self::set_label(
+                cx,
+                self.c(cx, "nodeSlider3Value"),
+                lformat!("^7%.f", v * 500.0),
+            );
         }
     }
 
@@ -1302,14 +1398,23 @@ impl Up {
     fn getLegionStatLabels(&self, legionPassive: &Lp) -> (f64, String, String) {
         let sd = legionPassive.sd();
         // L1879
-        let statCount = if self.jt_ge(7.0) { legionPassive.sorted_stats_len() } else { sd.len() } as f64;
+        let statCount = if self.jt_ge(7.0) {
+            legionPassive.sorted_stats_len()
+        } else {
+            sd.len()
+        } as f64;
         // L1880
         if statCount > sd.len() as f64 {
-            let sd1 = sd
-                .first()
-                .map_or_else(|| lua_error!("attempt to concatenate field '?' (a nil value)"), |s| s.to_string());
+            let sd1 = sd.first().map_or_else(
+                || lua_error!("attempt to concatenate field '?' (a nil value)"),
+                |s| s.to_string(),
+            );
             // L1881
-            return (statCount, format!("Minimum value: {sd1}"), format!("Maximum value: {sd1}"));
+            return (
+                statCount,
+                format!("Minimum value: {sd1}"),
+                format!("Maximum value: {sd1}"),
+            );
         }
         // L1883-1885
         (
@@ -1317,15 +1422,19 @@ impl Up {
             if statCount == 1.0 {
                 concat_strs(&sd, " + ")
             } else {
-                sd.first().map_or_else(|| "None".to_owned(), |s| s.to_string())
+                sd.first()
+                    .map_or_else(|| "None".to_owned(), |s| s.to_string())
             },
-            sd.get(1).map_or_else(|| "None".to_owned(), |s| s.to_string()),
+            sd.get(1)
+                .map_or_else(|| "None".to_owned(), |s| s.to_string()),
         )
     }
 
     /// lua: TreeTab.lua:1887-1941, the `nodeSelect` dropdown's selFunc
     fn nodeSelectChanged(&self, cx: &mut Cx, value: Option<Table>) {
-        let Some(value) = value else { lua_error!("attempt to index local 'value' (a nil value)") };
+        let Some(value) = value else {
+            lua_error!("attempt to index local 'value' (a nil value)")
+        };
         // L1888
         *self.node_slider_stat_label.borrow_mut() = "None".to_owned();
         // L1889
@@ -1372,17 +1481,29 @@ impl Up {
         // L1906
         if statCount <= 1.0 {
             // L1907
-            Self::set_label(cx, self.c(cx, "nodeSlider2Label"), "^9Secondary Node Weight:");
+            Self::set_label(
+                cx,
+                self.c(cx, "nodeSlider2Label"),
+                "^9Secondary Node Weight:",
+            );
             // L1908
             cx.w_mut::<SliderControl>(s2).val = 0.0;
             // L1909
             Self::set_label(cx, self.c(cx, "nodeSlider2Value"), lformat!("^9%.3f", 0.0));
         } else {
             // L1911
-            Self::set_label(cx, self.c(cx, "nodeSlider2Label"), "^7Secondary Node Weight:");
+            Self::set_label(
+                cx,
+                self.c(cx, "nodeSlider2Label"),
+                "^7Secondary Node Weight:",
+            );
             // L1912
             let v = cx.w::<SliderControl>(s2).val;
-            Self::set_label(cx, self.c(cx, "nodeSlider2Value"), lformat!("^7%.3f", v * 10.0));
+            Self::set_label(
+                cx,
+                self.c(cx, "nodeSlider2Value"),
+                lformat!("^7%.3f", v * 10.0),
+            );
         }
         // L1914
         cx.base_mut(s2).enabled = Prop::Val(statCount > 1.0);
@@ -1404,11 +1525,16 @@ impl Up {
         let (edit, tbl) = if let Some(f) = fallback {
             (f, self.search_list_fallback_tbl.borrow().clone())
         } else {
-            (self.c(cx, "searchList"), self.search_list_tbl.borrow().clone())
+            (
+                self.c(cx, "searchList"),
+                self.search_list_tbl.borrow().clone(),
+            )
         };
         // L1919 / L1929
         for (_, searchRow) in tbl.ipairs() {
-            let searchRow = searchRow.table().unwrap_or_else(|| lua_error!("attempt to index local 'searchRow' (a nil value)"));
+            let searchRow = searchRow
+                .table()
+                .unwrap_or_else(|| lua_error!("attempt to index local 'searchRow' (a nil value)"));
             // update nodeSlider values and prevent duplicate searchList entries
             // L1921 / L1931
             if searchRow.get(1i64).raw_eq(&id) {
@@ -1436,7 +1562,10 @@ fn truthy_str(v: &Val) -> Option<String> {
         Val::Nil | Val::Bool(false) => None,
         Val::Str(s) => Some(s.to_string()),
         Val::Num(x) => Some(tostring_num(*x)),
-        other => lua_error!("attempt to index field 'searchList' (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to index field 'searchList' (a {} value)",
+            other.lua_type()
+        ),
     }
 }
 
@@ -1471,7 +1600,14 @@ fn slider_tooltip_draw(cx: &mut Cx, slider: CtrlId, min_screen_w: f64) {
         // L1752 / L1788 / L1817 / L1844
         if cx.main.screen_w >= min_screen_w - sliderOffsetX {
             // L1753 / L1789 / L1818 / L1845
-            return tt.real_draw(cx, x - 8.0 - sliderOffsetX, y - 4.0 - tooltipHeight, width, height, vp);
+            return tt.real_draw(
+                cx,
+                x - 8.0 - sliderOffsetX,
+                y - 4.0 - tooltipHeight,
+                width,
+                height,
+                vp,
+            );
         }
         // L1755 / L1791 / L1820 / L1847
         tt.real_draw(cx, x, y, width, height, vp)
@@ -1483,10 +1619,16 @@ fn slider_tooltip_draw(cx: &mut Cx, slider: CtrlId, min_screen_w: f64) {
 impl Up {
     /// lua: TreeTab.lua:1952-1977 `local function generateFallbackWeights(nodes, powerStat)`
     /// @pob Classes/TreeTab.lua:1952-1977 h=2c7e312d
-    fn generateFallbackWeights(&self, cx: &mut Cx, nodes: &[NewNode], powerStat: &Table) -> Option<Vec<PowerEntry>> {
+    fn generateFallbackWeights(
+        &self,
+        cx: &mut Cx,
+        nodes: &[NewNode],
+        powerStat: &Table,
+    ) -> Option<Vec<PowerEntry>> {
         let m = cx.build().model.clone();
         // L1953 (Poll::Pending: web only, the calc is in a worker; the click does nothing)
-        let std::task::Poll::Ready((calcFunc, calcBase)) = cx.build_mut().calc.misc_calculator(&m) else {
+        let std::task::Poll::Ready((calcFunc, calcBase)) = cx.build_mut().calc.misc_calculator(&m)
+        else {
             return None;
         };
         // L1954
@@ -1534,7 +1676,8 @@ impl Up {
                     addNodes: model::Field::new(Some(Shared::new(set))),
                     ..Override::default()
                 };
-                let std::task::Poll::Ready(nodeOutput) = calcFunc.call(Some(Rc::new(ov)), None) else {
+                let std::task::Poll::Ready(nodeOutput) = calcFunc.call(Some(Rc::new(ov)), None)
+                else {
                     return None;
                 };
                 // L1963
@@ -1575,7 +1718,10 @@ fn replaceHelperFunc(statToFix: &str, statKey: &Val, statMod: &Val, value: f64) 
     if statMod.get("fmt").raw_eq(&Val::from("g")) {
         let key = match statKey {
             Val::Str(s) => s.to_string(),
-            other => lua_error!("attempt to index local 'statKey' (a {} value)", other.lua_type()),
+            other => lua_error!(
+                "attempt to index local 'statKey' (a {} value)",
+                other.lua_type()
+            ),
         };
         // L1983
         if pob_lua::find(&key, "per_minute", None, false).is_some() {
@@ -1616,7 +1762,10 @@ impl Up {
         let modLists = Table::new();
         let stats = legionPassive.get("stats");
         // L2002
-        for (statIndex, statKey) in val_ipairs(&legionPassive.get("sortedStats")).into_iter().enumerate() {
+        for (statIndex, statKey) in val_ipairs(&legionPassive.get("sortedStats"))
+            .into_iter()
+            .enumerate()
+        {
             // L2003
             let statValues = Table::new();
             // L2004 ORDER: set (c)
@@ -1629,7 +1778,8 @@ impl Up {
                 }
             }
             // L2007
-            let (lines, _) = stat_describer::describe_stats(cx, &statValues, "stat_descriptions", false);
+            let (lines, _) =
+                stat_describer::describe_stats(cx, &statValues, "stat_descriptions", false);
             let Some(line) = lines.first().cloned() else {
                 lua_error!("bad argument #1 to 'parseMod' (string expected, got nil)")
             };
@@ -1650,7 +1800,9 @@ impl Up {
         t.ipairs()
             .into_iter()
             .map(|(_, e)| {
-                let e = e.table().unwrap_or_else(|| lua_error!("attempt to index local 'node' (a nil value)"));
+                let e = e
+                    .table()
+                    .unwrap_or_else(|| lua_error!("attempt to index local 'node' (a nil value)"));
                 SubNode {
                     mod_list: e.obj::<ModListVal>("modList").map(|m| m.0.clone()),
                     divisor: e.get("divisor").opt_num(),
@@ -1682,7 +1834,9 @@ impl Up {
         let usesVariableRolls = self.jt_is(1.0) || self.jt_ge(7.0);
         // L2019
         for (_, modNode) in self.mod_data.ipairs() {
-            let modNode = modNode.table().unwrap_or_else(|| lua_error!("attempt to index local 'modNode' (a nil value)"));
+            let modNode = modNode
+                .table()
+                .unwrap_or_else(|| lua_error!("attempt to index local 'modNode' (a nil value)"));
             let mod_id = modNode.get("id");
             // L2020
             if !mod_id.truthy() {
@@ -1718,7 +1872,8 @@ impl Up {
                                 // L2032
                                 let modLists = Self::buildStatModLists(cx, &legionNode);
                                 // L2033
-                                legionNode.set("modListGenerated", Val::Table(modLists.copyTable(false)));
+                                legionNode
+                                    .set("modListGenerated", Val::Table(modLists.copyTable(false)));
                                 // L2034
                                 nn.node = Some(Self::sub_nodes(&modLists, &legionNode.id()));
                             }
@@ -1726,10 +1881,12 @@ impl Up {
                         } else {
                             // L2040
                             let sd = legionNode.sd();
-                            let originalLine = sd
-                                .first()
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| lua_error!("bad argument #1 to 'gsub' (string expected, got nil)"));
+                            let originalLine =
+                                sd.first().map(|s| s.to_string()).unwrap_or_else(|| {
+                                    lua_error!(
+                                        "bad argument #1 to 'gsub' (string expected, got nil)"
+                                    )
+                                });
                             // L2041
                             let sortedStats = legionNode.get("sortedStats");
                             let key1 = sortedStats.get(1i64);
@@ -1749,7 +1906,9 @@ impl Up {
                                 // L2049
                                 legionNode.set(
                                     "modListGenerated",
-                                    modList.clone().map_or(Val::Nil, |m| Val::Obj(Rc::new(ModListVal(m)))),
+                                    modList
+                                        .clone()
+                                        .map_or(Val::Nil, |m| Val::Obj(Rc::new(ModListVal(m)))),
                                 );
                                 // L2050
                                 nn.mod_list = modList;
@@ -1777,7 +1936,9 @@ impl Up {
                 for (_, v) in self.legion_additions.ipairs() {
                     let legionAddition = Lp::of(&v);
                     // L2065
-                    if legionAddition.id().raw_eq(&mod_id) || total_mod_ids(&mod_id, &legionAddition.id()) {
+                    if legionAddition.id().raw_eq(&mod_id)
+                        || total_mod_ids(&mod_id, &legionAddition.id())
+                    {
                         // L2066-2067
                         let mut nn = NewNode {
                             id: mod_id.clone(),
@@ -1799,7 +1960,8 @@ impl Up {
                                 // L2073
                                 let modLists = Self::buildStatModLists(cx, &legionAddition);
                                 // L2074
-                                legionAddition.set("modListGenerated", Val::Table(modLists.copyTable(false)));
+                                legionAddition
+                                    .set("modListGenerated", Val::Table(modLists.copyTable(false)));
                                 // L2075
                                 nn.node = Some(Self::sub_nodes(&modLists, &legionAddition.id()));
                             }
@@ -1814,10 +1976,10 @@ impl Up {
                             // generate modList
                             // L2086
                             let sd = legionAddition.sd();
-                            let originalLine = sd
-                                .first()
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| lua_error!("attempt to index local 'line' (a nil value)"));
+                            let originalLine =
+                                sd.first().map(|s| s.to_string()).unwrap_or_else(|| {
+                                    lua_error!("attempt to index local 'line' (a nil value)")
+                                });
                             // L2087
                             let mut line = originalLine.clone();
                             // L2088
@@ -1833,7 +1995,9 @@ impl Up {
                             // L2094
                             legionAddition.set(
                                 "modListGenerated",
-                                modList.clone().map_or(Val::Nil, |m| Val::Obj(Rc::new(ModListVal(m)))),
+                                modList
+                                    .clone()
+                                    .map_or(Val::Nil, |m| Val::Obj(Rc::new(ModListVal(m)))),
                             );
                             // L2095
                             nn.mod_list = modList;
@@ -1889,7 +2053,10 @@ impl Up {
                     "{}, {}, {}, 0",
                     cat(&legionNode.id),
                     tostring_num(round(w1 * weightScalar, Some(3))),
-                    tostring_num(round(legionNode.weight2.unwrap_or(0.0) * weightScalar, Some(3)))
+                    tostring_num(round(
+                        legionNode.weight2.unwrap_or(0.0) * weightScalar,
+                        Some(3)
+                    ))
                 ));
             }
         }
@@ -1941,7 +2108,12 @@ fn tree_node_name(n: &Node) -> Val {
 impl Up {
     /// lua: TreeTab.lua:2442-2729 `local function searchSingleSocket(socketId, socketInfo)`
     /// @pob Classes/TreeTab.lua:2442-2729 h=8f8fb731
-    fn searchSingleSocket(&self, cx: &mut Cx, socketId: f64, socketInfo: Option<Table>) -> Option<SearchResult> {
+    fn searchSingleSocket(
+        &self,
+        cx: &mut Cx,
+        socketId: f64,
+        socketInfo: Option<Table>,
+    ) -> Option<SearchResult> {
         let m = cx.build().model.clone();
         let spec = m.spec.get();
         let socketKey = int_key(&Val::Num(socketId));
@@ -1957,7 +2129,11 @@ impl Up {
         // L2448
         let isAbyssJewel = self.jt_ge(7.0);
         // L2449
-        let zorathPath = if self.jt_is(11.0) { spec.GetShortestPathToClassStart_set(socketId) } else { None };
+        let zorathPath = if self.jt_is(11.0) {
+            spec.GetShortestPathToClassStart_set(socketId)
+        } else {
+            None
+        };
         // L2450
         if self.jt_is(11.0) && zorathPath.is_none() {
             // L2451
@@ -1988,7 +2164,9 @@ impl Up {
 
         // L2465
         for (_, curRow) in self.search_list_tbl.borrow().clone().ipairs() {
-            let curRow = curRow.table().unwrap_or_else(|| lua_error!("attempt to index local 'curRow' (a nil value)"));
+            let curRow = curRow
+                .table()
+                .unwrap_or_else(|| lua_error!("attempt to index local 'curRow' (a nil value)"));
             // L2466
             let k = curRow.get(1i64);
             if k.is_nil() {
@@ -2000,7 +2178,9 @@ impl Up {
         }
         // L2469
         for (_, curRow) in self.search_list_fallback_tbl.borrow().clone().ipairs() {
-            let curRow = curRow.table().unwrap_or_else(|| lua_error!("attempt to index local 'curRow' (a nil value)"));
+            let curRow = curRow
+                .table()
+                .unwrap_or_else(|| lua_error!("attempt to index local 'curRow' (a nil value)"));
             // L2470
             if !searchListNodeFound.get(lua_key(&curRow.get(1i64))).truthy() {
                 // L2471
@@ -2022,7 +2202,10 @@ impl Up {
             let mut singleStat = false;
             // L2479
             if let Some(total) = total {
-                if desiredNode.get(1i64).raw_eq(&Val::from(format!("total_{}", pob_lua::string::lower(total)))) {
+                if desiredNode.get(1i64).raw_eq(&Val::from(format!(
+                    "total_{}",
+                    pob_lua::string::lower(total)
+                ))) {
                     // L2480
                     desiredNode.set(1i64, "totalStat");
                     // L2481
@@ -2067,7 +2250,9 @@ impl Up {
                 }
             }
             // L2505
-            let Some(displayName) = displayName else { continue };
+            let Some(displayName) = displayName else {
+                continue;
+            };
             // L2506 (ipairs reads the row live)
             let mut i = 1i64;
             loop {
@@ -2086,7 +2271,11 @@ impl Up {
                 // L2510
                 if val.raw_eq(&Val::from("required")) {
                     // L2511
-                    let v = if singleStat && i == 2 { desiredNode.get(2i64) } else { Val::Num(0.0) };
+                    let v = if singleStat && i == 2 {
+                        desiredNode.get(2i64)
+                    } else {
+                        Val::Num(0.0)
+                    };
                     desiredNode.set(i, v);
                     // L2512
                     let d4 = desiredNode.get(4i64);
@@ -2107,7 +2296,10 @@ impl Up {
             // these constraints avoid a blank result in the case where you set a min weight of 1 onto a non devotion stat with zero unprotected nodes
             // L2522
             let count = self.protected_nodes_count.get();
-            let in_radius = cx.w::<TreeTab>(self.me).timeless.allocated_nodes_in_radius_count;
+            let in_radius = cx
+                .w::<TreeTab>(self.me)
+                .timeless
+                .allocated_nodes_in_radius_count;
             if self.jt_is(4.0)
                 && count > 0.0
                 && count < in_radius
@@ -2119,8 +2311,14 @@ impl Up {
             let key1 = desiredNode.get(1i64);
             let entry = Table::new();
             // L2526-2527 / L2533-2534
-            entry.set("nodeWeight", tonumber(&desiredNode.get(2i64)).unwrap_or(0.001));
-            entry.set("nodeWeight2", tonumber(&desiredNode.get(3i64)).unwrap_or(0.001));
+            entry.set(
+                "nodeWeight",
+                tonumber(&desiredNode.get(2i64)).unwrap_or(0.001),
+            );
+            entry.set(
+                "nodeWeight2",
+                tonumber(&desiredNode.get(3i64)).unwrap_or(0.001),
+            );
             // L2528 / L2535
             entry.set("displayName", displayName.as_str());
             // L2525
@@ -2165,9 +2363,10 @@ impl Up {
                 // L2552
                 if cmp_num(&dist) > 0.0 {
                     // L2553
-                    let n = spec.nodes.with(|s| s.get(nodeId)).unwrap_or_else(|| {
-                        lua_error!("attempt to index field '?' (a nil value)")
-                    });
+                    let n = spec
+                        .nodes
+                        .with(|s| s.get(nodeId))
+                        .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
                     unAllocatedNodesDistance.insert(nodeId, n.pathDist.get().unwrap_or(1000.0));
                 }
             }
@@ -2177,7 +2376,11 @@ impl Up {
         if !isAbyssJewel {
             // L2559 ORDER: module notes (b)
             for nodeId in radiusNodes.keys() {
-                let tn = self.tree.nodes.get(nodeId).unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
+                let tn = self
+                    .tree
+                    .nodes
+                    .get(nodeId)
+                    .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
                 // L2560-2563
                 let pass = !rootNodes.contains(&nodeId)
                     && !tn.isJewelSocket.get()
@@ -2217,10 +2420,14 @@ impl Up {
             t.table()
                 .map(|t| t.index(jtn))
                 .and_then(|v| v.num())
-                .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on field '?' (a nil value)"))
+                .unwrap_or_else(|| {
+                    lua_error!("attempt to perform arithmetic on field '?' (a nil value)")
+                })
         };
         let additions = d.timelessJewelAdditions;
-        let path_keys: Option<Vec<f64>> = zorathPath.as_ref().map(|p| p.keys().into_iter().map(|k| k as f64).collect());
+        let path_keys: Option<Vec<f64>> = zorathPath
+            .as_ref()
+            .map(|p| p.keys().into_iter().map(|k| k as f64).collect());
         let ascend = spec.curAscendClassName.get();
         let label = cat(&self.jt().get("label"));
         // L2579 (a Lua numeric `for` with a float step)
@@ -2254,13 +2461,18 @@ impl Up {
                     let treeNode = self.tree.nodes.get(targetNode);
                     // L2587
                     let mut scoreNode = treeNode.as_ref().is_some_and(|t| {
-                        !rootNodes.contains(&targetNode) && !t.isJewelSocket.get() && !t.isKeystone.get()
+                        !rootNodes.contains(&targetNode)
+                            && !t.isJewelSocket.get()
+                            && !t.isKeystone.get()
                     });
                     // L2588
                     if scoreNode {
                         let t = treeNode.as_ref().unwrap();
                         if t.ascendancyName.get().is_some()
-                            && self.protected_nodes.borrow().truthy(model::Name::from(&*t.dn.get()))
+                            && self
+                                .protected_nodes
+                                .borrow()
+                                .truthy(model::Name::from(&*t.dn.get()))
                         {
                             // L2589
                             resultNodes.set(seedKey, None);
@@ -2305,15 +2517,19 @@ impl Up {
                             if let Some(desiredNode) = desiredNode {
                                 let changedNode = changedNode.as_ref().unwrap();
                                 // L2604
-                                let (_, _statMod1, roll1) = component_roll(&component, changedNode, 1.0);
+                                let (_, _statMod1, roll1) =
+                                    component_roll(&component, changedNode, 1.0);
                                 // L2605
-                                let (_, statMod2, roll2) = component_roll(&component, changedNode, 2.0);
+                                let (_, statMod2, roll2) =
+                                    component_roll(&component, changedNode, 2.0);
                                 // L2606
-                                let mut weight = desiredNode.get("nodeWeight").num() * roll1.unwrap_or(1.0);
+                                let mut weight =
+                                    desiredNode.get("nodeWeight").num() * roll1.unwrap_or(1.0);
                                 // L2607
                                 if statMod2.truthy() {
                                     // L2608
-                                    weight += desiredNode.get("nodeWeight2").num() * roll2.unwrap_or(1.0);
+                                    weight +=
+                                        desiredNode.get("nodeWeight2").num() * roll2.unwrap_or(1.0);
                                 }
                                 // L2610
                                 let e = result_entry(&seedT, &changedNodeId);
@@ -2322,7 +2538,9 @@ impl Up {
                                 // L2612
                                 e.push(targetNode as f64);
                                 // L2613
-                                e.table("targetNodeNames").unwrap().push(tree_node_name(treeNode));
+                                e.table("targetNodeNames")
+                                    .unwrap()
+                                    .push(tree_node_name(treeNode));
                                 // L2614
                                 weight_add(&mut seedWeights, weight);
                             }
@@ -2336,7 +2554,8 @@ impl Up {
                 let tn = self.tree.nodes.get(targetNode).unwrap();
                 let tdn = model::Name::from(&*tn.dn.get());
                 // L2622
-                let jewelDataTbl = pob_gamedata::timeless_lut::readLUT(curSeed, targetNode as f64, jtn);
+                let jewelDataTbl =
+                    pob_gamedata::timeless_lut::readLUT(curSeed, targetNode as f64, jtn);
                 // L2623
                 if jewelDataTbl.is_empty() {
                     // L2624
@@ -2347,9 +2566,13 @@ impl Up {
                     (i >= 1.0 && i.fract() == 0.0)
                         .then(|| jewelDataTbl.get(i as usize - 1).copied())
                         .flatten()
-                        .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on field '?' (a nil value)"))
+                        .unwrap_or_else(|| {
+                            lua_error!("attempt to perform arithmetic on field '?' (a nil value)")
+                        })
                 };
-                let seedT = resultNodes.get(seedKey).unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
+                let seedT = resultNodes
+                    .get(seedKey)
+                    .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
                 // L2626
                 let mut curNode: Option<Lp>;
                 // L2627
@@ -2413,24 +2636,30 @@ impl Up {
                         if let Some(dn) = desired(&curNodeId) {
                             // L2657
                             let e = result_entry(&seedT, &curNodeId);
-                            let cn = curNode.as_ref().unwrap_or_else(|| lua_error!("attempt to index local 'curNode' (a nil value)"));
+                            let cn = curNode.as_ref().unwrap_or_else(|| {
+                                lua_error!("attempt to index local 'curNode' (a nil value)")
+                            });
                             let stats = cn.get("stats");
                             let sorted = cn.get("sortedStats");
                             // L2658
                             let statMod1 = stats.get(lua_key(&sorted.get(1i64)));
                             // L2659
-                            let mut weight = dn.get("nodeWeight").num() * j(statMod1.get("index").num() + 1.0);
+                            let mut weight =
+                                dn.get("nodeWeight").num() * j(statMod1.get("index").num() + 1.0);
                             // L2660
                             let statMod2 = stats.get(lua_key(&sorted.get(2i64)));
                             // L2661
                             if statMod2.truthy() {
                                 // L2662
-                                weight += dn.get("nodeWeight2").num() * j(statMod2.get("index").num() + 1.0);
+                                weight += dn.get("nodeWeight2").num()
+                                    * j(statMod2.get("index").num() + 1.0);
                             }
                             // L2664
                             e.push(targetNode as f64);
                             // L2665
-                            e.table("targetNodeNames").unwrap().push(tree_node_name(&tn));
+                            e.table("targetNodeNames")
+                                .unwrap()
+                                .push(tree_node_name(&tn));
                             // L2666
                             add_weight(&e, weight);
                             // L2667
@@ -2451,13 +2680,16 @@ impl Up {
                                     // L2675
                                     let e = result_entry(&seedT, &curNodeId);
                                     // L2676
-                                    let weight = dn.get("nodeWeight").num() * j(i + headerSize / 2.0);
+                                    let weight =
+                                        dn.get("nodeWeight").num() * j(i + headerSize / 2.0);
                                     // L2677
                                     add_weight(&e, weight);
                                     // L2678
                                     e.push(targetNode as f64);
                                     // L2679
-                                    e.table("targetNodeNames").unwrap().push(tree_node_name(&tn));
+                                    e.table("targetNodeNames")
+                                        .unwrap()
+                                        .push(tree_node_name(&tn));
                                     // L2680
                                     weight_add(&mut seedWeights, weight);
                                 }
@@ -2476,19 +2708,24 @@ impl Up {
                     // L2690
                     e.push(targetNode as f64);
                     // L2691
-                    e.table("targetNodeNames").unwrap().push(tree_node_name(&tn));
+                    e.table("targetNodeNames")
+                        .unwrap()
+                        .push(tree_node_name(&tn));
                     // L2692
                     weight_add(&mut seedWeights, w);
                 }
             }
             // L2696
-            if let (Some(seedT), Some(ts)) = (resultNodes.get(seedKey), desiredNodes.table("totalStat")) {
+            if let (Some(seedT), Some(ts)) =
+                (resultNodes.get(seedKey), desiredNodes.table("totalStat"))
+            {
                 // L2697
                 let e = result_entry(&seedT, &Val::from("totalStat"));
                 // L2698 Militant Faith
                 if self.jt_is(4.0) {
                     // L2699
-                    let mut addedWeight = ts.get("nodeWeight").num() * (5.0 * otherSmalls + 10.0 * attributeSmalls);
+                    let mut addedWeight =
+                        ts.get("nodeWeight").num() * (5.0 * otherSmalls + 10.0 * attributeSmalls);
                     // L2700
                     addedWeight += e.get("totalWeight").num() * 4.0;
                     // L2701
@@ -2497,7 +2734,8 @@ impl Up {
                     weight_add(&mut seedWeights, addedWeight);
                 } else {
                     // L2704
-                    let mut addedWeight = ts.get("nodeWeight").num() * (4.0 * otherSmalls + 2.0 * attributeSmalls);
+                    let mut addedWeight =
+                        ts.get("nodeWeight").num() * (4.0 * otherSmalls + 2.0 * attributeSmalls);
                     // L2705
                     addedWeight += e.get("totalWeight").num() * 19.0;
                     // L2706
@@ -2515,7 +2753,10 @@ impl Up {
                     let got = if reqNode.is_nil() {
                         0.0
                     } else {
-                        seedT.get(lua_key(reqNode)).table().map_or(0.0, |t| t.get("totalWeight").num())
+                        seedT
+                            .get(lua_key(reqNode))
+                            .table()
+                            .map_or(0.0, |t| t.get("totalWeight").num())
                     };
                     if got < *weight {
                         // L2714
@@ -2549,11 +2790,18 @@ fn resolve_component(component: &Val, legion: &Table) -> Option<Lp> {
     // L52
     if ty.opt_num() == Some(1.0) {
         // L53
-        let nodes = legion.table("nodes").unwrap_or_else(|| lua_error!("attempt to index field 'nodes' (a nil value)"));
-        lp_at(&nodes, id() + 1.0 - model::data().timeless.timelessJewelAdditions)
+        let nodes = legion
+            .table("nodes")
+            .unwrap_or_else(|| lua_error!("attempt to index field 'nodes' (a nil value)"));
+        lp_at(
+            &nodes,
+            id() + 1.0 - model::data().timeless.timelessJewelAdditions,
+        )
     } else if ty.opt_num() == Some(2.0) {
         // L55
-        let additions = legion.table("additions").unwrap_or_else(|| lua_error!("attempt to index field 'additions' (a nil value)"));
+        let additions = legion
+            .table("additions")
+            .unwrap_or_else(|| lua_error!("attempt to index field 'additions' (a nil value)"));
         lp_at(&additions, id() + 1.0)
     } else {
         None
@@ -2582,7 +2830,10 @@ fn component_roll(component: &Val, node: &Lp, statIndex: f64) -> (Val, Val, Opti
         let idx = statMod.get("index").num();
         let rolls = component.get("rolls");
         if !matches!(rolls, Val::Table(_) | Val::Data(_)) {
-            lua_error!("attempt to index field 'rolls' (a {} value)", rolls.lua_type());
+            lua_error!(
+                "attempt to index field 'rolls' (a {} value)",
+                rolls.lua_type()
+            );
         }
         rolls.get(idx).opt_num()
     } else {
@@ -2644,7 +2895,8 @@ impl Up {
                 continue;
             }
             // L2753
-            let labelPrefix = socketInfo.map_or_else(String::new, |s| format!("{} | ", cat(&s.get("label"))));
+            let labelPrefix =
+                socketInfo.map_or_else(String::new, |s| format!("{} | ", cat(&s.get("label"))));
             // L2754-2758
             let result = Table::new();
             let seedNum = seedMatch as f64;
@@ -2690,7 +2942,8 @@ impl Up {
             // L2782 ORDER: (c), module notes
             for (legionId, desiredNode) in r.desired_nodes.pairs() {
                 let desiredIdx = desiredNode.get("desiredIdx").num();
-                let slot = |i: f64| (i >= 1.0 && i <= 8.0 && i.fract() == 0.0).then(|| i as usize - 1);
+                let slot =
+                    |i: f64| (i >= 1.0 && i <= 8.0 && i.fract() == 0.0).then(|| i as usize - 1);
                 // L2783
                 if let Some(sd) = seedData.get(legionId).table() {
                     // L2784
@@ -2700,7 +2953,8 @@ impl Up {
                     } else if desiredIdx < 8.0 {
                         // L2787
                         if let Some(s) = slot(desiredIdx) {
-                            sortedNodeArray[s] = Some(formatSearchValue(sd.get("totalWeight").num()));
+                            sortedNodeArray[s] =
+                                Some(formatSearchValue(sd.get("totalWeight").num()));
                         }
                     }
                     // L2789
@@ -2733,7 +2987,11 @@ impl Up {
 
     /// `t_sort(t, cmp)` of a list table in place.
     fn sort_results(t: &Table, lt: impl FnMut(&Table, &Table) -> bool) {
-        let mut v: Vec<Table> = t.ipairs().into_iter().filter_map(|(_, e)| e.table()).collect();
+        let mut v: Vec<Table> = t
+            .ipairs()
+            .into_iter()
+            .filter_map(|(_, e)| e.table())
+            .collect();
         pob_lua::sort(&mut v, lt);
         for (i, e) in v.into_iter().enumerate() {
             t.set(i as i64 + 1, e);
@@ -2760,8 +3018,12 @@ impl Up {
     /// The Search button's onClick (L2817-2882).
     fn search(&self, cx: &mut Cx) {
         let td = self.td().clone();
-        let results = td.table("searchResults").unwrap_or_else(|| lua_error!("bad argument #1 to 'wipeTable'"));
-        let shared = td.table("sharedResults").unwrap_or_else(|| lua_error!("bad argument #1 to 'wipeTable'"));
+        let results = td
+            .table("searchResults")
+            .unwrap_or_else(|| lua_error!("bad argument #1 to 'wipeTable'"));
+        let shared = td
+            .table("sharedResults")
+            .unwrap_or_else(|| lua_error!("bad argument #1 to 'wipeTable'"));
         let devotion = |k: &'static str| -> Val {
             let i = td.get(k);
             int_key(&i).map_or(Val::Nil, |i| self.devotion_variants.get(i))
@@ -2806,7 +3068,10 @@ impl Up {
             Self::sort_results(&results, |a, b| {
                 let (ta, tb) = (a.get("total").num(), b.get("total").num());
                 if ta == tb {
-                    let l = |t: &Table| t.str("socketLabel").map_or_else(String::new, |s| s.to_string());
+                    let l = |t: &Table| {
+                        t.str("socketLabel")
+                            .map_or_else(String::new, |s| s.to_string())
+                    };
                     return l(a).as_bytes() < l(b).as_bytes();
                 }
                 ta > tb
@@ -2815,7 +3080,8 @@ impl Up {
         } else {
             let sock = td.table("jewelSocket").unwrap_or_default();
             // L2862
-            let searchResult = self.searchSingleSocket(cx, self.socket_id().num(), Some(sock.clone()));
+            let searchResult =
+                self.searchSingleSocket(cx, self.socket_id().num(), Some(sock.clone()));
             // L2863
             if let Some(searchResult) = searchResult {
                 // L2868
@@ -2874,13 +3140,19 @@ impl Up {
     /// `controls.searchTradeLeagueSelect:SetList(list)` with the aliasing of DropDownControl.lua:528-535
     /// (module notes).
     fn league_set_list(&self, cx: &mut Cx, list: &Table) {
-        let Some(ls) = self.c_opt(cx, "searchTradeLeagueSelect") else { return };
+        let Some(ls) = self.c_opt(cx, "searchTradeLeagueSelect") else {
+            return;
+        };
         // L530 wipeTable(self.list)
         if let Some(old) = self.league_list.borrow_mut().replace(list.clone()) {
             old.wipe();
         }
         // L531-533
-        let items: Vec<DropItem> = list.ipairs().into_iter().map(|(_, v)| DropItem::str(cat(&v))).collect();
+        let items: Vec<DropItem> = list
+            .ipairs()
+            .into_iter()
+            .map(|(_, v)| DropItem::str(cat(&v)))
+            .collect();
         DropDownControl::set_list(cx, ls, items);
     }
 
@@ -2904,11 +3176,18 @@ impl Up {
             // L2361
             self.league_set_list(cx, &leagueList);
             // restore the last league selected
-            let last = cx.w::<TreeTab>(self.me).timeless.timeless_jewel_league_select.clone();
+            let last = cx
+                .w::<TreeTab>(self.me)
+                .timeless
+                .timeless_jewel_league_select
+                .clone();
             // L2363
             for (i, league) in leagueList.ipairs() {
                 // L2364
-                if last.as_deref().is_some_and(|l| league.raw_eq(&Val::from(l))) {
+                if last
+                    .as_deref()
+                    .is_some_and(|l| league.raw_eq(&Val::from(l)))
+                {
                     // L2365
                     let ls = self.c(cx, "searchTradeLeagueSelect");
                     DropDownControl::set_sel(cx, ls, i, false);
@@ -2922,7 +3201,9 @@ impl Up {
                 .timeless
                 .trade_query_requests
                 .clone()
-                .unwrap_or_else(|| lua_error!("attempt to index field 'tradeQueryRequests' (a nil value)"));
+                .unwrap_or_else(|| {
+                    lua_error!("attempt to index field 'tradeQueryRequests' (a nil value)")
+                });
             let up = self.clone();
             let leagueList = Rc::new(RefCell::new(leagueList));
             let realm_id = currentRealmId.clone();
@@ -2931,63 +3212,68 @@ impl Up {
                 cx,
                 &tqr,
                 currentRealmId,
-                Rc::new(move |cx: &mut Cx, leagues: Vec<String>, errMsg: Option<String>| {
-                    let popup_alive = cx.ui.is_alive(up.p.get());
-                    // L2371
-                    if let Some(errMsg) = errMsg {
-                        // L2372 (DIVERGENCE(closed-popup-callback))
-                        if popup_alive {
-                            let msg = up.c(cx, "msg");
-                            Up::set_label(
+                Rc::new(
+                    move |cx: &mut Cx, leagues: Vec<String>, errMsg: Option<String>| {
+                        let popup_alive = cx.ui.is_alive(up.p.get());
+                        // L2371
+                        if let Some(errMsg) = errMsg {
+                            // L2372 (DIVERGENCE(closed-popup-callback))
+                            if popup_alive {
+                                let msg = up.c(cx, "msg");
+                                Up::set_label(
                                 cx,
                                 msg,
                                 format!("^1Error fetching league list, default league will be used\n{errMsg}^7"),
                             );
+                            }
+                            // L2373
+                            return;
                         }
-                        // L2373
-                        return;
-                    }
-                    let all = cx.w::<TreeTab>(up.me).core.trade_leagues_list.clone();
-                    // L2375
-                    let tempLeagueTable = Table::new();
-                    // L2376
-                    for league in &leagues {
-                        // L2377
-                        if !matches!(league.as_str(), "Standard" | "Ruthless" | "Hardcore" | "Hardcore Ruthless") {
-                            // L2378
-                            if !(pob_lua::find(league, "Hardcore", None, false).is_some()
-                                || pob_lua::find(league, "Ruthless", None, false).is_some())
-                            {
-                                // set the dynamic, base league name to index 1 to sync league shown in dropdown on load with default/old behavior of open trade url
-                                // L2380
-                                tempLeagueTable.push(league.as_str());
-                                // L2381
-                                let cur = leagueList.borrow().clone();
-                                for (_, val) in cur.ipairs() {
-                                    // L2382
-                                    tempLeagueTable.push(val);
+                        let all = cx.w::<TreeTab>(up.me).core.trade_leagues_list.clone();
+                        // L2375
+                        let tempLeagueTable = Table::new();
+                        // L2376
+                        for league in &leagues {
+                            // L2377
+                            if !matches!(
+                                league.as_str(),
+                                "Standard" | "Ruthless" | "Hardcore" | "Hardcore Ruthless"
+                            ) {
+                                // L2378
+                                if !(pob_lua::find(league, "Hardcore", None, false).is_some()
+                                    || pob_lua::find(league, "Ruthless", None, false).is_some())
+                                {
+                                    // set the dynamic, base league name to index 1 to sync league shown in dropdown on load with default/old behavior of open trade url
+                                    // L2380
+                                    tempLeagueTable.push(league.as_str());
+                                    // L2381
+                                    let cur = leagueList.borrow().clone();
+                                    for (_, val) in cur.ipairs() {
+                                        // L2382
+                                        tempLeagueTable.push(val);
+                                    }
+                                    // L2384
+                                    *leagueList.borrow_mut() = tempLeagueTable.copyTable(false);
+                                    // L2385
+                                    all.set(realm_id.as_str(), leagueList.borrow().clone());
+                                } else {
+                                    // L2387
+                                    leagueList.borrow().push(league.as_str());
                                 }
-                                // L2384
-                                *leagueList.borrow_mut() = tempLeagueTable.copyTable(false);
-                                // L2385
-                                all.set(realm_id.as_str(), leagueList.borrow().clone());
-                            } else {
-                                // L2387
-                                leagueList.borrow().push(league.as_str());
                             }
                         }
-                    }
-                    let l = leagueList.borrow().clone();
-                    // L2391-2394
-                    l.push("Standard");
-                    l.push("Hardcore");
-                    l.push("Ruthless");
-                    l.push("Hardcore Ruthless");
-                    // L2395 (DIVERGENCE(closed-popup-callback))
-                    if popup_alive {
-                        up.league_set_list(cx, &l);
-                    }
-                }),
+                        let l = leagueList.borrow().clone();
+                        // L2391-2394
+                        l.push("Standard");
+                        l.push("Hardcore");
+                        l.push("Ruthless");
+                        l.push("Hardcore Ruthless");
+                        // L2395 (DIVERGENCE(closed-popup-callback))
+                        if popup_alive {
+                            up.league_set_list(cx, &l);
+                        }
+                    },
+                ),
             );
         }
     }
@@ -3007,7 +3293,9 @@ impl Up {
         let sel = cx.w::<ListControl>(sr).sel_index;
         // L2224
         if let (Some(hi), false) = (hi, more) {
-            let sel = sel.unwrap_or_else(|| lua_error!("bad argument #1 to 'min' (number expected, got nil)")) as f64;
+            let sel = sel.unwrap_or_else(|| {
+                lua_error!("bad argument #1 to 'min' (number expected, got nil)")
+            }) as f64;
             // L2225
             startRow = m_min(sel, hi as f64);
             // L2226
@@ -3020,7 +3308,10 @@ impl Up {
             // L2230
             let conqueror = shared.get("conqueror");
             if !matches!(conqueror, Val::Table(_) | Val::Data(_)) {
-                lua_error!("attempt to index field 'conqueror' (a {} value)", conqueror.lua_type());
+                lua_error!(
+                    "attempt to index field 'conqueror' (a {} value)",
+                    conqueror.lua_type()
+                );
             }
             let conq1 = conqueror.get("id").opt_num() == Some(1.0);
             endRow = startRow + m_floor(maxFilters / if conq1 { 3.0 } else { 1.0 });
@@ -3067,7 +3358,9 @@ impl Up {
             .map(|t| t.index(jtn).clone())
             .unwrap_or_default();
         let tid = |dv: &model::gamedata::value::DataValue| -> Option<String> {
-            dv.as_str().map(str::to_owned).or_else(|| dv.num().map(tostring_num))
+            dv.as_str()
+                .map(str::to_owned)
+                .or_else(|| dv.num().map(tostring_num))
         };
         // L2252
         let mut i = startRow;
@@ -3103,7 +3396,10 @@ impl Up {
                 let seed = result.get("seed").num();
                 seedTrades.push(Json::obj(vec![
                     ("id", Json::Str(tradeId)),
-                    ("value", Json::obj(vec![("min", Json::Num(seed)), ("max", Json::Num(seed))])),
+                    (
+                        "value",
+                        Json::obj(vec![("min", Json::Num(seed)), ("max", Json::Num(seed))]),
+                    ),
                 ]));
             }
             i += 1.0;
@@ -3115,7 +3411,10 @@ impl Up {
         let option = tti
             .and_then(|i| i.checked_sub(1))
             .and_then(|i| tradeTypes.get(i))
-            .map_or_else(|| lua_error!("attempt to index a nil value (trade type)"), |s| Json::Str((*s).to_owned()));
+            .map_or_else(
+                || lua_error!("attempt to index a nil value (trade type)"),
+                |s| Json::Str((*s).to_owned()),
+            );
         // L2283-2302
         let mut stats = vec![Json::obj(vec![
             ("filters", Json::Arr(seedTrades)),
@@ -3163,7 +3462,10 @@ impl Up {
                     ("stats", Json::Arr(stats)),
                 ]),
             ),
-            ("sort", Json::obj(vec![("price", Json::Str("asc".to_owned()))])),
+            (
+                "sort",
+                Json::obj(vec![("price", Json::Str("asc".to_owned()))]),
+            ),
         ]);
 
         // if the league was not selected via dropdown, then default to the first league in the dropdown or "" if the leagues could not be read
@@ -3175,7 +3477,11 @@ impl Up {
         };
 
         // L2323
-        let realmPath = if selectedRealm == "pc" { String::new() } else { format!("{selectedRealm}/") };
+        let realmPath = if selectedRealm == "pc" {
+            String::new()
+        } else {
+            format!("{selectedRealm}/")
+        };
         // L2324-2328
         let ls = self.c(cx, "searchTradeLeagueSelect");
         let league = match DropDownControl::get_sel_value(cx, ls) {
@@ -3229,7 +3535,10 @@ impl TreeTab {
         let m = cx.build().model.clone();
         // L1172
         let treeData = m.spec.get().tree.get();
-        let legion = treeData.legion.get().unwrap_or_else(|| lua_error!("attempt to index field 'legion' (a nil value)"));
+        let legion = treeData
+            .legion
+            .get()
+            .unwrap_or_else(|| lua_error!("attempt to index field 'legion' (a nil value)"));
         // L1173
         let legionNodes = legion.table("nodes").unwrap_or_default();
         // L1174
@@ -3262,7 +3571,10 @@ impl TreeTab {
         // rebuild `timelessData.jewelType` as we only store the minimum amount of `jewelType` data in build XML
         let nonempty = |v: &Val| match v {
             Val::Table(t) => t.pairs().next().is_some(),
-            other => lua_error!("bad argument #1 to 'next' (table expected, got {})", other.lua_type()),
+            other => lua_error!(
+                "bad argument #1 to 'next' (table expected, got {})",
+                other.lua_type()
+            ),
         };
         // L1210
         if nonempty(&timelessData.get("jewelType")) {
@@ -3284,12 +3596,42 @@ impl TreeTab {
         // L1220-1262
         let conquerorTypes = Table::new();
         for (i, labels) in [
-            &["Any", "Doryani (Corrupted Soul)", "Xibaqua (Divine Flesh)", "Ahuana (Immortal Ambition)"][..],
-            &["Any", "Kaom (Strength of Blood)", "Rakiata (Tempered by War)", "Akoya (Chainbreaker)"],
-            &["Any", "Asenath (Dance with Death)", "Nasima (Second Sight)", "Balbala (The Traitor)"],
-            &["Any", "Avarius (Power of Purpose)", "Dominus (Inner Conviction)", "Maxarius (Transcendence)"],
-            &["Any", "Cadiro (Supreme Decadence)", "Victario (Supreme Grandstanding)", "Caspiro (Supreme Ostentation)"],
-            &["Any", "Vorana (Black Scythe Training)", "Uhtred (Celestial Mathematics)", "Medved (The Unbreaking Circle)"],
+            &[
+                "Any",
+                "Doryani (Corrupted Soul)",
+                "Xibaqua (Divine Flesh)",
+                "Ahuana (Immortal Ambition)",
+            ][..],
+            &[
+                "Any",
+                "Kaom (Strength of Blood)",
+                "Rakiata (Tempered by War)",
+                "Akoya (Chainbreaker)",
+            ],
+            &[
+                "Any",
+                "Asenath (Dance with Death)",
+                "Nasima (Second Sight)",
+                "Balbala (The Traitor)",
+            ],
+            &[
+                "Any",
+                "Avarius (Power of Purpose)",
+                "Dominus (Inner Conviction)",
+                "Maxarius (Transcendence)",
+            ],
+            &[
+                "Any",
+                "Cadiro (Supreme Decadence)",
+                "Victario (Supreme Grandstanding)",
+                "Caspiro (Supreme Ostentation)",
+            ],
+            &[
+                "Any",
+                "Vorana (Black Scythe Training)",
+                "Uhtred (Celestial Mathematics)",
+                "Medved (The Unbreaking Circle)",
+            ],
             &["Tecrod (Overwhelming Hate)"],
             &["Ulaman (Weighted Exchange)"],
             &["Kurgal (Reconstructed Essence)"],
@@ -3308,14 +3650,18 @@ impl TreeTab {
         let conquerors_of = |id: &Val| -> Table {
             int_key(id)
                 .and_then(|k| conquerorTypes.get(k).table())
-                .unwrap_or_else(|| lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"))
+                .unwrap_or_else(|| {
+                    lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)")
+                })
         };
         // rebuild `timelessData.conquerorType` as we only store the minimum amount of `conquerorType` data in build XML
         // L1264
         if nonempty(&timelessData.get("conquerorType")) {
             let want = timelessData.get("conquerorType").get("id");
             // L1265
-            for (_, conquerorType) in conquerors_of(&timelessData.get("jewelType").get("id")).ipairs() {
+            for (_, conquerorType) in
+                conquerors_of(&timelessData.get("jewelType").get("id")).ipairs()
+            {
                 // L1266
                 if conquerorType.get("id").raw_eq(&want) {
                     // L1267
@@ -3326,7 +3672,10 @@ impl TreeTab {
             }
         } else {
             // L1272
-            timelessData.set("conquerorType", conquerors_of(&timelessData.get("jewelType").get("id")).get(1i64));
+            timelessData.set(
+                "conquerorType",
+                conquerors_of(&timelessData.get("jewelType").get("id")).get(1i64),
+            );
         }
         // L1274-1292
         let devotionVariants = Table::new();
@@ -3382,7 +3731,9 @@ impl TreeTab {
         // L1311 ORDER: module notes (c)
         for (socketId, socketData) in spec.nodes.with(LjIntMap::pairs) {
             // L1312
-            if socketData.isJewelSocket.get() && socketData.extra.str("name").as_deref() != Some("Charm Socket") {
+            if socketData.isJewelSocket.get()
+                && socketData.extra.str("name").as_deref() != Some("Charm Socket")
+            {
                 // L1313
                 let mut keystone = Val::from("Unknown");
                 // L1314
@@ -3409,7 +3760,10 @@ impl TreeTab {
                             // L1324
                             let distance = pob_lua::math::m_sqrt(
                                 pob_lua::math::lpow(nodeInRadius.x.get() - socketData.x.get(), 2.0)
-                                    + pob_lua::math::lpow(nodeInRadius.y.get() - socketData.y.get(), 2.0),
+                                    + pob_lua::math::lpow(
+                                        nodeInRadius.y.get() - socketData.y.get(),
+                                        2.0,
+                                    ),
                             );
                             // L1325
                             if distance < minDistance {
@@ -3526,7 +3880,15 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
     // @pob Classes/TreeTab.lua:1517-1536 h=91f92730
     // L1517
     let devotionSelectLabel = cx
-        .add(p, "devotionSelectLabel", LabelControl::new(Anchor::nil(TopRight, TopLeft), r4(920.0, 25.0, 0.0, 16.0), "^7Devotion modifiers:"))
+        .add(
+            p,
+            "devotionSelectLabel",
+            LabelControl::new(
+                Anchor::nil(TopRight, TopLeft),
+                r4(920.0, 25.0, 0.0, 16.0),
+                "^7Devotion modifiers:",
+            ),
+        )
         .id();
     // L1518
     Up::set_shown(cx, devotionSelectLabel, up.jt_is(4.0));
@@ -3540,10 +3902,12 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
                 Anchor::new(Top, devotionSelectLabel, Bottom),
                 r4(0.0, 8.0, 200.0, 18.0),
                 table_items(&up.devotion_variants),
-                Some(Rc::new(move |_cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                    // L1520
-                    t2.set("devotionVariant1", index as f64);
-                }) as SelFunc),
+                Some(Rc::new(
+                    move |_cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                        // L1520
+                        t2.set("devotionVariant1", index as f64);
+                    },
+                ) as SelFunc),
                 None,
                 false,
             ),
@@ -3561,10 +3925,12 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
                 Anchor::new(Top, devotionSelect1, Bottom),
                 r4(0.0, 7.0, 200.0, 18.0),
                 table_items(&up.devotion_variants),
-                Some(Rc::new(move |_cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                    // L1524
-                    t2.set("devotionVariant2", index as f64);
-                }) as SelFunc),
+                Some(Rc::new(
+                    move |_cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                        // L1524
+                        t2.set("devotionVariant2", index as f64);
+                    },
+                ) as SelFunc),
                 None,
                 false,
             ),
@@ -3594,43 +3960,55 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
                 Anchor::nil(TopLeft, TopLeft),
                 r4(520.0, 25.0, 200.0, rowHeight),
                 table_items(&up.jewel_types),
-                Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                    let Some(value) = item_table(value) else {
-                        lua_error!("attempt to index local 'value' (a nil value)")
-                    };
-                    // L1567
-                    u.td().set("jewelType", value.clone());
-                    // L1568 Militant Faith
-                    let id = value.get("id");
-                    Up::set_shown(cx, u.c(cx, "devotionSelectLabel"), id.opt_num() == Some(4.0));
-                    // L1569
-                    Up::set_shown(cx, u.c(cx, "abyssAscendancyLabel"), id.opt_num() == Some(11.0));
-                    // L1570
-                    let a = u.c(cx, "abyssAscendancySelect");
-                    cx.w_mut::<DropDownControl>(a).sel_index = 1;
-                    // L1571
-                    let cl = int_key(&u.jt_id()).and_then(|k| u.conqueror_types.get(k).table()).unwrap_or_default();
-                    let cs = u.c(cx, "conquerorSelect");
-                    cx.w_mut::<DropDownControl>(cs).list = table_items(&cl);
-                    // L1572
-                    cx.w_mut::<DropDownControl>(cs).sel_index = 1;
-                    // L1573
-                    u.td().set("conquerorType", cl.get(1i64));
-                    // L1574
-                    let ns = u.c(cx, "nodeSelect");
-                    cx.w_mut::<DropDownControl>(ns).sel_index = 1;
-                    // L1575
-                    u.buildMods(cx);
-                    // L1576
-                    u.updateSearchList(cx, "", false);
-                    // L1577
-                    u.updateSearchList(cx, "", true);
-                    // L1578
-                    if u.socket_filter_state(cx) {
-                        // L1579
-                        u.setAllocatedNodes(cx);
-                    }
-                }) as SelFunc),
+                Some(Rc::new(
+                    move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                        let Some(value) = item_table(value) else {
+                            lua_error!("attempt to index local 'value' (a nil value)")
+                        };
+                        // L1567
+                        u.td().set("jewelType", value.clone());
+                        // L1568 Militant Faith
+                        let id = value.get("id");
+                        Up::set_shown(
+                            cx,
+                            u.c(cx, "devotionSelectLabel"),
+                            id.opt_num() == Some(4.0),
+                        );
+                        // L1569
+                        Up::set_shown(
+                            cx,
+                            u.c(cx, "abyssAscendancyLabel"),
+                            id.opt_num() == Some(11.0),
+                        );
+                        // L1570
+                        let a = u.c(cx, "abyssAscendancySelect");
+                        cx.w_mut::<DropDownControl>(a).sel_index = 1;
+                        // L1571
+                        let cl = int_key(&u.jt_id())
+                            .and_then(|k| u.conqueror_types.get(k).table())
+                            .unwrap_or_default();
+                        let cs = u.c(cx, "conquerorSelect");
+                        cx.w_mut::<DropDownControl>(cs).list = table_items(&cl);
+                        // L1572
+                        cx.w_mut::<DropDownControl>(cs).sel_index = 1;
+                        // L1573
+                        u.td().set("conquerorType", cl.get(1i64));
+                        // L1574
+                        let ns = u.c(cx, "nodeSelect");
+                        cx.w_mut::<DropDownControl>(ns).sel_index = 1;
+                        // L1575
+                        u.buildMods(cx);
+                        // L1576
+                        u.updateSearchList(cx, "", false);
+                        // L1577
+                        u.updateSearchList(cx, "", true);
+                        // L1578
+                        if u.socket_filter_state(cx) {
+                            // L1579
+                            u.setAllocatedNodes(cx);
+                        }
+                    },
+                ) as SelFunc),
                 None,
                 false,
             ),
@@ -3639,7 +4017,15 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
     // L1582
     cx.w_mut::<DropDownControl>(jewelSelect).sel_index = sel_of(&up.jt_id());
     // L1583
-    cx.add(p, "jewelSelectLabel", LabelControl::new(Anchor::new(Right, jewelSelect, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Jewel Type:"));
+    cx.add(
+        p,
+        "jewelSelectLabel",
+        LabelControl::new(
+            Anchor::new(Right, jewelSelect, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Jewel Type:",
+        ),
+    );
 
     // L1586-1589
     let t2 = td.clone();
@@ -3650,41 +4036,65 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
             DropDownControl::new(
                 Anchor::new(TopLeft, jewelSelect, BottomLeft),
                 r4(0.0, rowSpacing, 200.0, rowHeight),
-                table_items(&int_key(&up.jt_id()).and_then(|k| up.conqueror_types.get(k).table()).unwrap_or_default()),
-                Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                    // L1587
-                    t2.set("conquerorType", item_table(value).map_or(Val::Nil, Val::Table));
-                    // L1588
-                    Up::mod_flag(cx);
-                }) as SelFunc),
+                table_items(
+                    &int_key(&up.jt_id())
+                        .and_then(|k| up.conqueror_types.get(k).table())
+                        .unwrap_or_default(),
+                ),
+                Some(Rc::new(
+                    move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                        // L1587
+                        t2.set(
+                            "conquerorType",
+                            item_table(value).map_or(Val::Nil, Val::Table),
+                        );
+                        // L1588
+                        Up::mod_flag(cx);
+                    },
+                ) as SelFunc),
                 None,
                 false,
             ),
         )
         .id();
     // L1590
-    cx.w_mut::<DropDownControl>(conquerorSelect).sel_index = sel_of(&td.get("conquerorType").get("id"));
+    cx.w_mut::<DropDownControl>(conquerorSelect).sel_index =
+        sel_of(&td.get("conquerorType").get("id"));
     // L1591
-    cx.add(p, "conquerorSelectLabel", LabelControl::new(Anchor::new(Right, conquerorSelect, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Conqueror:"));
+    cx.add(
+        p,
+        "conquerorSelectLabel",
+        LabelControl::new(
+            Anchor::new(Right, conquerorSelect, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Conqueror:",
+        ),
+    );
     // L1592-1601
-    cx.w_mut::<DropDownControl>(conquerorSelect).tt.tooltip_func = Some(Rc::new(move |cx, tt, (_, _idx, val): DropTipArgs| {
-        // L1593
-        tt.clear(false);
-        let Some(val) = val else { lua_error!("attempt to index local 'val' (a nil value)") };
-        // L1594
-        let keystoneName = pob_lua::lmatch(&val.label, "%((.+)%)$", None).map(|c| c[0].to_str().into_owned());
-        // L1595
-        if let Some(keystoneName) = keystoneName {
-            // L1596
-            let tree = cx.build().model.spec.get().tree.get();
-            let keyStoneNode = tree.keystoneMap.obj::<Node>(model::Name::from(keystoneName.as_str()));
-            // L1597
-            if let Some(keyStoneNode) = keyStoneNode {
-                // L1598
-                viewer_add_node_tooltip(cx, me, tt, &keyStoneNode);
+    cx.w_mut::<DropDownControl>(conquerorSelect).tt.tooltip_func =
+        Some(Rc::new(move |cx, tt, (_, _idx, val): DropTipArgs| {
+            // L1593
+            tt.clear(false);
+            let Some(val) = val else {
+                lua_error!("attempt to index local 'val' (a nil value)")
+            };
+            // L1594
+            let keystoneName =
+                pob_lua::lmatch(&val.label, "%((.+)%)$", None).map(|c| c[0].to_str().into_owned());
+            // L1595
+            if let Some(keystoneName) = keystoneName {
+                // L1596
+                let tree = cx.build().model.spec.get().tree.get();
+                let keyStoneNode = tree
+                    .keystoneMap
+                    .obj::<Node>(model::Name::from(keystoneName.as_str()));
+                // L1597
+                if let Some(keyStoneNode) = keyStoneNode {
+                    // L1598
+                    viewer_add_node_tooltip(cx, me, tt, &keyStoneNode);
+                }
             }
-        }
-    }));
+        }));
 
     // L1603-1635 setAllocatedNodes: [`Up::setAllocatedNodes`]
 
@@ -3699,14 +4109,19 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
                 Anchor::new(TopLeft, conquerorSelect, BottomLeft),
                 r4(0.0, rowSpacing, 200.0, rowHeight),
                 table_items(&up.jewel_sockets),
-                Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                    // L1639
-                    u.td().set("jewelSocket", item_table(value).map_or(Val::Nil, Val::Table));
-                    // L1640 reset list when changing sockets
-                    u.setAllocatedNodes(cx);
-                    // L1641
-                    Up::mod_flag(cx);
-                }) as SelFunc),
+                Some(Rc::new(
+                    move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                        // L1639
+                        u.td().set(
+                            "jewelSocket",
+                            item_table(value).map_or(Val::Nil, Val::Table),
+                        );
+                        // L1640 reset list when changing sockets
+                        u.setAllocatedNodes(cx);
+                        // L1641
+                        Up::mod_flag(cx);
+                    },
+                ) as SelFunc),
                 Rc::new(AppTimelessBuild),
                 socketViewer,
             ),
@@ -3725,7 +4140,15 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
         }
     }
     // L1650
-    cx.add(p, "socketSelectLabel", LabelControl::new(Anchor::new(Right, socketSelect, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Jewel Socket:"));
+    cx.add(
+        p,
+        "socketSelectLabel",
+        LabelControl::new(
+            Anchor::new(Right, socketSelect, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Jewel Socket:",
+        ),
+    );
 
     // L1652-1664
     let u = up.clone();
@@ -3762,7 +4185,15 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
         )
         .id();
     // L1665
-    cx.add(p, "socketFilterLabel", LabelControl::new(Anchor::new(Right, socketFilter, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Filter Nodes:"));
+    cx.add(
+        p,
+        "socketFilterLabel",
+        LabelControl::new(
+            Anchor::new(Right, socketFilter, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Filter Nodes:",
+        ),
+    );
     // L1666-1670
     cx.w_mut::<CheckBoxControl>(socketFilter).tt.tooltip_func = Some(tip(&[
         "^7Enable this option to exclude nodes that you do not have allocated on your active passive skill tree.",
@@ -3794,7 +4225,15 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
         )
         .id();
     // L1678
-    cx.add(p, "socketAllocateLabel", LabelControl::new(Anchor::new(Right, socketAllocate, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Socket Jewel:"));
+    cx.add(
+        p,
+        "socketAllocateLabel",
+        LabelControl::new(
+            Anchor::new(Right, socketAllocate, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Socket Jewel:",
+        ),
+    );
     // L1679-1684
     cx.w_mut::<CheckBoxControl>(socketAllocate).tt.tooltip_func = Some(tip(&[
         "^7Double clicking a result also equips the jewel in its jewel socket.",
@@ -3817,7 +4256,11 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
                     Prop::Val(15.0),
                     Prop::f(move |_cx, _| {
                         // L1691
-                        if t2.get("jewelType").get("id").opt_num() == Some(11.0) { 85.0 } else { 25.0 }
+                        if t2.get("jewelType").get("id").opt_num() == Some(11.0) {
+                            85.0
+                        } else {
+                            25.0
+                        }
                     }),
                     Prop::Val(0.0),
                     Prop::Val(16.0),
@@ -3847,7 +4290,15 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
     // the protection list so adding protected nodes does not move the selector.
     // L1706
     let abyssAscendancyLabel = cx
-        .add(p, "abyssAscendancyLabel", LabelControl::new(Anchor::nil(TopLeft, TopLeft), r4(15.0, 25.0, 0.0, 16.0), "^7Required ascendancy outcome:"))
+        .add(
+            p,
+            "abyssAscendancyLabel",
+            LabelControl::new(
+                Anchor::nil(TopLeft, TopLeft),
+                r4(15.0, 25.0, 0.0, 16.0),
+                "^7Required ascendancy outcome:",
+            ),
+        )
         .id();
     // L1707
     Up::set_shown(cx, abyssAscendancyLabel, up.jt_is(11.0));
@@ -3861,32 +4312,37 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
                 Anchor::new(TopLeft, abyssAscendancyLabel, BottomLeft),
                 r4(0.0, 8.0, 200.0, 18.0),
                 table_items(&up.abyss_ascendancy_options),
-                Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                    // L1709
-                    let mut searchLines: Vec<String> = Vec::new();
-                    // L1710
-                    for (_, searchRow) in u.search_list_tbl.borrow().clone().ipairs() {
-                        let searchRow = searchRow.table().unwrap();
-                        let first = match searchRow.get(1i64) {
-                            // `searchRow[1]:match`: a number has no string methods
-                            Val::Str(s) => s.to_string(),
-                            other => lua_error!("attempt to index field '?' (a {} value)", other.lua_type()),
-                        };
-                        // L1711
-                        if !lmatch(&first, "^abyss_special_ascendancy_notable_") {
-                            // L1712
-                            searchLines.push(t_concat(&searchRow, ", "));
+                Some(Rc::new(
+                    move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                        // L1709
+                        let mut searchLines: Vec<String> = Vec::new();
+                        // L1710
+                        for (_, searchRow) in u.search_list_tbl.borrow().clone().ipairs() {
+                            let searchRow = searchRow.table().unwrap();
+                            let first = match searchRow.get(1i64) {
+                                // `searchRow[1]:match`: a number has no string methods
+                                Val::Str(s) => s.to_string(),
+                                other => lua_error!(
+                                    "attempt to index field '?' (a {} value)",
+                                    other.lua_type()
+                                ),
+                            };
+                            // L1711
+                            if !lmatch(&first, "^abyss_special_ascendancy_notable_") {
+                                // L1712
+                                searchLines.push(t_concat(&searchRow, ", "));
+                            }
                         }
-                    }
-                    // L1715
-                    let id = item_table(value).map_or(Val::Nil, |t| t.get("id"));
-                    if id.truthy() {
-                        // L1716
-                        searchLines.push(format!("{}, 1, 0, 1", cat(&id)));
-                    }
-                    // L1718
-                    u.updateSearchList(cx, &searchLines.join("\n"), false);
-                }) as SelFunc),
+                        // L1715
+                        let id = item_table(value).map_or(Val::Nil, |t| t.get("id"));
+                        if id.truthy() {
+                            // L1716
+                            searchLines.push(format!("{}, 1, 0, 1", cat(&id)));
+                        }
+                        // L1718
+                        u.updateSearchList(cx, &searchLines.join("\n"), false);
+                    },
+                ) as SelFunc),
                 None,
                 false,
             ),
@@ -3909,7 +4365,9 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
         }
     }
     // L1729-1734
-    cx.w_mut::<DropDownControl>(abyssAscendancySelect).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, (_, _, value): DropTipArgs| {
+    cx.w_mut::<DropDownControl>(abyssAscendancySelect)
+        .tt
+        .tooltip_func = Some(Rc::new(move |cx, tooltip, (_, _, value): DropTipArgs| {
         // L1730
         tooltip.clear(false);
         // L1731
@@ -3944,7 +4402,15 @@ fn build_sliders(cx: &mut Cx, up: &Rc<Up>, socketFilter: CtrlId, socketAllocate:
     let socketFilterAdditionalDistanceMAX = 10.0;
     // L1737
     let socketFilterAdditionalDistanceLabel = cx
-        .add(p, "socketFilterAdditionalDistanceLabel", LabelControl::new(Anchor::new(Left, socketFilter, Right), r4(10.0, 0.0, 0.0, 16.0), "^7Node Distance:"))
+        .add(
+            p,
+            "socketFilterAdditionalDistanceLabel",
+            LabelControl::new(
+                Anchor::new(Left, socketFilter, Right),
+                r4(10.0, 0.0, 0.0, 16.0),
+                "^7Node Distance:",
+            ),
+        )
         .id();
     // L1738-1741
     let u = up.clone();
@@ -3985,7 +4451,15 @@ fn build_sliders(cx: &mut Cx, up: &Rc<Up>, socketFilter: CtrlId, socketAllocate:
     slider_tooltip_draw(cx, dist, 1384.0);
     // L1757
     let distValue = cx
-        .add(p, "socketFilterAdditionalDistanceValue", LabelControl::new(Anchor::new(Left, dist, Right), r4(5.0, 0.0, 0.0, 16.0), "^70"))
+        .add(
+            p,
+            "socketFilterAdditionalDistanceValue",
+            LabelControl::new(
+                Anchor::new(Left, dist, Right),
+                r4(5.0, 0.0, 0.0, 16.0),
+                "^70",
+            ),
+        )
         .id();
     // L1758
     let d0 = match td.get("socketFilterDistance") {
@@ -4013,7 +4487,10 @@ fn build_sliders(cx: &mut Cx, up: &Rc<Up>, socketFilter: CtrlId, socketAllocate:
     };
 
     // `controls.searchListFallback and controls.searchListFallback.shown or false`
-    let fallback_shown = |cx: &Cx, u: &Up| u.c_opt(cx, "searchListFallback").is_some_and(|f| cx.base(f).shown.raw());
+    let fallback_shown = |cx: &Cx, u: &Up| {
+        u.c_opt(cx, "searchListFallback")
+            .is_some_and(|f| cx.base(f).shown.raw())
+    };
 
     // L1766 (Up::node_slider_stat_label)
     // L1767-1770
@@ -4038,7 +4515,15 @@ fn build_sliders(cx: &mut Cx, up: &Rc<Up>, socketFilter: CtrlId, socketAllocate:
         )
         .id();
     // L1771
-    cx.add(p, "nodeSliderLabel", LabelControl::new(Anchor::new(Right, nodeSlider, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Primary Node Weight:"));
+    cx.add(
+        p,
+        "nodeSliderLabel",
+        LabelControl::new(
+            Anchor::new(Right, nodeSlider, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Primary Node Weight:",
+        ),
+    );
     // L1772-1782
     let u = up.clone();
     cx.w_mut::<SliderControl>(nodeSlider).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, _| {
@@ -4053,14 +4538,26 @@ fn build_sliders(cx: &mut Cx, up: &Rc<Up>, socketFilter: CtrlId, socketAllocate:
                 tooltip.add_line(cx, 16.0, "^7For nodes with multiple stats this slider controls the weight of the first stat listed.");
             } else {
                 // L1778
-                tooltip.add_line(cx, 16.0, "^7This slider controls the weight of the following stat:");
+                tooltip.add_line(
+                    cx,
+                    16.0,
+                    "^7This slider controls the weight of the following stat:",
+                );
                 // L1779
                 tooltip.add_line(cx, 16.0, &format!("^7        {label}"));
             }
         }
     }));
     // L1783
-    cx.add(p, "nodeSliderValue", LabelControl::new(Anchor::new(Left, nodeSlider, Right), r4(5.0, 0.0, 0.0, 16.0), "^71.000"));
+    cx.add(
+        p,
+        "nodeSliderValue",
+        LabelControl::new(
+            Anchor::new(Left, nodeSlider, Right),
+            r4(5.0, 0.0, 0.0, 16.0),
+            "^71.000",
+        ),
+    );
     // L1784-1792
     slider_tooltip_draw(cx, nodeSlider, 1338.0);
     // L1793
@@ -4089,29 +4586,51 @@ fn build_sliders(cx: &mut Cx, up: &Rc<Up>, socketFilter: CtrlId, socketAllocate:
         )
         .id();
     // L1800
-    cx.add(p, "nodeSlider2Label", LabelControl::new(Anchor::new(Right, nodeSlider2, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Secondary Node Weight:"));
+    cx.add(
+        p,
+        "nodeSlider2Label",
+        LabelControl::new(
+            Anchor::new(Right, nodeSlider2, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Secondary Node Weight:",
+        ),
+    );
     // L1801-1811
     let u = up.clone();
-    cx.w_mut::<SliderControl>(nodeSlider2).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, _| {
-        // L1802
-        tooltip.clear(false);
-        // L1803
-        if !cx.w::<SliderControl>(nodeSlider2).dragging {
-            let label = u.node_slider2_stat_label.borrow().clone();
-            // L1804
-            if label == "None" {
-                // L1805
-                tooltip.add_line(cx, 16.0, "^7For nodes with multiple stats this slider controls the weight of the second stat listed.");
-            } else {
-                // L1807
-                tooltip.add_line(cx, 16.0, "^7This slider controls the weight of the following stat:");
-                // L1808
-                tooltip.add_line(cx, 16.0, &format!("^7        {label}"));
+    cx.w_mut::<SliderControl>(nodeSlider2).tt.tooltip_func = Some(Rc::new(
+        move |cx, tooltip, _| {
+            // L1802
+            tooltip.clear(false);
+            // L1803
+            if !cx.w::<SliderControl>(nodeSlider2).dragging {
+                let label = u.node_slider2_stat_label.borrow().clone();
+                // L1804
+                if label == "None" {
+                    // L1805
+                    tooltip.add_line(cx, 16.0, "^7For nodes with multiple stats this slider controls the weight of the second stat listed.");
+                } else {
+                    // L1807
+                    tooltip.add_line(
+                        cx,
+                        16.0,
+                        "^7This slider controls the weight of the following stat:",
+                    );
+                    // L1808
+                    tooltip.add_line(cx, 16.0, &format!("^7        {label}"));
+                }
             }
-        }
-    }));
+        },
+    ));
     // L1812
-    cx.add(p, "nodeSlider2Value", LabelControl::new(Anchor::new(Left, nodeSlider2, Right), r4(5.0, 0.0, 0.0, 16.0), "^71.000"));
+    cx.add(
+        p,
+        "nodeSlider2Value",
+        LabelControl::new(
+            Anchor::new(Left, nodeSlider2, Right),
+            r4(5.0, 0.0, 0.0, 16.0),
+            "^71.000",
+        ),
+    );
     // L1813-1821
     slider_tooltip_draw(cx, nodeSlider2, 1384.0);
     // L1822
@@ -4145,19 +4664,37 @@ fn build_sliders(cx: &mut Cx, up: &Rc<Up>, socketFilter: CtrlId, socketAllocate:
         )
         .id();
     // L1832
-    cx.add(p, "nodeSlider3Label", LabelControl::new(Anchor::new(Right, nodeSlider3, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Minimum Node Weight:"));
+    cx.add(
+        p,
+        "nodeSlider3Label",
+        LabelControl::new(
+            Anchor::new(Right, nodeSlider3, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Minimum Node Weight:",
+        ),
+    );
     // L1833-1838
-    cx.w_mut::<SliderControl>(nodeSlider3).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, _| {
-        // L1834
-        tooltip.clear(false);
-        // L1835
-        if !cx.w::<SliderControl>(nodeSlider3).dragging {
-            // L1836
-            tooltip.add_line(cx, 16.0, "^7Seeds that do not meet the minimum weight threshold for a desired node are excluded from the search results.");
-        }
-    }));
+    cx.w_mut::<SliderControl>(nodeSlider3).tt.tooltip_func = Some(Rc::new(
+        move |cx, tooltip, _| {
+            // L1834
+            tooltip.clear(false);
+            // L1835
+            if !cx.w::<SliderControl>(nodeSlider3).dragging {
+                // L1836
+                tooltip.add_line(cx, 16.0, "^7Seeds that do not meet the minimum weight threshold for a desired node are excluded from the search results.");
+            }
+        },
+    ));
     // L1839
-    cx.add(p, "nodeSlider3Value", LabelControl::new(Anchor::new(Left, nodeSlider3, Right), r4(5.0, 0.0, 0.0, 16.0), "^70"));
+    cx.add(
+        p,
+        "nodeSlider3Value",
+        LabelControl::new(
+            Anchor::new(Left, nodeSlider3, Right),
+            r4(5.0, 0.0, 0.0, 16.0),
+            "^70",
+        ),
+    );
     // L1840-1848
     slider_tooltip_draw(cx, nodeSlider3, 1728.0);
     // L1849
@@ -4189,34 +4726,46 @@ fn build_node_select(cx: &mut Cx, up: &Rc<Up>, nodeSlider3: CtrlId) {
                 Anchor::new(TopLeft, nodeSlider3, BottomLeft),
                 r4(0.0, rowSpacing, 200.0, rowHeight),
                 table_items(&up.mod_data),
-                Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                    u.nodeSelectChanged(cx, item_table(value));
-                }) as SelFunc),
+                Some(Rc::new(
+                    move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                        u.nodeSelectChanged(cx, item_table(value));
+                    },
+                ) as SelFunc),
                 None,
                 false,
             ),
         )
         .id();
     // L1942
-    cx.add(p, "nodeSelectLabel", LabelControl::new(Anchor::new(Right, nodeSelect, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Search for Node:"));
+    cx.add(
+        p,
+        "nodeSelectLabel",
+        LabelControl::new(
+            Anchor::new(Right, nodeSelect, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Search for Node:",
+        ),
+    );
     // L1943-1950
-    cx.w_mut::<DropDownControl>(nodeSelect).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, (mode, _, value): DropTipArgs| {
-        // L1944
-        tooltip.clear(false);
-        let Some(value) = item_table(value.as_ref()) else {
-            lua_error!("attempt to index local 'value' (a nil value)")
-        };
-        // L1945
-        if mode != DropTipMode::Out {
-            if let Some(d) = value.table("descriptions") {
-                // L1946
-                for (_, line) in d.ipairs() {
-                    // L1947
-                    tooltip.add_line(cx, 16.0, &format!("^7{}", cat(&line)));
+    cx.w_mut::<DropDownControl>(nodeSelect).tt.tooltip_func = Some(Rc::new(
+        move |cx, tooltip, (mode, _, value): DropTipArgs| {
+            // L1944
+            tooltip.clear(false);
+            let Some(value) = item_table(value.as_ref()) else {
+                lua_error!("attempt to index local 'value' (a nil value)")
+            };
+            // L1945
+            if mode != DropTipMode::Out {
+                if let Some(d) = value.table("descriptions") {
+                    // L1946
+                    for (_, line) in d.ipairs() {
+                        // L1947
+                        tooltip.add_line(cx, 16.0, &format!("^7{}", cat(&line)));
+                    }
                 }
             }
-        }
-    }));
+        },
+    ));
 
     build_lists(cx, up, nodeSelect);
 }
@@ -4257,19 +4806,33 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
                 Anchor::new(TopLeft, nodeSelect, BottomLeft),
                 r4(0.0, rowSpacing, 200.0, rowHeight),
                 table_items(&fallbackWeightsList),
-                Some(Rc::new(move |_cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                    // L2131
-                    t2.table("fallbackWeightMode")
-                        .unwrap_or_else(|| lua_error!("attempt to index field 'fallbackWeightMode' (a nil value)"))
-                        .set("idx", index as f64);
-                }) as SelFunc),
+                Some(Rc::new(
+                    move |_cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                        // L2131
+                        t2.table("fallbackWeightMode")
+                            .unwrap_or_else(|| {
+                                lua_error!(
+                                    "attempt to index field 'fallbackWeightMode' (a nil value)"
+                                )
+                            })
+                            .set("idx", index as f64);
+                    },
+                ) as SelFunc),
                 None,
                 false,
             ),
         )
         .id();
     // L2133
-    cx.add(p, "fallbackWeightsLabel", LabelControl::new(Anchor::new(Right, fwl, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Fallback Weight Mode:"));
+    cx.add(
+        p,
+        "fallbackWeightsLabel",
+        LabelControl::new(
+            Anchor::new(Right, fwl, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Fallback Weight Mode:",
+        ),
+    );
     // L2134
     let idx = td
         .table("fallbackWeightMode")
@@ -4282,13 +4845,18 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
         .add(
             p,
             "fallbackWeightsButton",
-            ButtonControl::new(Anchor::new(Left, fwl, Right), r4(5.0, 0.0, 66.0, 18.0), "Generate", move |cx| {
-                // L2136
-                u.setupFallbackWeights(cx);
-                // L2137
-                let b = u.c(cx, "searchListFallbackButton");
-                cx.w_mut::<ButtonControl>(b).label = Prop::Val("^4Fallback Nodes".to_owned());
-            }),
+            ButtonControl::new(
+                Anchor::new(Left, fwl, Right),
+                r4(5.0, 0.0, 66.0, 18.0),
+                "Generate",
+                move |cx| {
+                    // L2136
+                    u.setupFallbackWeights(cx);
+                    // L2137
+                    let b = u.c(cx, "searchListFallbackButton");
+                    cx.w_mut::<ButtonControl>(b).label = Prop::Val("^4Fallback Nodes".to_owned());
+                },
+            ),
         )
         .id();
     // L2139-2142
@@ -4321,7 +4889,15 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
         )
         .id();
     // L2148
-    cx.add(p, "totalMinimumWeightLabel", LabelControl::new(Anchor::new(Right, tmw, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Total Minimum Weight:"));
+    cx.add(
+        p,
+        "totalMinimumWeightLabel",
+        LabelControl::new(
+            Anchor::new(Right, tmw, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Total Minimum Weight:",
+        ),
+    );
     // L2149-2152
     cx.w_mut::<EditControl>(tmw).tt.tooltip_func = Some(tip(&[
         "^7Optional: Only show results where total weight meets or exceeds this value.",
@@ -4369,7 +4945,9 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
     // L2167
     cx.base_mut(searchList).enabled = Prop::Val(true);
     // L2168
-    let text = td.str("searchList").map_or_else(String::new, |s| s.to_string());
+    let text = td
+        .str("searchList")
+        .map_or_else(String::new, |s| s.to_string());
     EditControl::set_text(cx, searchList, &text, false);
 
     // L2170-2176
@@ -4389,7 +4967,9 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
     // L2178
     cx.base_mut(searchListFallback).enabled = Prop::Val(false);
     // L2179
-    let text = td.str("searchListFallback").map_or_else(String::new, |s| s.to_string());
+    let text = td
+        .str("searchListFallback")
+        .map_or_else(String::new, |s| s.to_string());
     EditControl::set_text(cx, searchListFallback, &text, false);
 
     // L2181-2190
@@ -4399,7 +4979,12 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
             "searchListButton",
             ButtonControl::new(
                 Anchor::nil(BottomLeft, BottomLeft),
-                r4(edgePadding, listYOffset - listHeight - rowSpacing, 106.0, buttonHeight),
+                r4(
+                    edgePadding,
+                    listYOffset - listHeight - rowSpacing,
+                    106.0,
+                    buttonHeight,
+                ),
                 "^7Desired Nodes",
                 move |cx| {
                     // L2184
@@ -4423,27 +5008,34 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
         "^7This list can be updated manually or by selecting the node you want to update via the search dropdown list and then moving the node weight sliders.",
     ]));
     // L2198
-    cx.w_mut::<ButtonControl>(searchListButton).locked = Prop::f(move |cx, _| cx.base(searchList).shown.raw());
+    cx.w_mut::<ButtonControl>(searchListButton).locked =
+        Prop::f(move |cx, _| cx.base(searchList).shown.raw());
 
     // L2200-2206
     let searchListFallbackButton = cx
         .add(
             p,
             "searchListFallbackButton",
-            ButtonControl::new(Anchor::new(Left, searchListButton, Right), r4(5.0, 0.0, 110.0, buttonHeight), "^7Fallback Nodes", move |cx| {
-                // L2201
-                Up::set_shown(cx, searchList, false);
-                // L2202
-                cx.base_mut(searchList).enabled = Prop::Val(false);
-                // L2203
-                Up::set_shown(cx, searchListFallback, true);
-                // L2204
-                cx.base_mut(searchListFallback).enabled = Prop::Val(true);
-                // L2205
-                if let Some(b) = cx.child(p, "searchListFallbackButton") {
-                    cx.w_mut::<ButtonControl>(b).label = Prop::Val("^7Fallback Nodes".to_owned());
-                }
-            }),
+            ButtonControl::new(
+                Anchor::new(Left, searchListButton, Right),
+                r4(5.0, 0.0, 110.0, buttonHeight),
+                "^7Fallback Nodes",
+                move |cx| {
+                    // L2201
+                    Up::set_shown(cx, searchList, false);
+                    // L2202
+                    cx.base_mut(searchList).enabled = Prop::Val(false);
+                    // L2203
+                    Up::set_shown(cx, searchListFallback, true);
+                    // L2204
+                    cx.base_mut(searchListFallback).enabled = Prop::Val(true);
+                    // L2205
+                    if let Some(b) = cx.child(p, "searchListFallbackButton") {
+                        cx.w_mut::<ButtonControl>(b).label =
+                            Prop::Val("^7Fallback Nodes".to_owned());
+                    }
+                },
+            ),
         )
         .id();
     // L2207-2214
@@ -4455,13 +5047,19 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
         "^7Any manual changes made to your fallback nodes are lost when you click the generate button, as it completely replaces them.",
     ]));
     // L2215
-    cx.w_mut::<ButtonControl>(searchListFallbackButton).locked = Prop::f(move |cx, _| cx.base(searchListFallback).shown.raw());
+    cx.w_mut::<ButtonControl>(searchListFallbackButton).locked =
+        Prop::f(move |cx, _| cx.base(searchListFallback).shown.raw());
 
     // L2217-2218
     let resultsList = TimelessJewelListControl::new(
         cx,
         Anchor::nil(BottomLeft, BottomLeft),
-        r4(edgePadding * 2.0 + listWidth, -(buttonHeight + edgePadding * 2.0), listWidth, listHeight),
+        r4(
+            edgePadding * 2.0 + listWidth,
+            -(buttonHeight + edgePadding * 2.0),
+            listWidth,
+            listHeight,
+        ),
         Rc::new(AppTimelessBuild),
     );
     let searchResults = cx.add(p, "searchResults", resultsList).id();
@@ -4470,7 +5068,11 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
         host_name: "https://www.pathofexile.com/".to_owned(),
     });
     // L2220
-    cx.add(p, "msg", LabelControl::new(Anchor::NONE, r4(-280.0, 5.0, 0.0, 20.0), ""));
+    cx.add(
+        p,
+        "msg",
+        LabelControl::new(Anchor::NONE, r4(-280.0, 5.0, 0.0, 20.0), ""),
+    );
 
     build_trade(cx, up, searchResults);
 }
@@ -4522,50 +5124,92 @@ fn build_trade(cx: &mut Cx, up: &Rc<Up>, searchResults: CtrlId) {
                 Anchor::new(Right, searchTradeButton, Left),
                 r4(-labelSpacing, 0.0, 140.0, buttonHeight),
                 Vec::new(),
-                Some(Rc::new(move |cx: &mut Cx, _idx: usize, val: Option<&DropItem>| {
-                    // L2346
-                    tt_state(cx, me).timeless_jewel_league_select = val.map(|v| v.label.clone());
-                }) as SelFunc),
+                Some(
+                    Rc::new(move |cx: &mut Cx, _idx: usize, val: Option<&DropItem>| {
+                        // L2346
+                        tt_state(cx, me).timeless_jewel_league_select =
+                            val.map(|v| v.label.clone());
+                    }) as SelFunc,
+                ),
                 None,
                 false,
             ),
         )
         .id();
     // L2348-2349
-    cx.add(p, "searchTradeLeagueLabel", LabelControl::new(Anchor::new(TopRight, searchTradeLeagueSelect, TopLeft), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7League:"));
+    cx.add(
+        p,
+        "searchTradeLeagueLabel",
+        LabelControl::new(
+            Anchor::new(TopRight, searchTradeLeagueSelect, TopLeft),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7League:",
+        ),
+    );
     // Realm selection
     // L2351-2353
     tt_state(cx, me).realm_list = vec!["PC".to_owned(), "Sony".to_owned(), "Xbox".to_owned()];
     // L2354-2355
-    let realms: Vec<DropItem> = cx.w::<TreeTab>(me).timeless.realm_list.iter().map(|s| DropItem::str(s.as_str())).collect();
+    let realms: Vec<DropItem> = cx
+        .w::<TreeTab>(me)
+        .timeless
+        .realm_list
+        .iter()
+        .map(|s| DropItem::str(s.as_str()))
+        .collect();
     let realmSelection = cx
         .add(
             p,
             "realmSelection",
-            DropDownControl::new(Anchor::new(BottomLeft, searchTradeLeagueSelect, TopLeft), r4(0.0, -rowSpacing, 50.0, buttonHeight), realms, None, None, false),
+            DropDownControl::new(
+                Anchor::new(BottomLeft, searchTradeLeagueSelect, TopLeft),
+                r4(0.0, -rowSpacing, 50.0, buttonHeight),
+                realms,
+                None,
+                None,
+                false,
+            ),
         )
         .id();
     // L2356-2398 updateLeagues: [`Up::updateLeagues`]
     // L2399-2402
     let u = up.clone();
-    cx.w_mut::<DropDownControl>(realmSelection).sel_func = Some(Rc::new(move |cx: &mut Cx, idx: usize, _: Option<&DropItem>| {
-        // L2400
-        tt_state(cx, me).selected_realm_index = Some(idx);
-        // L2401
-        u.updateLeagues(cx);
-    }));
+    cx.w_mut::<DropDownControl>(realmSelection).sel_func = Some(Rc::new(
+        move |cx: &mut Cx, idx: usize, _: Option<&DropItem>| {
+            // L2400
+            tt_state(cx, me).selected_realm_index = Some(idx);
+            // L2401
+            u.updateLeagues(cx);
+        },
+    ));
     // remember previous choice
     // L2404
-    let sel = cx.w::<TreeTab>(me).timeless.selected_realm_index.unwrap_or(1);
+    let sel = cx
+        .w::<TreeTab>(me)
+        .timeless
+        .selected_realm_index
+        .unwrap_or(1);
     DropDownControl::set_sel(cx, realmSelection, sel, false);
     // manually call the function because when initialising, because the
     // function does not get called when the selection index stays the same
     // L2407
-    let f = cx.w::<DropDownControl>(realmSelection).sel_func.clone().unwrap();
+    let f = cx
+        .w::<DropDownControl>(realmSelection)
+        .sel_func
+        .clone()
+        .unwrap();
     let si = cx.w::<DropDownControl>(realmSelection).sel_index;
     f(cx, si, None);
     // L2408-2409
-    cx.add(p, "realmLabel", LabelControl::new(Anchor::new(TopRight, realmSelection, TopLeft), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Realm:"));
+    cx.add(
+        p,
+        "realmLabel",
+        LabelControl::new(
+            Anchor::new(TopRight, realmSelection, TopLeft),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Realm:",
+        ),
+    );
 
     // Buyout selection
     // L2412-2418
@@ -4588,10 +5232,12 @@ fn build_trade(cx: &mut Cx, up: &Rc<Up>, searchResults: CtrlId) {
                 Anchor::new(BottomRight, searchTradeButton, TopRight),
                 r4(0.0, -rowSpacing, 205.0, buttonHeight),
                 tradeTypes,
-                Some(Rc::new(move |cx: &mut Cx, index: usize, _: Option<&DropItem>| {
-                    // L2421
-                    tt_state(cx, me).trade_type_index = Some(index);
-                }) as SelFunc),
+                Some(
+                    Rc::new(move |cx: &mut Cx, index: usize, _: Option<&DropItem>| {
+                        // L2421
+                        tt_state(cx, me).trade_type_index = Some(index);
+                    }) as SelFunc,
+                ),
                 None,
                 false,
             ),
@@ -4632,7 +5278,15 @@ fn build_trade(cx: &mut Cx, up: &Rc<Up>, searchResults: CtrlId) {
         cx.w_mut::<CheckBoxControl>(searchMore).state = true;
     }
     // L2438-2439
-    cx.add(p, "searchMoreLabel", LabelControl::new(Anchor::new(Right, searchMore, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Search Maximum Amount:"));
+    cx.add(
+        p,
+        "searchMoreLabel",
+        LabelControl::new(
+            Anchor::new(Right, searchMore, Left),
+            r4(-labelSpacing, 0.0, 0.0, labelHeight),
+            "^7Search Maximum Amount:",
+        ),
+    );
 
     // L2442-2729 searchSingleSocket: [`Up::searchSingleSocket`]
     // L2731-2745 formatSearchValue: [`formatSearchValue`]
@@ -4661,7 +5315,12 @@ fn build_buttons(cx: &mut Cx, up: &Rc<Up>) {
             "resetButton",
             ButtonControl::new(
                 Anchor::nil(BottomLeft, BottomLeft),
-                r4(panelWidth / 2.0 - buttonWidth / 2.0, -edgePadding, buttonWidth, buttonHeight),
+                r4(
+                    panelWidth / 2.0 - buttonWidth / 2.0,
+                    -edgePadding,
+                    buttonWidth,
+                    buttonHeight,
+                ),
                 "Reset",
                 move |cx| u.reset(cx),
             ),
@@ -4671,19 +5330,29 @@ fn build_buttons(cx: &mut Cx, up: &Rc<Up>) {
     cx.add(
         p,
         "closeButton",
-        ButtonControl::new(Anchor::new(Left, resetButton, Right), r4(buttonDivider, 0.0, buttonWidth, buttonHeight), "Cancel", |cx| {
-            // L2815
-            popups::close_popup(cx);
-        }),
+        ButtonControl::new(
+            Anchor::new(Left, resetButton, Right),
+            r4(buttonDivider, 0.0, buttonWidth, buttonHeight),
+            "Cancel",
+            |cx| {
+                // L2815
+                popups::close_popup(cx);
+            },
+        ),
     );
     // L2817-2882
     let u = up.clone();
     cx.add(
         p,
         "searchButton",
-        ButtonControl::new(Anchor::new(Right, resetButton, Left), r4(-buttonDivider, 0.0, buttonWidth, buttonHeight), "Search", move |cx| {
-            u.search(cx);
-        }),
+        ButtonControl::new(
+            Anchor::new(Right, resetButton, Left),
+            r4(-buttonDivider, 0.0, buttonWidth, buttonHeight),
+            "Search",
+            move |cx| {
+                u.search(cx);
+            },
+        ),
     );
     // L2886-2887: the caller's `open_popup`
 }
@@ -4725,7 +5394,10 @@ mod tests {
             (
                 "query",
                 Json::obj(vec![
-                    ("status", Json::obj(vec![("option", Json::Str("securable".into()))])),
+                    (
+                        "status",
+                        Json::obj(vec![("option", Json::Str("securable".into()))]),
+                    ),
                     (
                         "stats",
                         Json::Arr(vec![Json::obj(vec![
@@ -4741,7 +5413,10 @@ mod tests {
             dkjson_encode(&v),
             r#"{"query":{"stats":[{"filters":[],"type":"count","value":{"min":1}}],"status":{"option":"securable"}},"sort":{"price":"asc"}}"#
         );
-        assert_eq!(dkjson_encode(&Json::Str("a\"b\\\n".into())), r#""a\"b\\\n""#);
+        assert_eq!(
+            dkjson_encode(&Json::Str("a\"b\\\n".into())),
+            r#""a\"b\\\n""#
+        );
     }
 
     /// `replaceHelperFunc` (TreeTab.lua:1981-1998): a range, and the `g` per-minute unit.
@@ -4751,7 +5426,12 @@ mod tests {
         m.set("min", 10.0);
         m.set("max", 20.0);
         assert_eq!(
-            replaceHelperFunc("(10-20)% increased Damage", &Val::from("x"), &Val::Table(m), 100.0),
+            replaceHelperFunc(
+                "(10-20)% increased Damage",
+                &Val::from("x"),
+                &Val::Table(m),
+                100.0
+            ),
             "100% increased Damage"
         );
         let g = Table::new();

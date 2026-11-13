@@ -2046,9 +2046,10 @@ pub(super) fn mergeFlasks(
     onlyRecovery: bool,
     checkNonRecoveryFlasksForMinions: bool,
 ) {
-    let up = ctx.mergeFlasks.clone().unwrap_or_else(|| {
-        lua_error!("attempt to call local 'mergeFlasks' (a nil value)")
-    });
+    let up = ctx
+        .mergeFlasks
+        .clone()
+        .unwrap_or_else(|| lua_error!("attempt to call local 'mergeFlasks' (a nil value)"));
     mergeFlasks_up(
         ctx,
         &up,
@@ -2059,8 +2060,9 @@ pub(super) fn mergeFlasks(
 }
 
 pub(super) fn mergeTinctures(ctx: &PerformCtx, tinctures: &PtrMap<Item, bool>) {
-    let up = ctx.mergeTinctures.clone().unwrap_or_else(|| {
-        lua_error!("attempt to call local 'mergeTinctures' (a nil value)")
-    });
+    let up = ctx
+        .mergeTinctures
+        .clone()
+        .unwrap_or_else(|| lua_error!("attempt to call local 'mergeTinctures' (a nil value)"));
     mergeTinctures_up(ctx, &up, tinctures);
 }

@@ -339,11 +339,7 @@ pub fn lua_lt(a: &Val, b: &Val) -> bool {
         _ if a.lua_type() == b.lua_type() => {
             lua_error!("attempt to compare two {} values", a.lua_type())
         }
-        _ => lua_error!(
-            "attempt to compare {} with {}",
-            a.lua_type(),
-            b.lua_type()
-        ),
+        _ => lua_error!("attempt to compare {} with {}", a.lua_type(), b.lua_type()),
     }
 }
 
@@ -728,7 +724,11 @@ impl CalcBreakdownControl {
                         // count how many commas will be added
                         // L102
                         let num = gsub_count(&line, "%d%d%d%d", "");
-                        let w = cx.sg.draw_string_width(*text_size, Font::Var, &lstr_arg(&line, "DrawStringWidth"));
+                        let w = cx.sg.draw_string_width(
+                            *text_size,
+                            Font::Var,
+                            &lstr_arg(&line, "DrawStringWidth"),
+                        );
                         // L103
                         if showSep && num > 0 {
                             // L104
@@ -772,11 +772,18 @@ impl CalcBreakdownControl {
                                 let cw = col.get(n!("width"));
                                 let cw = if cw.truthy() { cw.num() } else { 0.0 };
                                 let lw = cx.sg.draw_string_width(16.0, Font::Var, &colLabel) + 6.0;
-                                let vw = cx.sg.draw_string_width(12.0, Font::Var, &lstr_arg(&v, "DrawStringWidth"));
+                                let vw = cx.sg.draw_string_width(
+                                    12.0,
+                                    Font::Var,
+                                    &lstr_arg(&v, "DrawStringWidth"),
+                                );
                                 // L117
                                 if showSep && num > 0 {
                                     // L118
-                                    col.set(n!("width"), m_max_n(&[cw, lw, vw + 6.0 + (4.0 * num as f64)]));
+                                    col.set(
+                                        n!("width"),
+                                        m_max_n(&[cw, lw, vw + 6.0 + (4.0 * num as f64)]),
+                                    );
                                 } else {
                                     // L120
                                     col.set(n!("width"), m_max_n(&[cw, lw, vw + 6.0]));
@@ -796,7 +803,10 @@ impl CalcBreakdownControl {
                     if label.truthy() {
                         // L130
                         let s = format!("{}:", lstr(label, "field 'label'"));
-                        contentWidth = m_max(contentWidth, 6.0 + cx.sg.draw_string_width(16.0, Font::Var, &s));
+                        contentWidth = m_max(
+                            contentWidth,
+                            6.0 + cx.sg.draw_string_width(16.0, Font::Var, &s),
+                        );
                         // L131
                         section.height += 16.0;
                     }
@@ -804,7 +814,10 @@ impl CalcBreakdownControl {
                     if footer.truthy() {
                         // L134
                         let f = lstr_arg(footer, "DrawStringWidth");
-                        contentWidth = m_max(contentWidth, 6.0 + cx.sg.draw_string_width(12.0, Font::Var, &f));
+                        contentWidth = m_max(
+                            contentWidth,
+                            6.0 + cx.sg.draw_string_width(12.0, Font::Var, &f),
+                        );
                         // counts newlines in the string
                         // L135
                         let lines = gsub_count(footer, "\n", "\n");
@@ -1039,7 +1052,9 @@ impl CalcBreakdownControl {
             }
 
             // L271-273
-            sort_table(&rowList, |a, b| lua_lt(&b.get(n!("base")), &a.get(n!("base"))));
+            sort_table(&rowList, |a, b| {
+                lua_lt(&b.get(n!("base")), &a.get(n!("base")))
+            });
 
             // L275-279
             let section_rows = rowList.clone();
@@ -1062,7 +1077,10 @@ impl CalcBreakdownControl {
                 let item = row.get(n!("item"));
                 if item.truthy() {
                     let it = item.obj::<model::Item>().unwrap_or_else(|| {
-                        lua_error!("attempt to index field 'item' (a {} value)", item.lua_type())
+                        lua_error!(
+                            "attempt to index field 'item' (a {} value)",
+                            item.lua_type()
+                        )
                     });
                     // L283
                     let rarity = it.rarity.get();
@@ -1076,9 +1094,10 @@ impl CalcBreakdownControl {
                     // L284-286
                     let r = row.clone();
                     let f: Rc<dyn Fn(&mut Cx, &mut Tooltip)> = Rc::new(move |cx, tooltip| {
-                        let item = r.get(n!("item")).obj::<model::Item>().unwrap_or_else(|| {
-                            lua_error!("bad argument #2 to 'AddItemTooltip'")
-                        });
+                        let item = r
+                            .get(n!("item"))
+                            .obj::<model::Item>()
+                            .unwrap_or_else(|| lua_error!("bad argument #2 to 'AddItemTooltip'"));
                         let slot = opt_name(&r.get(n!("source")));
                         let h = breakdown_hooks().add_item_tooltip;
                         h(cx, tooltip, &item, slot.as_ref().map(Name::as_str));
@@ -1116,9 +1135,10 @@ impl CalcBreakdownControl {
         let sCfg = sectionData.get(n!("cfg"));
         let cfg: Cfg = if sCfg.truthy() {
             let name = format!("{}Cfg", lstr(&sCfg, "field 'cfg'"));
-            let skill = actor.mainSkill.get().unwrap_or_else(|| {
-                lua_error!("attempt to index field 'mainSkill' (a nil value)")
-            });
+            let skill = actor
+                .mainSkill
+                .get()
+                .unwrap_or_else(|| lua_error!("attempt to index field 'mainSkill' (a nil value)"));
             match main_skill_cfg(&skill, &name) {
                 Some(c) => c.copyTable(true),
                 None => ModCfg::new(),
@@ -1224,7 +1244,10 @@ impl CalcBreakdownControl {
             // Sort modifiers by type
             // L341
             sort_table(&rowList, |a, b| {
-                let (at, bt) = (a.get(n!("mod")).get(n!("type")), b.get(n!("mod")).get(n!("type")));
+                let (at, bt) = (
+                    a.get(n!("mod")).get(n!("type")),
+                    b.get(n!("mod")).get(n!("type")),
+                );
                 // L342
                 if at.raw_eq(&bt) {
                     // L343
@@ -1292,7 +1315,8 @@ impl CalcBreakdownControl {
                         for (_, mn) in names.ipairs() {
                             let mn = lstr(&mn, "local 'modName'");
                             // L379
-                            let mut total = modStore.Combine(mt, Some(&*cfg), &[Name::from(mn.as_str())]);
+                            let mut total =
+                                modStore.Combine(mt, Some(&*cfg), &[Name::from(mn.as_str())]);
                             // L380
                             if mt_str == "MORE" {
                                 // L381
@@ -1309,7 +1333,8 @@ impl CalcBreakdownControl {
                     } else {
                         // L388
                         let mn = lstr(&modName, "field 'modName'");
-                        let mut total = modStore.Combine(mt, Some(&*cfg), &[Name::from(mn.as_str())]);
+                        let mut total =
+                            modStore.Combine(mt, Some(&*cfg), &[Name::from(mn.as_str())]);
                         // L389
                         if mt_str == "MORE" {
                             // L390
@@ -1339,15 +1364,25 @@ impl CalcBreakdownControl {
                 row.set(n!("displayValue"), v);
             } else {
                 // L406
-                colList.get(1i64).table().expect("colList[1]").set(n!("right"), true);
+                colList
+                    .get(1i64)
+                    .table()
+                    .expect("colList[1]")
+                    .set(n!("right"), true);
                 // L407
-                row.set(n!("displayValue"), formatRound(row.get(n!("value")).num(), Some(2.0)));
+                row.set(
+                    n!("displayValue"),
+                    formatRound(row.get(n!("value")).num(), Some(2.0)),
+                );
             }
             // L409
             if modList.is_some() || matches!(modName, Val::Table(_)) {
                 // Multiple stat names specified, add this modifier's stat to the table
                 // L411
-                row.set(n!("name"), Self::format_mod_name(&lstr(&rmod.get(n!("name")), "field 'name'")));
+                row.set(
+                    n!("name"),
+                    Self::format_mod_name(&lstr(&rmod.get(n!("name")), "field 'name'")),
+                );
             }
             // L413
             let rsource = rmod.get(n!("source"));
@@ -1436,14 +1471,20 @@ impl CalcBreakdownControl {
                     // L441
                     row.set(n!("sourceName"), Val::Str(node.dn.get()));
                     // L442
-                    row.set(n!("sourceNameNode"), Val::Obj(node as Rc<dyn std::any::Any>));
+                    row.set(
+                        n!("sourceNameNode"),
+                        Val::Obj(node as Rc<dyn std::any::Any>),
+                    );
                 } else if let Some(tattooNodeId) = tattooNodeId {
                     // L444
                     let tattoo = build.spec.get().tree.get().tattoo.get().unwrap_or_else(|| {
                         lua_error!("attempt to index field 'tattoo' (a nil value)")
                     });
                     let idMap = tattoo.get(n!("idMap"));
-                    row.set(n!("sourceName"), tbl(&idMap, "field 'idMap'").get(Name::from(tattooNodeId.as_str())));
+                    row.set(
+                        n!("sourceName"),
+                        tbl(&idMap, "field 'idMap'").get(Name::from(tattooNodeId.as_str())),
+                    );
                 }
             } else if sourceType == "Skill" {
                 // Extract skill name
@@ -1535,7 +1576,11 @@ impl CalcBreakdownControl {
                     if ttype_s == "Condition" || ttype_s == "ActorCondition" {
                         // L477
                         let cond = if g("var").truthy() || g("varList").truthy() {
-                            format!(": {}{}", neg(), Self::format_var_name_or_list(&g("var"), &g("varList")))
+                            format!(
+                                ": {}{}",
+                                neg(),
+                                Self::format_var_name_or_list(&g("var"), &g("varList"))
+                            )
                         } else {
                             String::new()
                         };
@@ -1630,8 +1675,16 @@ impl CalcBreakdownControl {
                         baseVal = Val::from("");
                     } else if ttype_s == "MultiplierThreshold" || ttype_s == "StatThreshold" {
                         // L493
-                        let var = if g("var").truthy() { g("var") } else { g("stat") };
-                        let list = if g("varList").truthy() { g("varList") } else { g("statList") };
+                        let var = if g("var").truthy() {
+                            g("var")
+                        } else {
+                            g("stat")
+                        };
+                        let list = if g("varList").truthy() {
+                            g("varList")
+                        } else {
+                            g("statList")
+                        };
                         let tp = g("thresholdPercent");
                         let tps = if tp.truthy() {
                             format!("{}% ", lstr(&tp, "field 'thresholdPercent'"))
@@ -1679,7 +1732,11 @@ impl CalcBreakdownControl {
                             .and_then(|x| SkillType::name(x as SkillType::T))
                         {
                             // L500-502
-                            desc = Some(format!("Skill type: {}{}", neg(), Self::format_mod_name(name)));
+                            desc = Some(format!(
+                                "Skill type: {}{}",
+                                neg(),
+                                Self::format_mod_name(name)
+                            ));
                         }
                         // L505
                         if desc.is_none() {
@@ -1698,7 +1755,10 @@ impl CalcBreakdownControl {
                         desc = Some(format!("When in slot #{}", lstr(&g("num"), "field 'num'")));
                     } else if ttype_s == "GlobalEffect" {
                         // L513
-                        desc = Some(Self::format_mod_name(&lstr(&g("effectType"), "local 'modName'")));
+                        desc = Some(Self::format_mod_name(&lstr(
+                            &g("effectType"),
+                            "local 'modName'",
+                        )));
                     } else if ttype_s == "Limit" {
                         // L515
                         let lv = g("limitVar");
@@ -1789,7 +1849,10 @@ impl CalcBreakdownControl {
         // L542
         if mt == "BASE" {
             // L543
-            Val::from(pob_lua::lua_format("%+g base", &[pob_lua::FmtArg::from(value.num())]))
+            Val::from(pob_lua::lua_format(
+                "%+g base",
+                &[pob_lua::FmtArg::from(value.num())],
+            ))
         } else if mt == "INC" {
             // L545
             if lua_le(&Val::Num(0.0), value) {
@@ -1847,7 +1910,14 @@ impl CalcBreakdownControl {
             else {
                 unreachable!("DrawBreakdownTable on a non-TABLE section")
             };
-            (label.clone(), footer.clone(), row_list.clone(), col_list.clone(), s.width, s.height)
+            (
+                label.clone(),
+                footer.clone(),
+                row_list.clone(),
+                col_list.clone(),
+                s.width,
+                s.height,
+            )
         };
         let mut y = y;
         // L572
@@ -1857,7 +1927,8 @@ impl CalcBreakdownControl {
             // Draw table label if able
             // L575
             let s = format!("^7{}:", lstr(&label, "field 'label'"));
-            cx.sg.draw_string(x + 2.0, y, Align::Left, 16.0, Font::Var, &s);
+            cx.sg
+                .draw_string(x + 2.0, y, Align::Left, 16.0, Font::Var, &s);
             // L576
             y += 16.0;
         }
@@ -1887,7 +1958,8 @@ impl CalcBreakdownControl {
                 cx.sg.set_draw_color(1.0, 1.0, 1.0);
                 // L589
                 let l = lstr_arg(&col.get(n!("label")), "DrawString");
-                cx.sg.draw_string(colX, y + 2.0, Align::Left, 16.0, Font::Var, &l);
+                cx.sg
+                    .draw_string(colX, y + 2.0, Align::Left, 16.0, Font::Var, &l);
                 // L590
                 colX += cw.num();
             }
@@ -1901,7 +1973,8 @@ impl CalcBreakdownControl {
             // L596
             cx.sg.set_draw_color(0.5, 0.5, 0.5);
             // L597
-            cx.sg.draw_image(None, x + 2.0, rowY - 1.0, s_width - 4.0, 1.0);
+            cx.sg
+                .draw_image(None, x + 2.0, rowY - 1.0, s_width - 4.0, 1.0);
             // L598
             for (_, col) in col_list.ipairs() {
                 let col = tbl(&col, "local 'col'");
@@ -1927,19 +2000,30 @@ impl CalcBreakdownControl {
                     if (alpha == 0 || notes > 0 || paren > 0) && right {
                         // L605
                         let s = format!("^7{}", format_num_sep_main(&cx.main, &ltostring(&v)));
-                        cx.sg.draw_string(colXv + colW - 4.0, rowY + 1.0, Align::RightX, 12.0, Font::Var, &s);
+                        cx.sg.draw_string(
+                            colXv + colW - 4.0,
+                            rowY + 1.0,
+                            Align::RightX,
+                            12.0,
+                            Font::Var,
+                            &s,
+                        );
                     } else if alpha == 0 || notes > 0 || paren > 0 {
                         // L607
                         let s = format!("^7{}", format_num_sep_main(&cx.main, &ltostring(&v)));
-                        cx.sg.draw_string(colXv, rowY + 1.0, Align::Left, 12.0, Font::Var, &s);
+                        cx.sg
+                            .draw_string(colXv, rowY + 1.0, Align::Left, 12.0, Font::Var, &s);
                     } else {
                         // L609
                         let s = format!("^7{}", ltostring(&v));
-                        cx.sg.draw_string(colXv, rowY + 1.0, Align::Left, 12.0, Font::Var, &s);
+                        cx.sg
+                            .draw_string(colXv, rowY + 1.0, Align::Left, 12.0, Font::Var, &s);
                     }
                     // L611
                     let keyS = lstr(&key, "field 'key'");
-                    let ttFunc = row.get(Name::from(format!("{keyS}Tooltip").as_str())).obj::<CellTooltip>();
+                    let ttFunc = row
+                        .get(Name::from(format!("{keyS}Tooltip").as_str()))
+                        .obj::<CellTooltip>();
                     // L612
                     let ttNodeV = row.get(Name::from(format!("{keyS}Node").as_str()));
                     let ttNode = ttNodeV.obj::<model::Node>();
@@ -1965,15 +2049,21 @@ impl CalcBreakdownControl {
                         if let Some(ttFunc) = ttFunc {
                             let f = ttFunc.0.clone();
                             let vp = *vp;
-                            cx.lend::<CalcBreakdownControl, Tooltip, _>(me, |w| &mut w.tooltip, |cx, tt| {
-                                // L620
-                                tt.clear(false);
-                                // L621
-                                f(cx, tt);
-                                // L622
-                                tt.draw(cx, colXv, rowY, Some(colW), Some(12.0), &vp);
-                            });
-                        } else if let Some(ttNode) = ttNode.filter(|n| !n.x.get().is_nan() && !n.y.get().is_nan()) {
+                            cx.lend::<CalcBreakdownControl, Tooltip, _>(
+                                me,
+                                |w| &mut w.tooltip,
+                                |cx, tt| {
+                                    // L620
+                                    tt.clear(false);
+                                    // L621
+                                    f(cx, tt);
+                                    // L622
+                                    tt.draw(cx, colXv, rowY, Some(colW), Some(12.0), &vp);
+                                },
+                            );
+                        } else if let Some(ttNode) =
+                            ttNode.filter(|n| !n.x.get().is_nan() && !n.y.get().is_nan())
+                        {
                             // The source "node" from cluster jewels don't know their location because it's the abstract node in tree.lua rather than the generated node from the cluster jewel.
                             // L624
                             let mut viewerX = colXv + colW + 5.0;
@@ -1998,7 +2088,8 @@ impl CalcBreakdownControl {
                             // L635
                             let zoomY = -ttNode.y.get() / scale;
                             // L636
-                            cx.sg.set_viewport(viewerX + 2.0, viewerY + 2.0, 300.0, 300.0);
+                            cx.sg
+                                .set_viewport(viewerX + 2.0, viewerY + 2.0, 300.0, 300.0);
                             // L637
                             let h = breakdown_hooks();
                             (h.node_viewer_draw)(
@@ -2007,7 +2098,12 @@ impl CalcBreakdownControl {
                                 5.0,
                                 zoomX,
                                 zoomY,
-                                &ViewPort { x: 0.0, y: 0.0, width: 300.0, height: 300.0 },
+                                &ViewPort {
+                                    x: 0.0,
+                                    y: 0.0,
+                                    width: 300.0,
+                                    height: 300.0,
+                                },
                             );
                             // L638
                             cx.sg.set_draw_layer(None, Some(30));
@@ -2032,13 +2128,22 @@ impl CalcBreakdownControl {
             // Draw table footer if able
             // L651
             let s = format!("^7{}", lstr(&footer, "field 'footer'"));
-            cx.sg.draw_string(x + 2.0, rowY, Align::Left, 12.0, Font::Var, &s);
+            cx.sg
+                .draw_string(x + 2.0, rowY, Align::Left, 12.0, Font::Var, &s);
         }
     }
 
     /// lua: CalcBreakdownControl.lua:655-688 `DrawRadiusVisual(x, y, width, height, radius)`
     /// @pob Classes/CalcBreakdownControl.lua:655-688 h=5a2c9d4c
-    pub fn draw_radius_visual(cx: &mut Cx, me: CtrlId, x: f64, y: f64, width: f64, height: f64, radius: f64) {
+    pub fn draw_radius_visual(
+        cx: &mut Cx,
+        me: CtrlId,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        radius: f64,
+    ) {
         // L656
         cx.sg.set_draw_color(0.75, 0.75, 0.75);
         // L657
@@ -2066,8 +2171,9 @@ impl CalcBreakdownControl {
         let scrollBar = Self::scroll_bar(cx, me);
         let w = st(cx, me);
         let (contentWidth, contentHeight) = (
-            w.content_width
-                .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on field 'contentWidth' (a nil value)")),
+            w.content_width.unwrap_or_else(|| {
+                lua_error!("attempt to perform arithmetic on field 'contentWidth' (a nil value)")
+            }),
             w.content_height
                 .unwrap_or_else(|| lua_error!("attempt to compare nil with number")),
         );
@@ -2151,11 +2257,23 @@ impl CalcBreakdownControl {
         // L726
         cx.sg.draw_image(None, x, y, width, borderThickness);
         // L727
-        cx.sg.draw_image(None, x, y + height - borderThickness, width, borderThickness);
+        cx.sg.draw_image(
+            None,
+            x,
+            y + height - borderThickness,
+            width,
+            borderThickness,
+        );
         // L728
         cx.sg.draw_image(None, x, y, borderThickness, height);
         // L729
-        cx.sg.draw_image(None, x + width - borderThickness, y, borderThickness, height);
+        cx.sg.draw_image(
+            None,
+            x + width - borderThickness,
+            y,
+            borderThickness,
+            height,
+        );
         // L730
         cx.sg.set_draw_layer(None, Some(10));
         // L731
@@ -2201,7 +2319,8 @@ impl CalcBreakdownControl {
                         let _dec = gsub_count(&line, "%.%d%d.", " ");
                         // L741
                         let s = format_num_sep_main(&cx.main, &lstr_arg(&line, "gsub"));
-                        cx.sg.draw_string(x + 4.0, lineY, Align::Left, textSize, Font::Var, &s);
+                        cx.sg
+                            .draw_string(x + 4.0, lineY, Align::Left, textSize, Font::Var, &s);
                         // L742
                         lineY += textSize;
                     }
@@ -2218,7 +2337,15 @@ impl CalcBreakdownControl {
                     // L748
                     cx.sg.draw_image(None, x + 2.0, sectionY, sw - 4.0, sh);
                     // L749
-                    Self::draw_radius_visual(cx, me, x + 4.0, sectionY + 2.0, sw - 8.0, sh - 4.0, radius.num());
+                    Self::draw_radius_visual(
+                        cx,
+                        me,
+                        x + 4.0,
+                        sectionY + 2.0,
+                        sw - 8.0,
+                        sh - 4.0,
+                        radius.num(),
+                    );
                 }
             }
         }
@@ -2325,7 +2452,8 @@ fn col_list(cols: &[(&str, &str, bool)]) -> Table {
 /// `CalcsHooks::breakdown_ctor`: `self.controls.breakdown =
 /// new("CalcBreakdownControl"):CalcBreakdownControl(self)` (CalcsTab.lua:156).
 pub fn calcs_breakdown_ctor(cx: &mut Cx, tab: CtrlId) -> CtrlId {
-    cx.add(tab, "breakdown", CalcBreakdownControl::new(Some(tab))).id()
+    cx.add(tab, "breakdown", CalcBreakdownControl::new(Some(tab)))
+        .id()
 }
 
 /// `CalcsHooks::set_breakdown_data`: `breakdown:SetBreakdownData(displayData, pinned)`.
@@ -2341,7 +2469,9 @@ pub fn calcs_breakdown_source_data(cx: &Cx, bd: CtrlId) -> Option<Table> {
 /// `BuildHooks::breakdown`: Build.lua:616-621.
 pub fn sidebar_breakdown_ctor(cx: &mut Cx, build: CtrlId, init: crate::build::init::BreakdownInit) {
     // L616 (`self.calcsTab`: DIVERGENCE(calcs-tab-late))
-    let bd = cx.add(build, "breakdown", CalcBreakdownControl::new(None)).id();
+    let bd = cx
+        .add(build, "breakdown", CalcBreakdownControl::new(None))
+        .id();
     let w = st_mut(cx, bd);
     // L617
     w.pinned_colour = init.pinned_colour;

@@ -80,7 +80,12 @@ fn stem(p: &Path) -> &str {
 }
 
 /// The probe selection (module docs).
-const SELECT: &[&str] = &["offence:2607*", "offence:3346*", "offence:3957*", "offence:4155*"];
+const SELECT: &[&str] = &[
+    "offence:2607*",
+    "offence:3346*",
+    "offence:3957*",
+    "offence:4155*",
+];
 
 /// The OF-F dumps of one build (all from one directory, i.e. one oracle process: hit numbers
 /// and PoB's per-process orders only agree within a run), by (probe, n), with each dump's call
@@ -215,7 +220,10 @@ fn foreign_parent(din: &StateDump) -> bool {
         match v {
             J::Object(m) => {
                 if let Some(id) = m.get("$id") {
-                    let k = id.as_str().map(str::to_owned).unwrap_or_else(|| id.to_string());
+                    let k = id
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| id.to_string());
                     ids.insert(k, v);
                 }
                 for x in m.values() {
@@ -233,7 +241,10 @@ fn foreign_parent(din: &StateDump) -> bool {
         for _ in 0..8 {
             match v.get("$ref") {
                 Some(r) => {
-                    let k = r.as_str().map(str::to_owned).unwrap_or_else(|| r.to_string());
+                    let k = r
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| r.to_string());
                     v = (*ids.get(&k)?).clone();
                 }
                 None => return Some(v),
@@ -315,7 +326,12 @@ fn run_hit(din: &StateDump, dout: &StateDump, stem: &str) -> Outcome {
             .iter()
             .find(|(k, _)| k == "passList")
             .and_then(|(_, v)| v.table())
-            .map(|t| t.ipairs().into_iter().filter_map(|(_, p)| p.table()).collect());
+            .map(|t| {
+                t.ipairs()
+                    .into_iter()
+                    .filter_map(|(_, p)| p.table())
+                    .collect()
+            });
         let pass = locals
             .iter()
             .find(|(k, _)| k == "pass")
@@ -346,7 +362,10 @@ fn run_hit(din: &StateDump, dout: &StateDump, stem: &str) -> Outcome {
                 m.kind,
                 m.pob,
                 m.ours,
-                m.writer.as_deref().map(|w| format!(" [{w}]")).unwrap_or_default()
+                m.writer
+                    .as_deref()
+                    .map(|w| format!(" [{w}]"))
+                    .unwrap_or_default()
             )
         })
         .collect();
@@ -406,9 +425,15 @@ fn run_leg(probe_in: &str) -> Option<Tally> {
     let _guard = LEG_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    require(testkit::init_default_data().then_some(()), "data dump (data/dump)")?;
+    require(
+        testkit::init_default_data().then_some(()),
+        "data dump (data/dump)",
+    )?;
     let why = testkit::probe_inputs().err();
-    require(why.is_none().then_some(()), why.as_deref().unwrap_or_default())?;
+    require(
+        why.is_none().then_some(()),
+        why.as_deref().unwrap_or_default(),
+    )?;
     let mut t = Tally::default();
     let verbose = std::env::var_os("OFF_VERBOSE").is_some();
     let mut failures = Vec::new();
@@ -454,7 +479,12 @@ fn run_leg(probe_in: &str) -> Option<Tally> {
                 Outcome::Pass => t.pass += 1,
                 Outcome::Fail(lines) => {
                     t.fail += 1;
-                    failures.push(format!("{stem} {} -> {}: {} mismatches", din.hit, dout.hit, lines.len()));
+                    failures.push(format!(
+                        "{stem} {} -> {}: {} mismatches",
+                        din.hit,
+                        dout.hit,
+                        lines.len()
+                    ));
                     let show = if verbose { lines.len() } else { 12 };
                     for l in lines.iter().take(show) {
                         failures.push(format!("    {l}"));
@@ -462,9 +492,14 @@ fn run_leg(probe_in: &str) -> Option<Tally> {
                 }
                 Outcome::StubBlocked(sites, n) => {
                     t.blocked += 1;
-                    eprintln!("  stub-blocked {stem} {} -> {} ({n} mismatches)", din.hit, dout.hit);
+                    eprintln!(
+                        "  stub-blocked {stem} {} -> {} ({n} mismatches)",
+                        din.hit, dout.hit
+                    );
                     for s in sites {
-                        *t.blocked_sites.entry(s.split(" x").next().unwrap_or("").to_owned()).or_default() += 1;
+                        *t.blocked_sites
+                            .entry(s.split(" x").next().unwrap_or("").to_owned())
+                            .or_default() += 1;
                     }
                 }
                 Outcome::Foreign(n) => {
@@ -528,7 +563,11 @@ fn gate(t: &Tally, leg: &str) {
     assert_eq!(t.fail, 0, "{leg}: {} stub-free hits mismatch", t.fail);
     assert!(t.pass > 0, "{leg}: no hit ran stub-free");
     // calc doc §9.4 L4: the remainder beyond 98 % is documented (here: the inject limit above).
-    assert!(t.foreign * 50 <= ran, "{leg}: {} foreign-parent hits exceed 2 %", t.foreign);
+    assert!(
+        t.foreign * 50 <= ran,
+        "{leg}: {} foreign-parent hits exceed 2 %",
+        t.foreign
+    );
 }
 
 /// L4 `offence:3346#m` → next pass (`offence:2607#m+1`) / `offence:3957`.

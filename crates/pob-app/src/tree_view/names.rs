@@ -71,7 +71,14 @@ pub(super) fn node_id_concat(node: &Node) -> String {
 fn set_header(tooltip: &mut Tooltip, node: &Node) {
     let ty = node.r#type.get();
     if &*ty == "Mastery" {
-        tooltip.tooltip_header = Some(if node.alloc.get() { "MASTERYALLOC" } else { "MASTERY" }.to_owned());
+        tooltip.tooltip_header = Some(
+            if node.alloc.get() {
+                "MASTERYALLOC"
+            } else {
+                "MASTERY"
+            }
+            .to_owned(),
+        );
     } else if (&*ty == "Notable" || &*ty == "Normal") && node.ascendancyName.get().is_some() {
         tooltip.tooltip_header = Some("ASCENDANCY".to_owned());
     } else {
@@ -85,7 +92,11 @@ impl PassiveTreeView {
     pub fn add_node_name(&self, cx: &mut Cx, tooltip: &mut Tooltip, node: &NodeRef) {
         let fs = Some(Font::Fontin);
         // L1413
-        let font_size_big = if cx.main.show_flavour_text { 18.0 } else { 16.0 };
+        let font_size_big = if cx.main.show_flavour_text {
+            18.0
+        } else {
+            16.0
+        };
         // L1414
         tooltip.set_recipe(node_recipe(node));
         // L1415-1429
@@ -141,12 +152,16 @@ impl PassiveTreeView {
         // L1445
         if &*ty == "Socket" && node.nodesInRadius.get().is_some() {
             // L1446
-            let (mut str_total, mut dex_total, mut int_total): (Option<f64>, Option<f64>, Option<f64>) =
-                (None, None, None);
+            let (mut str_total, mut dex_total, mut int_total): (
+                Option<f64>,
+                Option<f64>,
+                Option<f64>,
+            ) = (None, None, None);
             // L1447 (ORDER: module notes; CCR-0115 `nodesInRadiusAt`)
-            let in_radius = pob_calc::classes::passive_tree::nodesInRadiusAt(node, 2.0).unwrap_or_else(|| {
-                lua_error!("bad argument #1 to 'pairs' (table expected, got nil)")
-            });
+            let in_radius = pob_calc::classes::passive_tree::nodesInRadiusAt(node, 2.0)
+                .unwrap_or_else(|| {
+                    lua_error!("bad argument #1 to 'pairs' (table expected, got nil)")
+                });
             let spec = cx.build().model.spec.get();
             for (node_id, _) in in_radius.pairs() {
                 // L1448
@@ -204,7 +219,10 @@ impl PassiveTreeView {
                 tooltip.add_line_ex(
                     cx,
                     font_size_big,
-                    &format!("^7Can support {}Intelligence ^7threshold jewels", cc.INTELLIGENCE),
+                    &format!(
+                        "^7Can support {}Intelligence ^7threshold jewels",
+                        cc.INTELLIGENCE
+                    ),
                     fs,
                     None,
                     None,
@@ -218,7 +236,14 @@ impl PassiveTreeView {
                 // L1466
                 tooltip.add_separator(cx, Some(14.0));
                 // L1467
-                tooltip.add_line_ex(cx, 16.0, &lfmt!("^7Distance to start: %d", d), fs, None, None);
+                tooltip.add_line_ex(
+                    cx,
+                    16.0,
+                    &lfmt!("^7Distance to start: %d", d),
+                    fs,
+                    None,
+                    None,
+                );
             }
         }
     }
@@ -245,7 +270,14 @@ impl PassiveTreeView {
         } else {
             String::new()
         };
-        tooltip.add_line_ex(cx, 24.0, &format!("{node_name}{suffix}"), Some(Font::Fontin), None, None);
+        tooltip.add_line_ex(
+            cx,
+            24.0,
+            &format!("{node_name}{suffix}"),
+            Some(Font::Fontin),
+            None,
+            None,
+        );
         // L1855
         tooltip.center = false;
     }

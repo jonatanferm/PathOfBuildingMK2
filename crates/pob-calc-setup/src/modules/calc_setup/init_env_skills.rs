@@ -412,9 +412,10 @@ fn gemEffect(grantedEffect: &GrantedEffectRef, gemInstance: &GemInstanceRef) -> 
 
 /// `gemInstance.reqOverride = effect.req`.
 fn setReqOverride(gemInstance: &GemInstance, effect: &SkillEffect) {
-    gemInstance
-        .extra
-        .set(n!("reqOverride"), effect.req.get().map_or(Val::Nil, Val::Num));
+    gemInstance.extra.set(
+        n!("reqOverride"),
+        effect.req.get().map_or(Val::Nil, Val::Num),
+    );
 }
 
 /// `gemInstance.gemData and gemInstance.gemData.grantedEffect or gemInstance.grantedEffect`.
@@ -726,7 +727,10 @@ pub fn seg(ctx: &mut InitEnvCtx) -> Flow {
             .player
             .itemList()
             .with(|m| m.get(&n!("Weapon 2")).cloned());
-        let gloves = env.player.itemList().with(|m| m.get(&n!("Gloves")).cloned());
+        let gloves = env
+            .player
+            .itemList()
+            .with(|m| m.get(&n!("Gloves")).cloned());
         let wd1 = match weapon1.as_ref().and_then(|w| itemWeaponData(w, 1)) {
             Some(t) => t,
             None => unarmedWeaponData(&env),

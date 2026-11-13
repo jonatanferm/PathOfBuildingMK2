@@ -86,7 +86,10 @@ fn tab(t: &Table, k: impl Into<Key>) -> Table {
     let k = k.into();
     match t.get(k) {
         Val::Table(x) => x,
-        v => lua_error!("bad argument #1 to 'insert' (table expected, got {})", v.lua_type()),
+        v => lua_error!(
+            "bad argument #1 to 'insert' (table expected, got {})",
+            v.lua_type()
+        ),
     }
 }
 
@@ -204,7 +207,11 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
                         "%d to %d ^8(base damage from %s)",
                         fa(&source.get(damageTypeMin)),
                         fa(&source.get(damageTypeMax)),
-                        if source.truthy(n!("type")) { "weapon" } else { "skill" }
+                        if source.truthy(n!("type")) {
+                            "weapon"
+                        } else {
+                            "skill"
+                        }
                     );
                     ins(breakdown, damageType, line);
                     // L3366
@@ -358,7 +365,11 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
                         ins(
                             breakdown,
                             damageType,
-                            lfmt!("%d to %d ^8(total damage)", damageTypeHitMin, damageTypeHitMax),
+                            lfmt!(
+                                "%d to %d ^8(total damage)",
+                                damageTypeHitMin,
+                                damageTypeHitMax
+                            ),
                         );
                         // L3415
                         if convMult != 1.0 {
@@ -518,9 +529,10 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
                     damageTypeLuckyChance = 1.0;
                 } else {
                     // L3462
-                    damageTypeLuckyChance =
-                        m_min(skillModList.Sum(ModType::BASE, scfg, &[n!("LuckyHitsChance")]), 100.0)
-                            / 100.0;
+                    damageTypeLuckyChance = m_min(
+                        skillModList.Sum(ModType::BASE, scfg, &[n!("LuckyHitsChance")]),
+                        100.0,
+                    ) / 100.0;
                 }
                 // L3464
                 if skillModList.Flag(scfg, &[n!("UnluckyHits")]) {
@@ -705,10 +717,9 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
                     } else {
                         // L3527
                         resist = calcResistForType(ctx, damageType, None); // LUA-GLOBAL-NIL dotCfg
-                        // L3528
+                                                                           // L3528
                         if ((skillModList.Flag(pcfg, &[n!("ChaosDamageUsesLowestResistance")])
-                            || skillModList
-                                .Flag(pcfg, &[n!("ChaosDamageUsesHighestResistance")]))
+                            || skillModList.Flag(pcfg, &[n!("ChaosDamageUsesHighestResistance")]))
                             && damageType == n!("Chaos"))
                             || (skillModList
                                 .Flag(pcfg, &[n!("ElementalDamageUsesLowestResistance")])
@@ -738,8 +749,8 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
                                     // L3538
                                     let mut currentElementResist =
                                         calcResistForType(ctx, eleDamageType, None); // LUA-GLOBAL-NIL dotCfg
-                                    // If it's explicitly lower, then use the resist and update which element we're using to account for penetration
-                                    // L3540
+                                                                                     // If it's explicitly lower, then use the resist and update which element we're using to account for penetration
+                                                                                     // L3540
                                     if skillModList
                                         .Flag(pcfg, &[n!("ChaosDamageUsesHighestResistance")])
                                     {
@@ -798,7 +809,11 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
                     // L3567
                     let mut invertChanceEle = m_max(
                         m_min(
-                            skillModList.Sum(ModType::CHANCE, pcfg, &[n!("HitsInvertEleResChance")]),
+                            skillModList.Sum(
+                                ModType::CHANCE,
+                                pcfg,
+                                &[n!("HitsInvertEleResChance")],
+                            ),
                             1.0,
                         ),
                         0.0,
@@ -996,47 +1011,51 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
                         // L3621
                         if damageType == n!("Chaos") {
                             // L3622
-                            lifeLeech = skillModList.Sum(
-                                ModType::BASE,
-                                pcfg,
-                                nm![
-                                    "DamageLeech",
-                                    "DamageLifeLeech",
-                                    "PhysicalDamageLifeLeech",
-                                    "LightningDamageLifeLeech",
-                                    "ColdDamageLifeLeech",
-                                    "FireDamageLifeLeech",
-                                    "ChaosDamageLifeLeech",
-                                    "ElementalDamageLifeLeech"
-                                ],
-                            ) + enemyDB.Sum(ModType::BASE, pcfg, &[n!("SelfDamageLifeLeech")])
-                                / 100.0;
+                            lifeLeech =
+                                skillModList.Sum(
+                                    ModType::BASE,
+                                    pcfg,
+                                    nm![
+                                        "DamageLeech",
+                                        "DamageLifeLeech",
+                                        "PhysicalDamageLifeLeech",
+                                        "LightningDamageLifeLeech",
+                                        "ColdDamageLifeLeech",
+                                        "FireDamageLifeLeech",
+                                        "ChaosDamageLifeLeech",
+                                        "ElementalDamageLifeLeech"
+                                    ],
+                                ) + enemyDB.Sum(ModType::BASE, pcfg, &[n!("SelfDamageLifeLeech")])
+                                    / 100.0;
                         }
                     } else {
                         // L3625
-                        lifeLeech = skillModList.Sum(
+                        lifeLeech =
+                            skillModList.Sum(
+                                ModType::BASE,
+                                pcfg,
+                                &names([
+                                    Some(n!("DamageLeech")),
+                                    Some(n!("DamageLifeLeech")),
+                                    Some(cat!(damageType, "DamageLifeLeech")),
+                                    isElemental(damageType).then(|| n!("ElementalDamageLifeLeech")),
+                                ]),
+                            ) + enemyDB.Sum(ModType::BASE, pcfg, &[n!("SelfDamageLifeLeech")])
+                                / 100.0;
+                    }
+                    // L3627
+                    energyShieldLeech =
+                        skillModList.Sum(
                             ModType::BASE,
                             pcfg,
                             &names([
-                                Some(n!("DamageLeech")),
-                                Some(n!("DamageLifeLeech")),
-                                Some(cat!(damageType, "DamageLifeLeech")),
-                                isElemental(damageType).then(|| n!("ElementalDamageLifeLeech")),
+                                Some(n!("DamageEnergyShieldLeech")),
+                                Some(cat!(damageType, "DamageEnergyShieldLeech")),
+                                isElemental(damageType)
+                                    .then(|| n!("ElementalDamageEnergyShieldLeech")),
                             ]),
-                        ) + enemyDB.Sum(ModType::BASE, pcfg, &[n!("SelfDamageLifeLeech")])
+                        ) + enemyDB.Sum(ModType::BASE, pcfg, &[n!("SelfDamageEnergyShieldLeech")])
                             / 100.0;
-                    }
-                    // L3627
-                    energyShieldLeech = skillModList.Sum(
-                        ModType::BASE,
-                        pcfg,
-                        &names([
-                            Some(n!("DamageEnergyShieldLeech")),
-                            Some(cat!(damageType, "DamageEnergyShieldLeech")),
-                            isElemental(damageType).then(|| n!("ElementalDamageEnergyShieldLeech")),
-                        ]),
-                    ) + enemyDB.Sum(ModType::BASE, pcfg, &[n!("SelfDamageEnergyShieldLeech")])
-                        / 100.0;
                     // L3628
                     manaLeech = skillModList.Sum(
                         ModType::BASE,
@@ -1261,7 +1280,10 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
     //Instant Leech
     // L3730
     let v = m_max(
-        m_min(skillModList.Sum(ModType::BASE, pcfg, &[n!("InstantLifeLeech")]), 100.0),
+        m_min(
+            skillModList.Sum(ModType::BASE, pcfg, &[n!("InstantLifeLeech")]),
+            100.0,
+        ),
         0.0,
     ) / 100.0;
     output.set(n!("LifeLeechInstantProportion"), v);
@@ -1271,8 +1293,7 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
         let v = output.num(n!("LifeLeech")) * output.num(n!("LifeLeechInstantProportion"));
         output.set(n!("LifeLeechInstant"), v);
         // L3733
-        let v =
-            output.num(n!("LifeLeech")) * (1.0 - output.num(n!("LifeLeechInstantProportion")));
+        let v = output.num(n!("LifeLeech")) * (1.0 - output.num(n!("LifeLeechInstantProportion")));
         output.set(n!("LifeLeech"), v);
     }
     // L3735
@@ -1307,7 +1328,10 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
     }
     // L3745
     let v = m_max(
-        m_min(skillModList.Sum(ModType::BASE, pcfg, &[n!("InstantManaLeech")]), 100.0),
+        m_min(
+            skillModList.Sum(ModType::BASE, pcfg, &[n!("InstantManaLeech")]),
+            100.0,
+        ),
         0.0,
     ) / 100.0;
     output.set(n!("ManaLeechInstantProportion"), v);
@@ -1317,8 +1341,7 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
         let v = output.num(n!("ManaLeech")) * output.num(n!("ManaLeechInstantProportion"));
         output.set(n!("ManaLeechInstant"), v);
         // L3748
-        let v =
-            output.num(n!("ManaLeech")) * (1.0 - output.num(n!("ManaLeechInstantProportion")));
+        let v = output.num(n!("ManaLeech")) * (1.0 - output.num(n!("ManaLeechInstantProportion")));
         output.set(n!("ManaLeech"), v);
     }
 
@@ -1548,10 +1571,7 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
                 );
             }
             // L3815
-            if damageRolls > 0.0
-                || critRolls > 0.0
-                || skillModList.Flag(scfg, &[n!("CritLucky")])
-            {
+            if damageRolls > 0.0 || critRolls > 0.0 || skillModList.Flag(scfg, &[n!("CritLucky")]) {
                 // L3816
                 ins(
                     breakdown,
@@ -1777,9 +1797,10 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
         let v = skillFlags.get(n!("notAverage"));
         skillFlags.set(n!("notAveragePvP"), v);
         // L3874
-        let mut PvpTvalue = lor(env.configInput.get(n!("multiplierPvpTvalueOverride")), || {
-            Val::Nil
-        });
+        let mut PvpTvalue = lor(
+            env.configInput.get(n!("multiplierPvpTvalueOverride")),
+            || Val::Nil,
+        );
         // L3875
         if PvpTvalue.truthy() {
             // L3876
@@ -1961,7 +1982,11 @@ pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
                     n!("PvpAverageHit"),
                     lfmt!(
                         "(portionNonElemental + portionElemental)%s",
-                        if PvpMultiplier != 1.0 { " * PvP multiplier" } else { " " }
+                        if PvpMultiplier != 1.0 {
+                            " * PvP multiplier"
+                        } else {
+                            " "
+                        }
                     ),
                 );
                 // L3927
@@ -2254,10 +2279,8 @@ pub fn seg_combinePasses(ctx: &mut OffenceCtx) -> Flow {
                         }
                     });
                     // L4005
-                    combinedBreakdown.push(lfmt!(
-                        "= %.2f%% ^8(average)",
-                        fa(&output.get(critStat))
-                    ));
+                    combinedBreakdown
+                        .push(lfmt!("= %.2f%% ^8(average)", fa(&output.get(critStat))));
                     // L4006
                     breakdown.set(critStat, combinedBreakdown);
                 }
@@ -2403,12 +2426,18 @@ pub fn seg_combinePasses(ctx: &mut OffenceCtx) -> Flow {
         // L4052
         if isAttack {
             // L4053
-            let a = lfmt!("%.1f ^8(average damage)", fa(&output.get(n!("AverageDamage"))));
+            let a = lfmt!(
+                "%.1f ^8(average damage)",
+                fa(&output.get(n!("AverageDamage")))
+            );
             let b = rate_line("x %.2f ^8(attack rate)");
             breakdown.set(n!("TotalDPS"), tbl![a, b]);
         } else if skillData.truthy(n!("triggered")) {
             // L4058
-            let a = lfmt!("%.1f ^8(average damage)", fa(&output.get(n!("AverageDamage"))));
+            let a = lfmt!(
+                "%.1f ^8(average damage)",
+                fa(&output.get(n!("AverageDamage")))
+            );
             let b = rate_line("x %.2f ^8(trigger rate)");
             breakdown.set(n!("TotalDPS"), tbl![a, b]);
         } else {
@@ -2468,11 +2497,7 @@ pub fn seg_combinePasses(ctx: &mut OffenceCtx) -> Flow {
             let b = if hs.truthy() {
                 lfmt!("x %.2f ^8(hit rate)", fa(&hs))
             } else {
-                lfmt!(
-                    "x %.2f ^8(%s rate)",
-                    fa(&output.get(n!("Speed"))),
-                    rateType
-                )
+                lfmt!("x %.2f ^8(%s rate)", fa(&output.get(n!("Speed"))), rateType)
             };
             breakdown.set(n!("PvpTotalDPS"), tbl![a, b]);
             // L4086
@@ -2579,13 +2604,17 @@ pub fn seg_combinePasses(ctx: &mut OffenceCtx) -> Flow {
     }
     // L4124
     let v = output.num(n!("LifeLeechInstantRate"))
-        + m_min(output.num(n!("LifeLeechRate")), output.num(n!("MaxLifeLeechRate")))
-            * output.num(n!("LifeRecoveryRateMod"));
+        + m_min(
+            output.num(n!("LifeLeechRate")),
+            output.num(n!("MaxLifeLeechRate")),
+        ) * output.num(n!("LifeRecoveryRateMod"));
     output.set(n!("LifeLeechRate"), v);
     // L4125
     let v = output.num(n!("LifeLeechInstant"))
-        + m_min(output.num(n!("LifeLeechPerHit")), output.num(n!("MaxLifeLeechRate")))
-            * output.num(n!("LifeLeechDuration"))
+        + m_min(
+            output.num(n!("LifeLeechPerHit")),
+            output.num(n!("MaxLifeLeechRate")),
+        ) * output.num(n!("LifeLeechDuration"))
             * output.num(n!("LifeRecoveryRateMod"));
     output.set(n!("LifeLeechPerHit"), v);
     // L4126
@@ -2605,13 +2634,17 @@ pub fn seg_combinePasses(ctx: &mut OffenceCtx) -> Flow {
     output.set(n!("EnergyShieldLeechPerHit"), v);
     // L4128
     let v = output.num(n!("ManaLeechInstantRate"))
-        + m_min(output.num(n!("ManaLeechRate")), output.num(n!("MaxManaLeechRate")))
-            * output.num(n!("ManaRecoveryRateMod"));
+        + m_min(
+            output.num(n!("ManaLeechRate")),
+            output.num(n!("MaxManaLeechRate")),
+        ) * output.num(n!("ManaRecoveryRateMod"));
     output.set(n!("ManaLeechRate"), v);
     // L4129
     let v = output.num(n!("ManaLeechInstant"))
-        + m_min(output.num(n!("ManaLeechPerHit")), output.num(n!("MaxManaLeechRate")))
-            * output.num(n!("ManaLeechDuration"))
+        + m_min(
+            output.num(n!("ManaLeechPerHit")),
+            output.num(n!("MaxManaLeechRate")),
+        ) * output.num(n!("ManaLeechDuration"))
             * output.num(n!("ManaRecoveryRateMod"));
     output.set(n!("ManaLeechPerHit"), v);
     // L4130

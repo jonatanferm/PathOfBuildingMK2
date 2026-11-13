@@ -328,14 +328,18 @@ fn makeItem(cx: &Cx, p: CtrlId, base: Option<&DropItem>) -> model::ItemRef {
     // L2629-2635
     item.buffModLines.set(model::Shared::new(Vec::new()));
     item.enchantModLines.set(model::Shared::new(Vec::new()));
-    item.classRequirementModLines.set(model::Shared::new(Vec::new()));
+    item.classRequirementModLines
+        .set(model::Shared::new(Vec::new()));
     item.scourgeModLines.set(model::Shared::new(Vec::new()));
     item.implicitModLines.set(model::Shared::new(Vec::new()));
     item.explicitModLines.set(model::Shared::new(Vec::new()));
     item.crucibleModLines.set(model::Shared::new(Vec::new()));
     // L2636
     let ty = &*bb.r#type;
-    if matches!(ty, "Amulet" | "Belt" | "Jewel" | "Quiver" | "Ring" | "Graft") {
+    if matches!(
+        ty,
+        "Amulet" | "Belt" | "Jewel" | "Quiver" | "Ring" | "Graft"
+    ) {
         // L2637
         item.quality.set(None);
     } else {
@@ -441,7 +445,11 @@ pub fn CraftItem(cx: &mut Cx, me: CtrlId) {
             cx.add(
                 p,
                 "rarityLabel",
-                LabelControl::new(Anchor::nil(TopRight, TopLeft), rect(50, 20, 0, 16), "Rarity:"),
+                LabelControl::new(
+                    Anchor::nil(TopRight, TopLeft),
+                    rect(50, 20, 0, 16),
+                    "Rarity:",
+                ),
             );
             // L2670
             let rarity = cx
@@ -519,7 +527,11 @@ pub fn CraftItem(cx: &mut Cx, me: CtrlId) {
             );
             // L2683
             let typeSelIndex = sel_index(cx, ty);
-            let baseList = itemBaseList(typeList.get(typeSelIndex.wrapping_sub(1)).map(String::as_str));
+            let baseList = itemBaseList(
+                typeList
+                    .get(typeSelIndex.wrapping_sub(1))
+                    .map(String::as_str),
+            );
             let base = cx
                 .add(
                     p,
@@ -559,7 +571,10 @@ pub fn CraftItem(cx: &mut Cx, me: CtrlId) {
                     let base = pc(cx, p, "base");
                     let value = {
                         let w = cx.w::<DropDownControl>(base);
-                        w.sel_index.checked_sub(1).and_then(|i| w.list.get(i)).cloned()
+                        w.sel_index
+                            .checked_sub(1)
+                            .and_then(|i| w.list.get(i))
+                            .cloned()
                     };
                     let item = makeItem(cx, p, value.as_ref());
                     // L2694
@@ -686,7 +701,9 @@ pub fn EditDisplayItemText(cx: &mut Cx, me: CtrlId, alsoAddItem: bool) {
             cx.w_mut::<EditControl>(edit).font = Font::Fixed;
             // L2728
             cx.w_mut::<EditControl>(edit).paste_filter =
-                Some(Rc::new(|_cx: &mut Cx, text: &str| pob_lua::string::sanitiseText(text)));
+                Some(Rc::new(|_cx: &mut Cx, text: &str| {
+                    pob_lua::string::sanitiseText(text)
+                }));
             // L2729
             let save = cx
                 .add(
@@ -726,44 +743,46 @@ pub fn EditDisplayItemText(cx: &mut Cx, me: CtrlId, alsoAddItem: bool) {
                 )
                 .id();
             // L2742
-            cx.w_mut::<ButtonControl>(save).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, ()| {
-                // L2743
-                tooltip.clear(false);
-                // L2744
-                let item = crate::main_mode::new_item(Some(&buildRaw(cx, p)), None, false);
-                // L2745
-                if item.base.get().is_some() {
-                    // L2746
-                    add_item_tooltip(cx, tooltip, &item, true);
-                } else {
-                    // L2748
-                    tooltip.add_line(cx, 14.0, "The item is invalid.");
-                    // L2749
-                    tooltip.add_line(
-                        cx,
-                        14.0,
-                        "Check that the item's title and base name are in the correct format.",
-                    );
-                    // L2750
-                    tooltip.add_line(
+            cx.w_mut::<ButtonControl>(save).tt.tooltip_func = Some(Rc::new(
+                move |cx, tooltip, ()| {
+                    // L2743
+                    tooltip.clear(false);
+                    // L2744
+                    let item = crate::main_mode::new_item(Some(&buildRaw(cx, p)), None, false);
+                    // L2745
+                    if item.base.get().is_some() {
+                        // L2746
+                        add_item_tooltip(cx, tooltip, &item, true);
+                    } else {
+                        // L2748
+                        tooltip.add_line(cx, 14.0, "The item is invalid.");
+                        // L2749
+                        tooltip.add_line(
+                            cx,
+                            14.0,
+                            "Check that the item's title and base name are in the correct format.",
+                        );
+                        // L2750
+                        tooltip.add_line(
                         cx,
                         14.0,
                         "For Rare and Unique items, the first 2 lines must be the title and base name. E.g.:",
                     );
-                    // L2751
-                    tooltip.add_line(cx, 14.0, "Abberath's Horn");
-                    // L2752
-                    tooltip.add_line(cx, 14.0, "Goat's Horn");
-                    // L2753
-                    tooltip.add_line(
+                        // L2751
+                        tooltip.add_line(cx, 14.0, "Abberath's Horn");
+                        // L2752
+                        tooltip.add_line(cx, 14.0, "Goat's Horn");
+                        // L2753
+                        tooltip.add_line(
                         cx,
                         14.0,
                         "For Normal and Magic items, the base name must be somewhere in the first line. E.g.:",
                     );
-                    // L2754
-                    tooltip.add_line(cx, 14.0, "Scholar's Platinum Kris of Joy");
-                }
-            }));
+                        // L2754
+                        tooltip.add_line(cx, 14.0, "Scholar's Platinum Kris of Joy");
+                    }
+                },
+            ));
             // L2757
             cx.add(
                 p,
@@ -835,7 +854,9 @@ impl EnchLookup<'_> {
                 EnchantmentList::Lines(v) => v.iter().map(|s| s.to_string()).collect(),
                 EnchantmentList::BySource(_) => Vec::new(),
             }),
-            EnchLookup::Skill(m) => m.get(&name).map(|v| v.iter().map(|s| s.to_string()).collect()),
+            EnchLookup::Skill(m) => m
+                .get(&name)
+                .map(|v| v.iter().map(|s| s.to_string()).collect()),
         }
     }
 }
@@ -870,8 +891,9 @@ fn ench_list(s: &EnchState, skillSel: usize) -> EnchLookup<'_> {
                 Some(EnchantmentList::BySource(m)) => return EnchLookup::Skill(m),
                 // a skill entry that is a list of lines: its `[source]` reads nil
                 Some(EnchantmentList::Lines(_)) => {
-                    static EMPTY: std::sync::OnceLock<indexmap::IndexMap<Name, Vec<gamedata::AStr>>> =
-                        std::sync::OnceLock::new();
+                    static EMPTY: std::sync::OnceLock<
+                        indexmap::IndexMap<Name, Vec<gamedata::AStr>>,
+                    > = std::sync::OnceLock::new();
                     return EnchLookup::Skill(EMPTY.get_or_init(indexmap::IndexMap::new));
                 }
                 // `enchantments[nil-or-missing]` is nil: `or enchantments`
@@ -884,7 +906,12 @@ fn ench_list(s: &EnchState, skillSel: usize) -> EnchLookup<'_> {
 
 fn sync_skill(cx: &mut Cx, p: CtrlId, e: &Ench) {
     if let Some(c) = pc_opt(cx, p, "skill") {
-        let list = e.borrow().skillList.iter().map(|s| DropItem::str(&**s)).collect();
+        let list = e
+            .borrow()
+            .skillList
+            .iter()
+            .map(|s| DropItem::str(&**s))
+            .collect();
         cx.w_mut::<DropDownControl>(c).list = list;
     }
 }
@@ -989,9 +1016,9 @@ fn buildEnchantmentList(cx: &mut Cx, p: CtrlId, e: &Ench) {
             .get(sourceSel.wrapping_sub(1))
             .map(|x| x.name)
             .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
-        let lines = ench_list(&s, skillSel).get(sourceName).unwrap_or_else(|| {
-            lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)")
-        });
+        let lines = ench_list(&s, skillSel)
+            .get(sourceName)
+            .unwrap_or_else(|| lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"));
         for enchantment in lines {
             // L2823
             s.enchantmentList.push(Rc::new(EnchantEntry {
@@ -1062,12 +1089,18 @@ fn enchantItem(cx: &Cx, p: CtrlId, e: &Ench, idx: Option<usize>, remove: bool) -
     // L2835
     item.id.set(displayItem.id.get());
     // L2836
-    let entry = e.borrow().enchantmentList.get(index.wrapping_sub(1)).cloned();
+    let entry = e
+        .borrow()
+        .enchantmentList
+        .get(index.wrapping_sub(1))
+        .cloned();
     let enchantSlot = enchant_slot(cx, me);
     // L2837
     if remove {
         // L2838
-        item.enchantModLines.get().remove(Some(enchantSlot as usize));
+        item.enchantModLines
+            .get()
+            .remove(Some(enchantSlot as usize));
     } else if let Some(entry) = entry {
         // L2839-2853
         apply_enchant_line(&item, &entry.line, enchantSlot);
@@ -1308,7 +1341,11 @@ pub fn EnchantDisplayItem(cx: &mut Cx, me: CtrlId, enchantSlot: Option<f64>) {
                 cx.add(
                     p,
                     "skillLabel",
-                    LabelControl::new(Anchor::nil(TopRight, TopLeft), rect(95, 20, 0, 16), "^7Skill:"),
+                    LabelControl::new(
+                        Anchor::nil(TopRight, TopLeft),
+                        rect(95, 20, 0, 16),
+                        "^7Skill:",
+                    ),
                 );
                 // L2920
                 let e2 = e.clone();
@@ -1326,7 +1363,12 @@ pub fn EnchantDisplayItem(cx: &mut Cx, me: CtrlId, enchantSlot: Option<f64>) {
                         applySort(cx, p, &e2, stat, true);
                     }
                 });
-                let list = e.borrow().skillList.iter().map(|s| DropItem::str(&**s)).collect();
+                let list = e
+                    .borrow()
+                    .skillList
+                    .iter()
+                    .map(|s| DropItem::str(&**s))
+                    .collect();
                 cx.add(
                     p,
                     "skill",
@@ -1386,7 +1428,11 @@ pub fn EnchantDisplayItem(cx: &mut Cx, me: CtrlId, enchantSlot: Option<f64>) {
             cx.add(
                 p,
                 "enchantmentSourceLabel",
-                LabelControl::new(Anchor::nil(TopRight, TopLeft), rect(95, 45, 0, 16), "^7Source:"),
+                LabelControl::new(
+                    Anchor::nil(TopRight, TopLeft),
+                    rect(95, 45, 0, 16),
+                    "^7Source:",
+                ),
             );
             // L2944
             let e2 = e.clone();
@@ -1422,7 +1468,11 @@ pub fn EnchantDisplayItem(cx: &mut Cx, me: CtrlId, enchantSlot: Option<f64>) {
             cx.add(
                 p,
                 "sortLabel",
-                LabelControl::new(Anchor::nil(TopRight, TopLeft), rect(350, 45, 0, 16), "^7Sort by:"),
+                LabelControl::new(
+                    Anchor::nil(TopRight, TopLeft),
+                    rect(350, 45, 0, 16),
+                    "^7Sort by:",
+                ),
             );
             // L2952
             let e2 = e.clone();
@@ -1552,9 +1602,10 @@ pub fn anointItem(cx: &mut Cx, me: CtrlId, node: Option<&model::NodeRef>) -> mod
     // L3018
     if let Some(node) = node {
         // L3019
-        item.enchantModLines
-            .get()
-            .insert(slot as usize, crafted_line(&format!("Allocates {}", node.dn.get())));
+        item.enchantModLines.get().insert(
+            slot as usize,
+            crafted_line(&format!("Allocates {}", node.dn.get())),
+        );
     }
     // L3021
     item.BuildAndParseRaw();
@@ -1666,7 +1717,12 @@ pub fn AppendAnointTooltip(
 /// lua: ItemsTab.lua:3071-3078 `ItemsTabClass:AppendAddedNotableTooltip(tooltip, node)`:
 /// appends the stat changes of allocating `node`.
 /// @pob Classes/ItemsTab.lua:3068-3078 h=a7ddb089
-pub fn AppendAddedNotableTooltip(cx: &mut Cx, _me: CtrlId, tooltip: &mut Tooltip, node: &model::NodeRef) {
+pub fn AppendAddedNotableTooltip(
+    cx: &mut Cx,
+    _me: CtrlId,
+    tooltip: &mut Tooltip,
+    node: &model::NodeRef,
+) {
     // L3072 DIVERGENCE(pending-calc)
     let Some((calcFunc, calcBase)) = misc_calc(cx) else {
         return;
@@ -1853,21 +1909,27 @@ pub fn AnointDisplayItem(cx: &mut Cx, me: CtrlId, enchantSlot: Option<f64>) {
                 )
                 .id();
             // L3110
-            cx.w_mut::<ButtonControl>(save).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, ()| {
-                // L3111
-                tooltip.clear(false);
-                // L3112
-                let node = notable_sel(cx, pc(cx, p, "notableDB"));
-                AppendAnointTooltip(cx, me, tooltip, node.as_ref(), None);
-            }));
+            cx.w_mut::<ButtonControl>(save).tt.tooltip_func =
+                Some(Rc::new(move |cx, tooltip, ()| {
+                    // L3111
+                    tooltip.clear(false);
+                    // L3112
+                    let node = notable_sel(cx, pc(cx, p, "notableDB"));
+                    AppendAnointTooltip(cx, me, tooltip, node.as_ref(), None);
+                }));
             // L3114
             cx.add(
                 p,
                 "close",
-                ButtonControl::new(Anchor::new(TopLeft, save, TopRight), rect(10, 0, 80, 20), "Cancel", |cx| {
-                    // L3115
-                    popups::close_popup(cx);
-                }),
+                ButtonControl::new(
+                    Anchor::new(TopLeft, save, TopRight),
+                    rect(10, 0, 80, 20),
+                    "Cancel",
+                    |cx| {
+                        // L3115
+                        popups::close_popup(cx);
+                    },
+                ),
             );
         },
         PopupOpts::default(),

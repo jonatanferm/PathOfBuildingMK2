@@ -37,7 +37,11 @@
 //! choices).
 //! A missing input skips with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
 //! Owner: INT-3.
-#![allow(non_snake_case, clippy::many_single_char_names, clippy::format_push_string)]
+#![allow(
+    non_snake_case,
+    clippy::many_single_char_names,
+    clippy::format_push_string
+)]
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write as _;
@@ -137,7 +141,9 @@ fn custom_corpus() -> bool {
 /// `.parity/builds/*.xml` (or `$INT3_CORPUS_DIR/*.xml`), filtered by `INT3_BUILDS` / `INT3_LIMIT`.
 fn corpus(parity: &Path) -> Vec<PathBuf> {
     let dir = if custom_corpus() {
-        std::env::var_os("INT3_CORPUS_DIR").map(PathBuf::from).unwrap_or_default()
+        std::env::var_os("INT3_CORPUS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_default()
     } else {
         parity.join("builds")
     };
@@ -154,7 +160,10 @@ fn corpus(parity: &Path) -> Vec<PathBuf> {
         let want: Vec<&str> = f.split(',').map(str::trim).collect();
         v.retain(|p| want.iter().any(|w| stem(p) == *w));
     }
-    if let Some(n) = std::env::var("INT3_LIMIT").ok().and_then(|s| s.parse().ok()) {
+    if let Some(n) = std::env::var("INT3_LIMIT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+    {
         v.truncate(n);
     }
     v
@@ -169,16 +178,26 @@ fn full_corpus(n: usize) -> bool {
 
 /// `INT3_DIFFS=file`: one TSV line per difference.
 fn record_diff(cols: &[&str]) {
-    let Some(path) = std::env::var_os("INT3_DIFFS") else { return };
+    let Some(path) = std::env::var_os("INT3_DIFFS") else {
+        return;
+    };
     let line: Vec<String> = cols.iter().map(|c| c.replace(['\t', '\n'], " ")).collect();
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         let _ = writeln!(f, "{}", line.join("\t"));
     }
 }
 
 fn clip(s: &str, n: usize) -> String {
     if s.len() > n {
-        let end = s.char_indices().take_while(|(i, _)| *i < n).last().map_or(0, |(i, c)| i + c.len_utf8());
+        let end = s
+            .char_indices()
+            .take_while(|(i, _)| *i < n)
+            .last()
+            .map_or(0, |(i, c)| i + c.len_utf8());
         format!("{}…", &s[..end])
     } else {
         s.to_owned()
@@ -198,14 +217,20 @@ fn calcsTab_BuildOutput(build: &BuildRef) -> Vec<String> {
     }
     match catch(|| buildOutput(build, Mode::MAIN)) {
         Ok(mainEnv) => {
-            build.calcsTab.mainOutput.set(Some(mainEnv.player.output.get()));
+            build
+                .calcsTab
+                .mainOutput
+                .set(Some(mainEnv.player.output.get()));
             build.calcsTab.mainEnv.set(Some(mainEnv));
         }
         Err(e) => errors.push(format!("MAIN: {e}")),
     }
     match catch(|| buildOutput(build, Mode::CALCS)) {
         Ok(calcsEnv) => {
-            build.calcsTab.calcsOutput.set(Some(calcsEnv.player.output.get()));
+            build
+                .calcsTab
+                .calcsOutput
+                .set(Some(calcsEnv.player.output.get()));
             build.calcsTab.calcsEnv.set(Some(calcsEnv));
         }
         Err(e) => errors.push(format!("CALCS: {e}")),
@@ -220,8 +245,9 @@ fn calcsTab_BuildOutput(build: &BuildRef) -> Vec<String> {
 /// The XML's build model with PoB's load-time calc passes (`Build:Init`'s BuildOutput, then
 /// `rounds - 1` `Build:OnFrame` rebuilds; Build.lua 693-697, 1258-1273).
 fn rust_load(xml: &str, rounds: usize) -> Result<(BuildRef, Vec<String>), String> {
-    let build = catch(|| pob_calc::model::build_xml::loadBuildModelFromXML(xml, pob_gamedata::data()))?
-        .map_err(|e| format!("load: {e}"))?;
+    let build =
+        catch(|| pob_calc::model::build_xml::loadBuildModelFromXML(xml, pob_gamedata::data()))?
+            .map_err(|e| format!("load: {e}"))?;
     wipeGlobalCache();
     build.outputRevision.set(1.0);
     let mut errors = calcsTab_BuildOutput(&build);
@@ -312,7 +338,11 @@ fn pob_run(xml: &Path) -> Result<PobRun, String> {
                 root_s.push('/');
             }
             // no hit is dumped: the calcsEnv document is written by int3.lua after the load
-            let opts = ProbeOptions { select: vec!["int3:none".to_owned()], max_dumps: 0, provenance: false };
+            let opts = ProbeOptions {
+                select: vec!["int3:none".to_owned()],
+                max_dumps: 0,
+                provenance: false,
+            };
             let pre = probe_prelude(&root_s, &out_dir, stem, &opts);
             let mut pob = JitPob::boot_oracle(&src_root, Some(&pre))?;
             pob.run(ORACLE_LUA)?;
@@ -320,8 +350,10 @@ fn pob_run(xml: &Path) -> Result<PobRun, String> {
             pob.run("return __probe_finish(__mainObject__.main.modes['BUILD'].calcsTab.mainEnv)")?;
             let r = pob.run(INT3_LUA)?;
             let text = |i: usize| r.get(i).map(|x| x.text().to_owned()).unwrap_or_default();
-            pob_oracle::runner::write_atomic(&out_dir.join("calcs.json"), &text(1)).map_err(|e| e.to_string())?;
-            pob_oracle::runner::write_atomic(&out_dir.join("int3.json"), &text(0)).map_err(|e| e.to_string())?;
+            pob_oracle::runner::write_atomic(&out_dir.join("calcs.json"), &text(1))
+                .map_err(|e| e.to_string())?;
+            pob_oracle::runner::write_atomic(&out_dir.join("int3.json"), &text(0))
+                .map_err(|e| e.to_string())?;
             Ok(())
         },
     )?;
@@ -329,7 +361,11 @@ fn pob_run(xml: &Path) -> Result<PobRun, String> {
         let t = std::fs::read_to_string(entry.join(f)).map_err(|e| format!("{f}: {e}"))?;
         serde_json::from_str(&t).map_err(|e| format!("{f}: {e}"))
     };
-    Ok(PobRun { hits: j("hits.json")?, int3: j("int3.json")?, calcs: j("calcs.json")? })
+    Ok(PobRun {
+        hits: j("hits.json")?,
+        int3: j("int3.json")?,
+        calcs: j("calcs.json")?,
+    })
 }
 
 // ---- pob-run end
@@ -365,8 +401,19 @@ fn id_map(root: &J) -> HashMap<u64, &J> {
     ids
 }
 
-const MARKERS: &[&str] =
-    &["$fn", "$object", "$env", "$foreign", "$data", "$node", "$treeNode", "$class", "$skill", "$gem", "$gemInstance"];
+const MARKERS: &[&str] = &[
+    "$fn",
+    "$object",
+    "$env",
+    "$foreign",
+    "$data",
+    "$node",
+    "$treeNode",
+    "$class",
+    "$skill",
+    "$gem",
+    "$gemInstance",
+];
 
 /// A breakdown subtree with identities resolved and calc objects reduced to markers.
 fn norm(v: &J, ids: &HashMap<u64, &J>, stack: &mut Vec<u64>) -> J {
@@ -378,7 +425,9 @@ fn norm(v: &J, ids: &HashMap<u64, &J>, stack: &mut Vec<u64>) -> J {
                     if stack.contains(&id) || stack.len() > 40 {
                         return serde_json::json!({ "$cycle": true });
                     }
-                    let Some(t) = ids.get(&id) else { return v.clone() };
+                    let Some(t) = ids.get(&id) else {
+                        return v.clone();
+                    };
                     stack.push(id);
                     let r = norm(t, ids, stack);
                     stack.pop();
@@ -507,11 +556,16 @@ fn strict() -> bool {
 ///   `pairs(possibleVariants)` whose `grantedEffectId` matches (SkillsTab.lua:472-478, string
 ///   keys), and Data.lua:1127-1136 gives the synthesised "Vaal Righteous Fire of Arcane Devotion"
 ///   the base gem's `gameId` and `grantedEffectId` (CCR-0104 "PoB nondeterminism").
-const POB_NONDET_NAMES: &[(&str, &str)] = &[("Vaal Righteous Fire of Arcane Devotion", "Vaal Righteous Fire")];
+const POB_NONDET_NAMES: &[(&str, &str)] = &[(
+    "Vaal Righteous Fire of Arcane Devotion",
+    "Vaal Righteous Fire",
+)];
 
 fn pob_nondet_eq(p: &str, o: &str) -> bool {
     !strict()
-        && POB_NONDET_NAMES.iter().any(|(alt, ours)| p.contains(alt) && p.replace(alt, ours) == o)
+        && POB_NONDET_NAMES
+            .iter()
+            .any(|(alt, ours)| p.contains(alt) && p.replace(alt, ours) == o)
 }
 
 /// Make `ours` equal `pob` at the places where they differ only by an [`Accepted`] class.
@@ -521,7 +575,9 @@ fn reconcile(pob: &J, ours: &mut J, acc: &mut Accepted) {
         (J::String(p), J::String(o)) => {
             if cfg!(target_arch = "aarch64")
                 && o.contains(X64_MIN)
-                && ["0", "9223372036854775807", "-9223372036854775807"].iter().any(|alt| o.replace(X64_MIN, alt) == *p)
+                && ["0", "9223372036854775807", "-9223372036854775807"]
+                    .iter()
+                    .any(|alt| o.replace(X64_MIN, alt) == *p)
             {
                 *o = p.clone();
                 acc.int_cast += 1;
@@ -602,7 +658,12 @@ fn local_entries(root: &J, name: &str) -> Option<BTreeMap<String, J>> {
 fn norm_shallow<'a>(v: &'a J, ids: &HashMap<u64, &'a J>) -> &'a J {
     let mut v = v;
     for _ in 0..8 {
-        match v.as_object().filter(|m| m.len() == 1).and_then(|m| m.get("$ref")).and_then(J::as_u64) {
+        match v
+            .as_object()
+            .filter(|m| m.len() == 1)
+            .and_then(|m| m.get("$ref"))
+            .and_then(J::as_u64)
+        {
             Some(id) => match ids.get(&id) {
                 Some(t) => v = t,
                 None => break,
@@ -630,8 +691,12 @@ struct BdTotals {
 
 #[test]
 fn int3_breakdown_corpus() {
-    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(parity) = find_parity_dir() else { return skip(".parity not found") };
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(parity) = find_parity_dir() else {
+        return skip(".parity not found");
+    };
     if find_pob_src().is_none() {
         return skip("PoB checkout (.PathOfBuilding/src) not found");
     }
@@ -673,10 +738,16 @@ fn int3_breakdown_corpus() {
             continue;
         };
         // only the two breakdowns are exported (as locals), not the whole env
-        let locals: Vec<(String, Val)> = [("player", Some(calcsEnv.player.clone())), ("minion", calcsEnv.minion.get())]
-            .into_iter()
-            .filter_map(|(n, a)| a.and_then(|a| a.breakdown.get()).map(|b| (n.to_owned(), Val::Obj(Rc::new(b)))))
-            .collect();
+        let locals: Vec<(String, Val)> = [
+            ("player", Some(calcsEnv.player.clone())),
+            ("minion", calcsEnv.minion.get()),
+        ]
+        .into_iter()
+        .filter_map(|(n, a)| {
+            a.and_then(|a| a.breakdown.get())
+                .map(|b| (n.to_owned(), Val::Obj(Rc::new(b))))
+        })
+        .collect();
         let ours_root = match catch(|| pob_calc::probe::export_root(None, &locals)) {
             Ok(r) => r,
             Err(e) => {
@@ -727,17 +798,35 @@ fn int3_breakdown_corpus() {
                                 .collect::<BTreeSet<_>>()
                                 .into_iter()
                                 .collect();
-                            record_diff(&[stem, "breakdown-order", actor, k, &lists.join(","), "", ""]);
+                            record_diff(&[
+                                stem,
+                                "breakdown-order",
+                                actor,
+                                k,
+                                &lists.join(","),
+                                "",
+                                "",
+                            ]);
                             true
                         } else {
-                            let mm = diff_trees(&ui_sorted(k, a), &ui_sorted(k, b), &DiffOptions::strict());
+                            let mm = diff_trees(
+                                &ui_sorted(k, a),
+                                &ui_sorted(k, b),
+                                &DiffOptions::strict(),
+                            );
                             for m in mm.iter().take(if verbose() { 40 } else { 3 }) {
                                 eprintln!(
                                     "    {stem} {actor}.{k}{} {:?}: pob={} ours={}",
                                     m.path,
                                     m.kind,
-                                    clip(&m.pob.as_ref().map(J::to_string).unwrap_or_default(), 160),
-                                    clip(&m.ours.as_ref().map(J::to_string).unwrap_or_default(), 160)
+                                    clip(
+                                        &m.pob.as_ref().map(J::to_string).unwrap_or_default(),
+                                        160
+                                    ),
+                                    clip(
+                                        &m.ours.as_ref().map(J::to_string).unwrap_or_default(),
+                                        160
+                                    )
                                 );
                             }
                             for m in &mm {
@@ -747,8 +836,14 @@ fn int3_breakdown_corpus() {
                                     actor,
                                     k,
                                     &m.path,
-                                    &clip(&m.pob.as_ref().map(J::to_string).unwrap_or_default(), 400),
-                                    &clip(&m.ours.as_ref().map(J::to_string).unwrap_or_default(), 400),
+                                    &clip(
+                                        &m.pob.as_ref().map(J::to_string).unwrap_or_default(),
+                                        400,
+                                    ),
+                                    &clip(
+                                        &m.ours.as_ref().map(J::to_string).unwrap_or_default(),
+                                        400,
+                                    ),
                                 ]);
                             }
                             false
@@ -756,14 +851,36 @@ fn int3_breakdown_corpus() {
                     }
                     (Some(a), None) => {
                         t.pob_only += 1;
-                        eprintln!("    {stem} {actor}.{k}: missing in Rust (PoB {})", clip(&a.to_string(), 160));
-                        record_diff(&[stem, "breakdown", actor, k, "", &clip(&a.to_string(), 400), "<missing>"]);
+                        eprintln!(
+                            "    {stem} {actor}.{k}: missing in Rust (PoB {})",
+                            clip(&a.to_string(), 160)
+                        );
+                        record_diff(&[
+                            stem,
+                            "breakdown",
+                            actor,
+                            k,
+                            "",
+                            &clip(&a.to_string(), 400),
+                            "<missing>",
+                        ]);
                         false
                     }
                     (None, Some(b)) => {
                         t.rust_only += 1;
-                        eprintln!("    {stem} {actor}.{k}: only in Rust ({})", clip(&b.to_string(), 160));
-                        record_diff(&[stem, "breakdown", actor, k, "", "<missing>", &clip(&b.to_string(), 400)]);
+                        eprintln!(
+                            "    {stem} {actor}.{k}: only in Rust ({})",
+                            clip(&b.to_string(), 160)
+                        );
+                        record_diff(&[
+                            stem,
+                            "breakdown",
+                            actor,
+                            k,
+                            "",
+                            "<missing>",
+                            &clip(&b.to_string(), 400),
+                        ]);
                         false
                     }
                     (None, None) => true,
@@ -774,9 +891,13 @@ fn int3_breakdown_corpus() {
                 }
             }
         }
-        eprintln!("INT3 breakdown {stem}: {}/{build_n} entries equal", build_n - build_bad);
+        eprintln!(
+            "INT3 breakdown {stem}: {}/{build_n} entries equal",
+            build_n - build_bad
+        );
         if build_bad > 0 {
-            t.failed_builds.push(format!("{stem}: {build_bad} entries differ"));
+            t.failed_builds
+                .push(format!("{stem}: {build_bad} entries differ"));
         }
         drop(ours_root);
         drop(calcsEnv);
@@ -813,9 +934,17 @@ fn int3_breakdown_corpus() {
     assert!(pob_failed.is_empty(), "PoB runs failed: {pob_failed:?}");
     assert!(t.rust_errors.is_empty(), "Rust errors: {:?}", t.rust_errors);
     if full_corpus(builds.len()) {
-        assert!(t.entries >= BD_FULL_ENTRIES, "breakdown entries compared {} < pinned {BD_FULL_ENTRIES}", t.entries);
+        assert!(
+            t.entries >= BD_FULL_ENTRIES,
+            "breakdown entries compared {} < pinned {BD_FULL_ENTRIES}",
+            t.entries
+        );
     }
-    assert!(t.equal == t.entries, "breakdown entries differ: {:?}", t.failed_builds);
+    assert!(
+        t.equal == t.entries,
+        "breakdown entries differ: {:?}",
+        t.failed_builds
+    );
 }
 
 /// Breakdown entries compared on the full corpus (docs/port/parity/INT-3-triage.md).
@@ -827,7 +956,9 @@ fn val_json(v: &Val) -> J {
     match v {
         Val::Nil => J::Null,
         Val::Bool(b) => J::Bool(*b),
-        Val::Num(x) => serde_json::Number::from_f64(*x).map_or_else(|| J::String(format!("{x}")), J::Number),
+        Val::Num(x) => {
+            serde_json::Number::from_f64(*x).map_or_else(|| J::String(format!("{x}")), J::Number)
+        }
         Val::Str(s) => J::String(s.to_string()),
         Val::Data(d) => pob_calc::probe::value_json(d),
         Val::Mod(m) => pob_calc::probe::mod_json(m, None),
@@ -870,8 +1001,10 @@ fn tab_canon(j: &J) -> String {
 fn main_skill_cfg(skill: &ActiveSkill, name: &str) -> Option<Cfg> {
     match name {
         "skillCfg" => Some(skill.skillCfg.get()),
-        "weapon1Cfg" | "weapon2Cfg" | "bleedCfg" | "poisonCfg" | "igniteCfg" | "OHbleedCfg" | "OHpoisonCfg"
-        | "OHigniteCfg" | "dotCfg" | "decayCfg" => skill.cfg_field(Name::from(name)).get(),
+        "weapon1Cfg" | "weapon2Cfg" | "bleedCfg" | "poisonCfg" | "igniteCfg" | "OHbleedCfg"
+        | "OHpoisonCfg" | "OHigniteCfg" | "dotCfg" | "decayCfg" => {
+            skill.cfg_field(Name::from(name)).get()
+        }
         _ => skill.extra.get(Name::from(name)).obj::<ModCfg>(),
     }
 }
@@ -945,7 +1078,10 @@ fn run_query(actor: &ActorRef, q: &Query) -> (Vec<J>, Vec<J>) {
     } else {
         actor.modDB.get()
     };
-    let modType = q.modType.as_deref().map(|s| ModType::parse(s).unwrap_or(ModType::Nil));
+    let modType = q
+        .modType
+        .as_deref()
+        .map(|s| ModType::parse(s).unwrap_or(ModType::Nil));
     // L313-317
     let rows = modStore.Tabulate(modType, Some(&*cfg), &q.names);
     let rows_json: Vec<J> = rows
@@ -1014,8 +1150,12 @@ struct TabTotals {
 
 #[test]
 fn int3_tabulate_corpus() {
-    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(parity) = find_parity_dir() else { return skip(".parity not found") };
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(parity) = find_parity_dir() else {
+        return skip(".parity not found");
+    };
     if find_pob_src().is_none() {
         return skip("PoB checkout (.PathOfBuilding/src) not found");
     }
@@ -1057,18 +1197,23 @@ fn int3_tabulate_corpus() {
         let qs = queries(&run.int3);
         let mut bad = 0;
         let mut n = 0;
-        for (actor_name, actor) in [("player", Some(calcsEnv.player.clone())), ("minion", calcsEnv.minion.get())] {
+        for (actor_name, actor) in [
+            ("player", Some(calcsEnv.player.clone())),
+            ("minion", calcsEnv.minion.get()),
+        ] {
             let pob = &run.int3[actor_name];
             if pob.is_null() {
                 if actor.is_some() && actor_name == "minion" {
                     bad += 1;
-                    t.failed_builds.push(format!("{stem}: a Rust minion, none in PoB"));
+                    t.failed_builds
+                        .push(format!("{stem}: a Rust minion, none in PoB"));
                 }
                 continue;
             }
             let Some(actor) = actor else {
                 bad += 1;
-                t.failed_builds.push(format!("{stem}: no Rust {actor_name}"));
+                t.failed_builds
+                    .push(format!("{stem}: no Rust {actor_name}"));
                 continue;
             };
             for q in &qs {
@@ -1082,18 +1227,35 @@ fn int3_tabulate_corpus() {
                         t.errors_both += 1;
                         None
                     }
-                    (Some(e), Ok(_)) => Some(format!("PoB raised ({}), Rust did not", clip(&e.to_string(), 120))),
+                    (Some(e), Ok(_)) => Some(format!(
+                        "PoB raised ({}), Rust did not",
+                        clip(&e.to_string(), 120)
+                    )),
                     (None, Err(e)) => Some(format!("Rust raised: {e}")),
                     (None, Ok((rows, totals))) => {
-                        let mut prows: Vec<String> = json_list(&p["rows"]).iter().map(tab_canon).collect();
+                        let mut prows: Vec<String> =
+                            json_list(&p["rows"]).iter().map(tab_canon).collect();
                         let mut orows: Vec<String> = rows.iter().map(tab_canon).collect();
                         if rows_equal(&prows, &orows) == RowsEq::Differ && !strict() {
-                            let pn: Vec<String> =
-                                json_list(&p["rows"]).iter().map(|r| tab_canon(&nondet_row(r, &build))).collect();
-                            let on: Vec<String> = rows.iter().map(|r| tab_canon(&nondet_row(r, &build))).collect();
+                            let pn: Vec<String> = json_list(&p["rows"])
+                                .iter()
+                                .map(|r| tab_canon(&nondet_row(r, &build)))
+                                .collect();
+                            let on: Vec<String> = rows
+                                .iter()
+                                .map(|r| tab_canon(&nondet_row(r, &build)))
+                                .collect();
                             if rows_equal(&pn, &on) != RowsEq::Differ {
                                 t.pob_nondet += 1;
-                                record_diff(&[stem, "accepted-pob-nondet", actor_name, &q.sig, "", "", ""]);
+                                record_diff(&[
+                                    stem,
+                                    "accepted-pob-nondet",
+                                    actor_name,
+                                    &q.sig,
+                                    "",
+                                    "",
+                                    "",
+                                ]);
                                 prows = pn;
                                 orows = on;
                             }
@@ -1116,7 +1278,15 @@ fn int3_tabulate_corpus() {
                             (RowsEq::Exact, true) => None,
                             (RowsEq::OrderOnly, true) => {
                                 t.order_only += 1;
-                                record_diff(&[stem, "tabulate-order", actor_name, &q.sig, "", &prows.join(" ;; "), &orows.join(" ;; ")]);
+                                record_diff(&[
+                                    stem,
+                                    "tabulate-order",
+                                    actor_name,
+                                    &q.sig,
+                                    "",
+                                    &prows.join(" ;; "),
+                                    &orows.join(" ;; "),
+                                ]);
                                 None
                             }
                             (r, tot) => {
@@ -1135,9 +1305,13 @@ fn int3_tabulate_corpus() {
                                     ));
                                 }
                                 if !tot {
-                                    let miss: Vec<&String> = ptot.iter().filter(|x| !otot.contains(x)).take(2).collect();
-                                    let extra: Vec<&String> = otot.iter().filter(|x| !ptot.contains(x)).take(2).collect();
-                                    s.push_str(&format!(" totals: PoB-only {miss:?}; Rust-only {extra:?}"));
+                                    let miss: Vec<&String> =
+                                        ptot.iter().filter(|x| !otot.contains(x)).take(2).collect();
+                                    let extra: Vec<&String> =
+                                        otot.iter().filter(|x| !ptot.contains(x)).take(2).collect();
+                                    s.push_str(&format!(
+                                        " totals: PoB-only {miss:?}; Rust-only {extra:?}"
+                                    ));
                                 }
                                 Some(s)
                             }
@@ -1146,7 +1320,9 @@ fn int3_tabulate_corpus() {
                 };
                 if let Some(d) = diff {
                     bad += 1;
-                    *t.by_query.entry(format!("{actor_name} {}", q.sig)).or_default() += 1;
+                    *t.by_query
+                        .entry(format!("{actor_name} {}", q.sig))
+                        .or_default() += 1;
                     eprintln!("    {stem} {actor_name} [{}]: {d}", q.sig);
                     record_diff(&[stem, "tabulate", actor_name, &q.sig, "", &d, ""]);
                 } else {
@@ -1156,7 +1332,8 @@ fn int3_tabulate_corpus() {
         }
         eprintln!("INT3 tabulate {stem}: {}/{n} queries equal", n - bad);
         if bad > 0 {
-            t.failed_builds.push(format!("{stem}: {bad} queries differ"));
+            t.failed_builds
+                .push(format!("{stem}: {bad} queries differ"));
         }
         drop(calcsEnv);
         release(build);
@@ -1190,10 +1367,22 @@ fn int3_tabulate_corpus() {
     assert!(pob_failed.is_empty(), "PoB runs failed: {pob_failed:?}");
     assert!(t.rust_errors.is_empty(), "Rust errors: {:?}", t.rust_errors);
     if full_corpus(builds.len()) {
-        assert!(t.queries >= TAB_FULL_QUERIES, "Tabulate queries compared {} < pinned {TAB_FULL_QUERIES}", t.queries);
-        assert!(t.rows >= TAB_FULL_ROWS, "Tabulate rows compared {} < pinned {TAB_FULL_ROWS}", t.rows);
+        assert!(
+            t.queries >= TAB_FULL_QUERIES,
+            "Tabulate queries compared {} < pinned {TAB_FULL_QUERIES}",
+            t.queries
+        );
+        assert!(
+            t.rows >= TAB_FULL_ROWS,
+            "Tabulate rows compared {} < pinned {TAB_FULL_ROWS}",
+            t.rows
+        );
     }
-    assert!(t.equal == t.queries, "Tabulate queries differ: {:?}", t.failed_builds);
+    assert!(
+        t.equal == t.queries,
+        "Tabulate queries differ: {:?}",
+        t.failed_builds
+    );
 }
 
 /// A Tabulate row with the mod sources PoB picks in per-process order replaced by a class name:
@@ -1206,7 +1395,9 @@ fn int3_tabulate_corpus() {
 ///   `pairs(data.skills)` (string keys) reaches last.
 fn nondet_row(row: &J, build: &BuildRef) -> J {
     let mut r = row.clone();
-    let Some(src) = r["mod"]["source"].as_str().map(str::to_owned) else { return r };
+    let Some(src) = r["mod"]["source"].as_str().map(str::to_owned) else {
+        return r;
+    };
     let new = if let Some(rest) = src.strip_prefix("Item:") {
         let id = rest.split(':').next().and_then(|x| x.parse::<u32>().ok());
         let is_flask = id
@@ -1258,7 +1449,10 @@ fn rows_equal(p: &[String], o: &[String]) -> RowsEq {
 fn rows_close(p: &[String], o: &[String]) -> bool {
     p.len() == o.len()
         && p.iter().zip(o).all(|(a, b)| {
-            let (Ok(a), Ok(b)) = (serde_json::from_str::<J>(a), serde_json::from_str::<J>(b)) else { return false };
+            let (Ok(a), Ok(b)) = (serde_json::from_str::<J>(a), serde_json::from_str::<J>(b))
+            else {
+                return false;
+            };
             tree_eq(&un_canon(&a), &un_canon(&b), REL_TOL)
         })
 }

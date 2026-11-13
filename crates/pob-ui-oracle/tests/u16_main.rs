@@ -41,10 +41,7 @@ use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
 fn inputs() -> Option<PathBuf> {
-    let root = pob_testpaths::require(
-        pob_testpaths::pob_root(),
-        "PoB checkout (.PathOfBuilding)",
-    )?;
+    let root = pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)")?;
     let dump = pob_testpaths::require(pob_testpaths::dump_dir(), "data/dump")?;
     assert!(pob_oracle::testkit::init_data(&dump), "data dump");
     let src = std::fs::canonicalize(root.join("src")).unwrap_or_else(|_| root.join("src"));
@@ -90,9 +87,7 @@ fn rust_stubs(cx: &mut Cx) {
 fn lua_setup(name: &str) -> &'static str {
     match name {
         "toast" => r#"ToastNotification:Add("Toast title\nfirst line of the body\nsecond line")"#,
-        "toast2" => {
-            r#"ToastNotification:Add("One") ToastNotification:Add("Two\nwith a body")"#
-        }
+        "toast2" => r#"ToastNotification:Add("One") ToastNotification:Add("Two\nwith a body")"#,
         "prompt" => r#"launch:ShowErrMsg("Test error: %s", "boom ^3coloured")"#,
         "path_popup" => r#"main:OpenPathPopup("/no/such?dir", "Permission denied", false)"#,
         "status" => r#"main:SetWindowTitleSubtext("My build") main:SetWindowTitleSubtext()"#,
@@ -114,12 +109,9 @@ fn rust_setup(cx: &mut Cx, name: &str) {
             "Test error: %s",
             &[pob_lua::FmtArg::from("boom ^3coloured")],
         ),
-        "path_popup" => main_mode::path_popup::open_path_popup(
-            cx,
-            "/no/such?dir",
-            "Permission denied",
-            false,
-        ),
+        "path_popup" => {
+            main_mode::path_popup::open_path_popup(cx, "/no/such?dir", "Permission denied", false)
+        }
         "status" => {
             main_mode::folders::set_window_title_subtext(cx, Some("My build"));
             main_mode::folders::set_window_title_subtext(cx, None);
@@ -265,7 +257,7 @@ impl RustSide {
         });
         let mut app = pob_app::PobApp::new(parts);
         effects.borrow_mut().clear(); // Launch.lua:11 runs at script load, before tracing
-        // pob-ui-oracle patch 4's equivalent (CCR-0096)
+                                      // pob-ui-oracle patch 4's equivalent (CCR-0096)
         app.cx.app_mut().launch.force_release_install = true;
         RustSide {
             app,
@@ -506,7 +498,9 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
         .filter(|c| {
             matches!(
                 c.call,
-                ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
             )
         })
         .count()
@@ -593,8 +587,7 @@ fn u16_scenarios() {
                     .as_ref()
                     .map_or_else(String::new, |e| format!(", Rust error: {e}"))
             ));
-            if n != 0 || sides.rust_error.is_some() || run.lua.len() != run.rust.len() || ops == 0
-            {
+            if n != 0 || sides.rust_error.is_some() || run.lua.len() != run.rust.len() || ops == 0 {
                 out.failures.push(format!(
                     "{tag}: {n} divergences, frames lua {} rust {}, {ops} ops (see {})",
                     run.lua.len(),

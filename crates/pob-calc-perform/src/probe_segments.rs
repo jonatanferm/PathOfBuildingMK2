@@ -26,7 +26,11 @@ pub fn run_segment(
             .map_or(Val::Nil, |(_, v)| v.clone())
     };
     let env = || get("env").obj::<Env>().ok_or("local env is not an env");
-    let actor = || get("actor").obj::<Actor>().ok_or("local actor is not an actor");
+    let actor = || {
+        get("actor")
+            .obj::<Actor>()
+            .ok_or("local actor is not an actor")
+    };
     let mut out = Vec::new();
     let flow = match id {
         "initEnv:488" | "initEnv:800" | "initEnv:1451" => {

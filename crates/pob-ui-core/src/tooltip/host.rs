@@ -59,7 +59,7 @@ impl<A: 'static> TooltipHost<A> {
             (th.tooltip_func.clone(), th.tooltip_text.clone())
         };
         let mut tt = std::mem::take(&mut get(cx.w_mut::<W>(me)).tooltip); // lend (6.13)
-        // L16
+                                                                          // L16
         if let Some(f) = func {
             // L17
             f(cx, &mut tt, args);

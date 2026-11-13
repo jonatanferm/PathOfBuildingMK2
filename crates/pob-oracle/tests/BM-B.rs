@@ -1919,7 +1919,10 @@ fn fresh_build_entry_points() {
     // CalcPerform.lua:1312)
     let build = Build::new(data);
     let pt = &build.partyTab;
-    assert!(pt.buffExports.get().is_none(), "Build::new leaves the field unset");
+    assert!(
+        pt.buffExports.get().is_none(),
+        "Build::new leaves the field unset"
+    );
     pt.enableExportBuffs.set(true);
     let fresh = Table::new();
     let aura = Table::new();
@@ -1956,7 +1959,8 @@ fn fresh_build_entry_points() {
         let Some(var) = v.var else { continue };
         if let Some(p) = &v.defaultPlaceholderState {
             assert!(
-                ct.GetDefaultState(var, n!("nil")).raw_eq(&Val::from_value(p)),
+                ct.GetDefaultState(var, n!("nil"))
+                    .raw_eq(&Val::from_value(p)),
                 "placeholder default of {var}"
             );
         }

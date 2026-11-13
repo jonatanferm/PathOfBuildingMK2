@@ -290,11 +290,7 @@ fn grantedEffectName(skill: &ActiveSkill) -> Name {
 fn gt(a: &Val, b: &Val) -> bool {
     match (a, b) {
         (Val::Num(x), Val::Num(y)) => x > y,
-        _ => lua_error!(
-            "attempt to compare {} with {}",
-            b.lua_type(),
-            a.lua_type()
-        ),
+        _ => lua_error!("attempt to compare {} with {}", b.lua_type(), a.lua_type()),
     }
 }
 
@@ -305,9 +301,7 @@ fn ne0(v: &Val) -> bool {
 
 /// `GlobalCache.cachedData[mode][uuid]` that Lua then indexes (nil raises).
 fn cached(mode: Mode, uuid: Name) -> Rc<CachedData> {
-    cachedData(mode, uuid).unwrap_or_else(|| {
-        lua_error!("attempt to index field '?' (a nil value)")
-    })
+    cachedData(mode, uuid).unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"))
 }
 
 /// `skillModList:NewMod(name, mod.type, mod.value, mod.source, mod.flags, mod.keywordFlags)` with
@@ -704,7 +698,11 @@ pub fn mirages(env: &EnvRef) -> bool {
                 // L157
                 env.player.output.set(newEnv.player.output.get());
                 // L158
-                let b = newEnv.player.breakdown.get().or_else(|| env.player.breakdown.get());
+                let b = newEnv
+                    .player
+                    .breakdown
+                    .get()
+                    .or_else(|| env.player.breakdown.get());
                 env.player.breakdown.set(b);
             }),
             // L160
@@ -804,8 +802,7 @@ pub fn mirages(env: &EnvRef) -> bool {
                 let triggeredCDTickRounded = m_ceil(triggeredCDAdjusted * tickRate) / tickRate;
 
                 // L206
-                let triggerCD =
-                    lor(ms.skillData.get().get(n!("cooldown")), || Val::Num(0.0)).num();
+                let triggerCD = lor(ms.skillData.get().get(n!("cooldown")), || Val::Num(0.0)).num();
                 st.triggerCD.set(triggerCD);
                 // L207
                 let triggerCDAdjusted = triggerCD / icdrSkill;
@@ -1166,11 +1163,7 @@ pub fn mirages(env: &EnvRef) -> bool {
 
         // L352 Prevent infinite recursion
         // L353
-        if env
-            .limitedSkills
-            .get()
-            .is_some_and(|l| l.truthy(uuid))
-        {
+        if env.limitedSkills.get().is_some_and(|l| l.truthy(uuid)) {
             // L354
             return false;
         }

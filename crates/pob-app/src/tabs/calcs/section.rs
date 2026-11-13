@@ -258,10 +258,7 @@ impl CalcSectionControl {
                     for (_, colData) in data.ipairs() {
                         let colData = tbl(&colData);
                         // L38
-                        colData.set(
-                            n!("calcSection"),
-                            Val::Obj(Rc::new(CalcSectionRef(me))),
-                        );
+                        colData.set(n!("calcSection"), Val::Obj(Rc::new(CalcSectionRef(me))));
                         // L39
                         if let Some(control) = colData.obj::<CellControl>(n!("control")) {
                             // L40
@@ -440,9 +437,9 @@ impl CalcSectionControl {
         for (i, subSec) in sub_section.ipairs() {
             let subSec = tbl(&subSec);
             // L126
-            let toggle = cx.child(me, format!("toggle{i}")).unwrap_or_else(|| {
-                lua_error!("attempt to index field '?' (a nil value)")
-            });
+            let toggle = cx
+                .child(me, format!("toggle{i}"))
+                .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
             cx.base_mut(toggle).y = Prop::Val(yOffset + 3.0);
             // L127
             let mut tempHeight = 0.0;
@@ -456,7 +453,11 @@ impl CalcSectionControl {
                 let row_enabled = calcs::check_flag(cx, &rowData, None, None);
                 rowData.set(
                     n!("enabled"),
-                    if row_enabled { Val::Bool(true) } else { Val::Nil },
+                    if row_enabled {
+                        Val::Bool(true)
+                    } else {
+                        Val::Nil
+                    },
                 );
                 // L131
                 if row_enabled {
@@ -473,7 +474,11 @@ impl CalcSectionControl {
                         colData.set(n!("yOffset"), yOffset);
                         // L137
                         let w = data.get(n!("colWidth"));
-                        let w = if w.truthy() { w } else { Val::Num(width - 136.0) };
+                        let w = if w.truthy() {
+                            w
+                        } else {
+                            Val::Num(width - 136.0)
+                        };
                         colData.set(n!("width"), w);
                         // L138
                         colData.set(n!("height"), 18.0);
@@ -588,7 +593,8 @@ impl CalcSectionControl {
         // L195
         cx.sg.set_draw_color(0.10, 0.10, 0.10);
         // L196
-        cx.sg.draw_image(None, x + 2.0, y + 2.0, width - 4.0, height - 4.0);
+        cx.sg
+            .draw_image(None, x + 2.0, y + 2.0, width - 4.0, height - 4.0);
 
         // L198
         Self::draw_content(cx, me, x, y, width, Some(&actor), vp, false, no_tooltip);
@@ -982,17 +988,20 @@ impl CalcSectionControl {
         // L402
         cx.sg.draw_image(None, x, y, overlayWidth, 1.0);
         // L403
-        cx.sg.draw_image(None, x, y + totalHeight - 1.0, overlayWidth, 1.0);
+        cx.sg
+            .draw_image(None, x, y + totalHeight - 1.0, overlayWidth, 1.0);
         // L404
         cx.sg.draw_image(None, x, y, 1.0, totalHeight);
         // L405
-        cx.sg.draw_image(None, x + overlayWidth - 1.0, y, 1.0, totalHeight);
+        cx.sg
+            .draw_image(None, x + overlayWidth - 1.0, y, 1.0, totalHeight);
 
         // Draw header
         // L408
         cx.sg.set_draw_color(0.18, 0.18, 0.18);
         // L409
-        cx.sg.draw_image(None, x + 1.0, y + 1.0, overlayWidth - 2.0, 22.0);
+        cx.sg
+            .draw_image(None, x + 1.0, y + 1.0, overlayWidth - 2.0, 22.0);
         // L410
         cx.sg.set_draw_color(1.0, 1.0, 1.0);
         // L411
@@ -1032,11 +1041,22 @@ impl CalcSectionControl {
         // L417
         cx.sg.set_draw_color_esc(&colour);
         // L418
-        cx.sg.draw_image(None, x + 2.0, y + 24.0, overlayWidth - 4.0, 1.0);
+        cx.sg
+            .draw_image(None, x + 2.0, y + 24.0, overlayWidth - 4.0, 1.0);
 
         // Draw content
         // L421
-        Self::draw_content(cx, me, x, y + 26.0, overlayWidth, actor.as_ref(), vp, true, false);
+        Self::draw_content(
+            cx,
+            me,
+            x,
+            y + 26.0,
+            overlayWidth,
+            actor.as_ref(),
+            vp,
+            true,
+            false,
+        );
 
         // Draw stat breakdown
         let tab = st(cx, me).calcs_tab;
@@ -1095,10 +1115,7 @@ impl CalcSectionControl {
         let mut primary = true;
         let flags = st(cx, me).flags.clone();
         // L441 (`isOverlay and (actor and CheckFlag(self)) or self.enabled`)
-        let enabled = if isOverlay
-            && actor.is_some()
-            && calcs::check_flag(cx, &flags, None, None)
-        {
+        let enabled = if isOverlay && actor.is_some() && calcs::check_flag(cx, &flags, None, None) {
             true
         } else {
             enabled_raw(cx, me)
@@ -1121,7 +1138,8 @@ impl CalcSectionControl {
             // L445
             cx.sg.set_draw_color_esc(&colour);
             // L446
-            cx.sg.draw_image(None, drawX + 2.0, lineY, drawWidth - 4.0, 2.0);
+            cx.sg
+                .draw_image(None, drawX + 2.0, lineY, drawWidth - 4.0, 2.0);
 
             // Label
             // L449
@@ -1161,7 +1179,8 @@ impl CalcSectionControl {
                 if extra.truthy() {
                     // L460
                     let ex = lx
-                        + cx.sg.draw_string_width(16.0, Font::VarBold, &concat(&label))
+                        + cx.sg
+                            .draw_string_width(16.0, Font::VarBold, &concat(&label))
                         + if isOverlay { 12.0 } else { 10.0 };
                     // L461
                     let text = formatCalcStr(&concat(&extra), actor, &Val::Nil);
@@ -1189,7 +1208,11 @@ impl CalcSectionControl {
                 // L471
                 if enabled {
                     // L472
-                    let sign = if subSec.truthy(n!("collapsed")) { "+" } else { "-" };
+                    let sign = if subSec.truthy(n!("collapsed")) {
+                        "+"
+                    } else {
+                        "-"
+                    };
                     cx.sg.draw_string(
                         drawX + drawWidth - 16.0,
                         lineY + 3.0,
@@ -1257,7 +1280,8 @@ impl CalcSectionControl {
                                 // L496
                                 set_color_val(cx, &rowData.get(n!("bgCol")));
                                 // L497
-                                cx.sg.draw_image(None, drawX + 2.0, lineY + 2.0, 130.0, 18.0);
+                                cx.sg
+                                    .draw_image(None, drawX + 2.0, lineY + 2.0, 130.0, 18.0);
                                 let row_label = concat(&row_label);
                                 // L498
                                 if CalcsTab::search_match(cx, tab, &row_label) {

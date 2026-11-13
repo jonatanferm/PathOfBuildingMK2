@@ -80,7 +80,10 @@ fn numberOfHitsToDie(c: &DefEstCtx, DamageIn: &Table) -> f64 {
     // L2614
     let mut numHits = 0.0;
     // L2615
-    DamageIn.set(n!("cycles"), lor(DamageIn.get(n!("cycles")), || Val::Num(1.0)));
+    DamageIn.set(
+        n!("cycles"),
+        lor(DamageIn.get(n!("cycles")), || Val::Num(1.0)),
+    );
     // L2616
     DamageIn.set(
         n!("iterations"),
@@ -103,7 +106,10 @@ fn numberOfHitsToDie(c: &DefEstCtx, DamageIn: &Table) -> f64 {
     let wardAvoidBreakChance = if modDB.Flag(None, nm!["Condition:WardNotBreak"]) {
         1.0
     } else {
-        m_min(modDB.Sum(ModType::BASE, None, nm!["WardAvoidBreakChance"]) / 100.0, 1.0)
+        m_min(
+            modDB.Sum(ModType::BASE, None, nm!["WardAvoidBreakChance"]) / 100.0,
+            1.0,
+        )
     };
     // L2627
     if wardAvoidBreakChance == 1.0
@@ -130,7 +136,10 @@ fn numberOfHitsToDie(c: &DefEstCtx, DamageIn: &Table) -> f64 {
     // L2639
     aegis.set(n!("shared"), output.num0(n!("sharedAegis")));
     // L2640
-    aegis.set(n!("sharedElemental"), output.num0(n!("sharedElementalAegis")));
+    aegis.set(
+        n!("sharedElemental"),
+        output.num0(n!("sharedElementalAegis")),
+    );
     // L2641
     let guard = Table::new();
     // L2642
@@ -169,7 +178,9 @@ fn numberOfHitsToDie(c: &DefEstCtx, DamageIn: &Table) -> f64 {
         // L2664
         DamageIn.set(
             n!("TrackLifeLossOverTime"),
-            lor(DamageIn.get(n!("TrackLifeLossOverTime")), || Val::Bool(false)),
+            lor(DamageIn.get(n!("TrackLifeLossOverTime")), || {
+                Val::Bool(false)
+            }),
         );
     } else {
         // L2666
@@ -363,7 +374,9 @@ fn numberOfHitsToDie(c: &DefEstCtx, DamageIn: &Table) -> f64 {
         );
         // L2728
         let wardAvoidBreakActive = wardAvoidBreakChance < 1.0
-            && cmp_num(&lor(poolTable.get(n!("WardActiveChance")), || Val::Num(0.0))) > 0.01;
+            && cmp_num(&lor(poolTable.get(n!("WardActiveChance")), || {
+                Val::Num(0.0)
+            })) > 0.01;
         // L2729
         if !DamageIn.truthy(n!("cyclesRan"))
             && !wardAvoidBreakActive
@@ -543,16 +556,23 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 && cmp(output, n!("NumberOfDamagingHits")) > 1.0
             {
                 // L2805
-                DamageIn.set(n!("LifeWhenHit"), output.num(n!("LifeOnBlock")) * BlockChance);
+                DamageIn.set(
+                    n!("LifeWhenHit"),
+                    output.num(n!("LifeOnBlock")) * BlockChance,
+                );
                 // L2806
-                DamageIn.set(n!("ManaWhenHit"), output.num(n!("ManaOnBlock")) * BlockChance);
+                DamageIn.set(
+                    n!("ManaWhenHit"),
+                    output.num(n!("ManaOnBlock")) * BlockChance,
+                );
                 // L2807
                 DamageIn.set(
                     n!("EnergyShieldWhenHit"),
                     output.num(n!("EnergyShieldOnBlock")) * BlockChance,
                 );
                 // L2808
-                if damageCategoryConfig == n!("Spell") || damageCategoryConfig == n!("SpellProjectile")
+                if damageCategoryConfig == n!("Spell")
+                    || damageCategoryConfig == n!("SpellProjectile")
                 {
                     // L2809
                     let v = DamageIn.num(n!("EnergyShieldWhenHit"))
@@ -597,17 +617,26 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 // L2827
                 let v = DamageIn.num0(n!("EnergyShieldWhenHit"))
                     + output.num(n!("EnergyShieldOnSuppress"))
-                        * (if damageCategoryConfig == n!("Average") { 0.5 } else { 1.0 });
+                        * (if damageCategoryConfig == n!("Average") {
+                            0.5
+                        } else {
+                            1.0
+                        });
                 DamageIn.set(n!("EnergyShieldWhenHit"), v);
                 // L2828
                 let v = DamageIn.num0(n!("LifeWhenHit"))
                     + output.num(n!("LifeOnSuppress"))
-                        * (if damageCategoryConfig == n!("Average") { 0.5 } else { 1.0 });
+                        * (if damageCategoryConfig == n!("Average") {
+                            0.5
+                        } else {
+                            1.0
+                        });
                 DamageIn.set(n!("LifeWhenHit"), v);
             }
             // extra avoid chance
             // L2831
-            if damageCategoryConfig == n!("Projectile") || damageCategoryConfig == n!("SpellProjectile")
+            if damageCategoryConfig == n!("Projectile")
+                || damageCategoryConfig == n!("SpellProjectile")
             {
                 // L2832
                 ExtraAvoidChance = ExtraAvoidChance + output.num(n!("AvoidProjectilesChance"));
@@ -746,7 +775,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L2885
             if let Some(breakdown) = breakdown {
                 // L2886
-                let b = tbl![lfmt!("%.2f ^8(chance for block to fail)", 1.0 - BlockChance)];
+                let b = tbl![lfmt!(
+                    "%.2f ^8(chance for block to fail)",
+                    1.0 - BlockChance
+                )];
                 breakdown.set(n!("ConfiguredDamageChance"), b.clone());
                 // L2889
                 if output.truthy(n!("ShowBlockEffect")) {
@@ -956,7 +988,9 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         {
             // L2963
             let v = lor(configInput.get(n!("enemySpeed")), || {
-                lor(env.configPlaceholder.get(n!("enemySpeed")), || Val::Num(700.0))
+                lor(env.configPlaceholder.get(n!("enemySpeed")), || {
+                    Val::Num(700.0)
+                })
             })
             .num()
                 / (1.0 + enemyDB.Sum(ModType::INC, None, nm!["Speed"]) / 100.0);
@@ -1071,7 +1105,11 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             );
             // L3002
             let PseudoRecoupDuration = output.num_or(
-                cat!("PhysicalDamageMitigated", recoupType, "PseudoRecoupDuration"),
+                cat!(
+                    "PhysicalDamageMitigated",
+                    recoupType,
+                    "PseudoRecoupDuration"
+                ),
                 4.0,
             );
             // Pious Path
@@ -1319,7 +1357,11 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 // L3077
                 bMax.push(lfmt!(
                     "%s %d ^8(total damage prevented by petrified blood)",
-                    if !eq_num(&output.get(n!("LifeLossLostOverTime")), 0.0) { "+" } else { "(" },
+                    if !eq_num(&output.get(n!("LifeLossLostOverTime")), 0.0) {
+                        "+"
+                    } else {
+                        "("
+                    },
                     output.num(n!("LifeBelowHalfLossLostOverTime"))
                 ));
                 // L3078
@@ -1331,7 +1373,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L3080
             bMax.push(lfmt!(") / %.2f ^8(over 4 seconds)", 4.0));
             // L3081
-            bMax.push(lfmt!("= %.2f per second", output.num(n!("LifeLossLostMax"))));
+            bMax.push(lfmt!(
+                "= %.2f per second",
+                output.num(n!("LifeLossLostMax"))
+            ));
             // L3082
             let bAvg = Table::new();
             breakdown.set(n!("LifeLossLostAvg"), bAvg.clone());
@@ -1348,7 +1393,11 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 // L3087
                 bAvg.push(lfmt!(
                     "%s %d ^8(total damage prevented by petrified blood)",
-                    if !eq_num(&output.get(n!("LifeLossLostOverTime")), 0.0) { "+" } else { "(" },
+                    if !eq_num(&output.get(n!("LifeLossLostOverTime")), 0.0) {
+                        "+"
+                    } else {
+                        "("
+                    },
                     output.num(n!("LifeBelowHalfLossLostOverTime"))
                 ));
                 // L3088
@@ -1363,7 +1412,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 output.num(n!("EHPSurvivalTime")) + 4.0
             ));
             // L3091
-            bAvg.push(lfmt!("= %.2f per second", output.num(n!("LifeLossLostAvg"))));
+            bAvg.push(lfmt!(
+                "= %.2f per second",
+                output.num(n!("LifeLossLostAvg"))
+            ));
         }
     }
 
@@ -1531,7 +1583,11 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 // L3141
                 b.push(lfmt!(
                     "(portionNonElemental + portionElemental)%s",
-                    if PvpMultiplier != 1.0 { " * PvP multiplier" } else { " " }
+                    if PvpMultiplier != 1.0 {
+                        " * PvP multiplier"
+                    } else {
+                        " "
+                    }
                 ));
                 // L3142
                 if PvpMultiplier != 1.0 {

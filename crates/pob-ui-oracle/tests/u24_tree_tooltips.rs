@@ -272,7 +272,8 @@ fn rust_stubs() {
         *h = tree_view::default_hooks();
         h.build_power = Rc::new(|cx| {
             let m = cx.build().model.clone();
-            let ct = pob_calc::model::build_xml::build_extra(&m).get_or_new_table(pob_lua::n!("calcsTab"));
+            let ct = pob_calc::model::build_xml::build_extra(&m)
+                .get_or_new_table(pob_lua::n!("calcsTab"));
             let pm = pob_calc::lua_table::Table::new();
             pm.set(pob_lua::n!("offence"), 6.0);
             pm.set(pob_lua::n!("defence"), 4.0);
@@ -293,7 +294,11 @@ fn rust_stubs() {
             let slot_name = slot
                 .and_then(|s| s.str(pob_lua::n!("slotName")))
                 .map_or_else(|| "nil".to_owned(), |s| s.to_string());
-            tt.add_line(cx, 14.0, &format!("^7{slot_name} {}", if db_mode { "true" } else { "nil" }));
+            tt.add_line(
+                cx,
+                14.0,
+                &format!("^7{slot_name} {}", if db_mode { "true" } else { "nil" }),
+            );
         });
     });
 }
@@ -533,7 +538,9 @@ fn tree_image_loads(frames: &[FrameTrace]) -> Vec<String> {
         .flat_map(|f| &f.effects)
         .filter_map(|e| match e {
             SideEffect::ImageLoad(img)
-                if img.path.contains("TreeData/") || img.path.contains("ring.png") || img.path.contains("Ring") =>
+                if img.path.contains("TreeData/")
+                    || img.path.contains("ring.png")
+                    || img.path.contains("Ring") =>
             {
                 Some(format!("{} {:?}", img.path, img.flags))
             }
@@ -658,7 +665,9 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
         .filter(|c| {
             matches!(
                 c.call,
-                ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
             )
         })
         .count()
@@ -715,7 +724,12 @@ fn op_key(op: &DrawOp) -> String {
             height,
             font,
             text,
-        } => format!("S {} {} {align:?} {} {font:?} {text}", r(*x), r(*y), r(*height)),
+        } => format!(
+            "S {} {} {align:?} {} {font:?} {text}",
+            r(*x),
+            r(*y),
+            r(*height)
+        ),
         other => format!("{other:?}"),
     };
     format!("{:?} {} {call}", op.color, rs(&op.viewport))
@@ -789,11 +803,14 @@ fn describe(d: &Divergence) -> String {
             idx,
             lua,
             rust,
-        } => format!("changed {bucket:?}#{idx}: lua {} | rust {}", op(lua), op(rust)),
+        } => format!(
+            "changed {bucket:?}#{idx}: lua {} | rust {}",
+            op(lua),
+            op(rust)
+        ),
         Divergence::Effect { lua, rust } => format!("effect: lua {lua:?} rust {rust:?}"),
     }
 }
-
 
 /// The `#! tooltip TEXT` expectations of a script: each TEXT is drawn on the tooltip
 /// sub-layer (100) of some Lua frame (the hovers really showed the nodes the script names).
@@ -843,7 +860,10 @@ fn u24_scenarios() {
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "pobscript"))
         // `_*.pobscript`: probe prefixes (u24_probe), not scenarios
-        .filter(|p| !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('_')))
+        .filter(|p| {
+            !p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with('_'))
+        })
         .collect();
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u24/*.pobscript");
@@ -865,10 +885,18 @@ fn u24_scenarios() {
             .iter()
             .find(|s| !matches!(s, pob_host::script::Step::Fixture { .. }))
             .is_some_and(|s| matches!(s, pob_host::script::Step::Screen { .. }));
-        assert!(own_screen, "{stem}: every u24 script sets its screen (the hovers are screen positions)");
+        assert!(
+            own_screen,
+            "{stem}: every u24 script sets its screen (the hovers are screen positions)"
+        );
         let tag = format!("u24_{stem}");
         let t0 = std::time::Instant::now();
-        let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(1280, 800, 1.0)) {
+        let (lua, rust) = match run_sides(
+            &root,
+            &script,
+            fx.user_dir.as_deref(),
+            runner::screen(1280, 800, 1.0),
+        ) {
             Ok(s) => s,
             Err(e) => {
                 out.failures.push(format!("{tag}: {e:#}"));
@@ -902,7 +930,8 @@ fn u24_scenarios() {
         let first = divs.first().map(|(fi, d)| {
             format!(
                 "frame {fi}: {}",
-                d.first().map_or_else(|| "frame missing".to_owned(), describe)
+                d.first()
+                    .map_or_else(|| "frame missing".to_owned(), describe)
             )
         });
         let ops = draw_ops(&run.lua);
@@ -1021,7 +1050,9 @@ fn u24_probe() {
     // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
     let _permit = oracle_cache::Permit::acquire();
     let Some(root) = inputs() else { return };
-    let Ok(names) = std::env::var("U24_PROBE") else { return };
+    let Ok(names) = std::env::var("U24_PROBE") else {
+        return;
+    };
     for name in names.split(',') {
         let path = test_dir().join(name);
         let (script, base_dir) = runner::load_script(&path).unwrap();
@@ -1050,7 +1081,8 @@ fn u24_probe() {
 /// unallocated masteries, notables, keystones, normal nodes, jewel sockets (with and without a
 /// jewel), a cluster subgraph node, the runegraft and the item-granted Force of Darkness.
 const LINE_NODES: [i64; 16] = [
-    63861, 5826, 62506, 61981, 27788, 62791, 31703, 61320, 57226, 61834, 41263, 33989, 65824, 857, 5574, 18182,
+    63861, 5826, 62506, 61981, 27788, 62791, 31703, 61320, 57226, 61834, 41263, 33989, 65824, 857,
+    5574, 18182,
 ];
 
 /// The Lua side of `u24_tooltip_lines`: for each node, AddNodeName, AddNodeTooltip (and its skill
@@ -1094,9 +1126,12 @@ fn rust_dump(tt: &pob_ui_core::tooltip::Tooltip) -> String {
     let mut out = vec![format!(
         "header={} maxWidth={} center={} recipe={}",
         tt.tooltip_header.as_deref().unwrap_or("nil"),
-        tt.max_width.map_or_else(|| "nil".to_owned(), pob_lua::tostring),
+        tt.max_width
+            .map_or_else(|| "nil".to_owned(), pob_lua::tostring),
         tt.center,
-        tt.recipe.as_ref().map_or_else(|| "nil".to_owned(), |r| r.join(","))
+        tt.recipe
+            .as_ref()
+            .map_or_else(|| "nil".to_owned(), |r| r.join(","))
     )];
     for l in &tt.lines {
         match &l.text {
@@ -1159,7 +1194,11 @@ fn u24_tooltip_lines() {
     let user = UserDir::new(fx.user_dir.as_deref()).unwrap();
 
     // Lua
-    let ids = LINE_NODES.iter().map(i64::to_string).collect::<Vec<_>>().join(", ");
+    let ids = LINE_NODES
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
     let lua_text = {
         let handles = OracleHandles::default();
         let lua_app = runner::lua_side(&root, &user, &handles, Entry::Launch, false).unwrap();
@@ -1195,7 +1234,9 @@ fn u24_tooltip_lines() {
             section = lua_line;
         }
         if lua_line != rust_line {
-            diffs.push(format!("{section} line {i}: lua {lua_line:?} | rust {rust_line:?}"));
+            diffs.push(format!(
+                "{section} line {i}: lua {lua_line:?} | rust {rust_line:?}"
+            ));
         }
     }
     let sections = lua_lines.iter().filter(|x| x.starts_with("## ")).count();
@@ -1217,6 +1258,11 @@ fn u24_tooltip_lines() {
         diffs.is_empty(),
         "{} differences:\n{}",
         diffs.len(),
-        diffs.iter().take(40).cloned().collect::<Vec<_>>().join("\n")
+        diffs
+            .iter()
+            .take(40)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }

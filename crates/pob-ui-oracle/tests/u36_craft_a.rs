@@ -804,16 +804,51 @@ impl ScenarioApp for RustSide {
 /// `U36_DUMP`: the rectangles of the named controls (see the module docs).
 fn dump_controls(cx: &Cx) {
     const TAB: &[&str] = &[
-        "setSelect", "setManage", "itemList", "selectDB", "uniqueDB", "rareDB", "craftDisplayItem",
-        "newDisplayItem", "addDisplayItem", "editDisplayItem", "removeDisplayItem",
-        "displayItemInfluence", "displayItemInfluence2", "displayItemEnchant", "displayItemEnchant2",
-        "displayItemAnoint", "displayItemAnoint2", "displayItemCorrupt", "displayItemAddImplicit",
-        "displayItemQuality", "displayItemAffix1",
+        "setSelect",
+        "setManage",
+        "itemList",
+        "selectDB",
+        "uniqueDB",
+        "rareDB",
+        "craftDisplayItem",
+        "newDisplayItem",
+        "addDisplayItem",
+        "editDisplayItem",
+        "removeDisplayItem",
+        "displayItemInfluence",
+        "displayItemInfluence2",
+        "displayItemEnchant",
+        "displayItemEnchant2",
+        "displayItemAnoint",
+        "displayItemAnoint2",
+        "displayItemCorrupt",
+        "displayItemAddImplicit",
+        "displayItemQuality",
+        "displayItemAffix1",
     ];
     const POPUP: &[&str] = &[
-        "setList", "sharedList", "close", "rarity", "title", "type", "base", "save", "cancel",
-        "edit", "skill", "allSkills", "enchantmentSource", "sort", "enchantment", "remove",
-        "notableDB", "source", "modGroupSelect", "modSelectLabel", "modSelect", "custom",
+        "setList",
+        "sharedList",
+        "close",
+        "rarity",
+        "title",
+        "type",
+        "base",
+        "save",
+        "cancel",
+        "edit",
+        "skill",
+        "allSkills",
+        "enchantmentSource",
+        "sort",
+        "enchantment",
+        "remove",
+        "notableDB",
+        "source",
+        "modGroupSelect",
+        "modSelectLabel",
+        "modSelect",
+        "custom",
     ];
     let dump = |host: CtrlId, names: &[&'static str]| {
         for n in names {
@@ -1379,6 +1414,9 @@ fn u36_scenarios() {
     }
     println!("u36: {ran} runs, T4 {t4_pairs} pairs ({t4_bytes} byte-identical)");
     println!("{}", oracle_cache::summary());
-    assert!(ran > 0, "no run (U36_FILTER {filter:?} / U36_SCREEN {only_screen:?} matched nothing)");
+    assert!(
+        ran > 0,
+        "no run (U36_FILTER {filter:?} / U36_SCREEN {only_screen:?} matched nothing)"
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

@@ -2122,7 +2122,8 @@ impl ConfigTab {
         class: VarClass,
         f: Rc<dyn Fn(&mut Cx, &mut Tooltip, TipArgs)>,
     ) {
-        let f: Rc<dyn Fn(&mut Cx, &mut Tooltip, TipArgs)> = match Self::st(cx, me).for_build.clone() {
+        let f: Rc<dyn Fn(&mut Cx, &mut Tooltip, TipArgs)> = match Self::st(cx, me).for_build.clone()
+        {
             Some(fb) => Rc::new(move |cx: &mut Cx, tt: &mut Tooltip, args: TipArgs| {
                 let mut args = Some(args);
                 (fb.run)(cx, &mut |cx| {

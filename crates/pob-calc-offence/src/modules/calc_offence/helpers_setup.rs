@@ -849,9 +849,8 @@ pub fn calcSkillDuration(
     // L328
     if env.is_some_and(|e| e.mode_effective.get()) {
         // L329 (a nil `enemyDB` raises inside calcLib.mod: `modStore:Sum`, CalcTools.lua:15)
-        let enemyDB = enemyDB.unwrap_or_else(|| {
-            lua_error!("attempt to index local 'modStore' (a nil value)")
-        });
+        let enemyDB = enemyDB
+            .unwrap_or_else(|| lua_error!("attempt to index local 'modStore' (a nil value)"));
         debuffDurationMult = 1.0
             / m_max(
                 data().misc.BuffExpirationSlowCap,

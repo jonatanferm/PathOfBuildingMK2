@@ -60,7 +60,6 @@ use pob_ui_oracle::lua_calc::LuaCalcBridge;
 use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
 
 fn inputs() -> Option<PathBuf> {
@@ -298,7 +297,11 @@ fn rust_stubs() {
                 14.0,
                 &format!(
                     "^7{} {}",
-                    if node.alloc.get() { "allocated" } else { "unallocated" },
+                    if node.alloc.get() {
+                        "allocated"
+                    } else {
+                        "unallocated"
+                    },
                     node.r#type.get()
                 ),
             );
@@ -309,7 +312,8 @@ fn rust_stubs() {
         });
         h.build_power = Rc::new(|cx| {
             let m = cx.build().model.clone();
-            let ct = pob_calc::model::build_xml::build_extra(&m).get_or_new_table(pob_lua::n!("calcsTab"));
+            let ct = pob_calc::model::build_xml::build_extra(&m)
+                .get_or_new_table(pob_lua::n!("calcsTab"));
             let pm = pob_calc::lua_table::Table::new();
             pm.set(pob_lua::n!("offence"), 6.0);
             pm.set(pob_lua::n!("defence"), 4.0);
@@ -688,7 +692,9 @@ fn tree_image_loads(frames: &[FrameTrace]) -> Vec<String> {
         .flat_map(|f| &f.effects)
         .filter_map(|e| match e {
             SideEffect::ImageLoad(img)
-                if img.path.contains("TreeData/") || img.path.contains("ring.png") || img.path.contains("Ring") =>
+                if img.path.contains("TreeData/")
+                    || img.path.contains("ring.png")
+                    || img.path.contains("Ring") =>
             {
                 Some(format!("{} {:?}", img.path, img.flags))
             }
@@ -813,7 +819,9 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
         .filter(|c| {
             matches!(
                 c.call,
-                ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
             )
         })
         .count()
@@ -870,7 +878,12 @@ fn op_key(op: &DrawOp) -> String {
             height,
             font,
             text,
-        } => format!("S {} {} {align:?} {} {font:?} {text}", r(*x), r(*y), r(*height)),
+        } => format!(
+            "S {} {} {align:?} {} {font:?} {text}",
+            r(*x),
+            r(*y),
+            r(*height)
+        ),
         other => format!("{other:?}"),
     };
     format!("{:?} {} {call}", op.color, rs(&op.viewport))
@@ -944,7 +957,11 @@ fn describe(d: &Divergence) -> String {
             idx,
             lua,
             rust,
-        } => format!("changed {bucket:?}#{idx}: lua {} | rust {}", op(lua), op(rust)),
+        } => format!(
+            "changed {bucket:?}#{idx}: lua {} | rust {}",
+            op(lua),
+            op(rust)
+        ),
         Divergence::Effect { lua, rust } => format!("effect: lua {lua:?} rust {rust:?}"),
     }
 }
@@ -1028,7 +1045,12 @@ fn u23_scenarios() {
             } else {
                 format!("u23_{stem}@{w}x{h}@{s}")
             };
-            let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s)) {
+            let (lua, rust) = match run_sides(
+                &root,
+                &script,
+                fx.user_dir.as_deref(),
+                runner::screen(w, h, s),
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     out.failures.push(format!("{tag}: {e:#}"));
@@ -1037,7 +1059,8 @@ fn u23_scenarios() {
             };
             out.ran += 1;
             let times = DRAW_MS.with(|d| d.borrow().clone());
-            let mut by_version: std::collections::BTreeMap<String, (usize, f64, f64)> = Default::default();
+            let mut by_version: std::collections::BTreeMap<String, (usize, f64, f64)> =
+                Default::default();
             for (v, ms) in &times {
                 let e = by_version.entry(v.clone()).or_default();
                 e.0 += 1;
@@ -1046,7 +1069,13 @@ fn u23_scenarios() {
             }
             let perf: Vec<String> = by_version
                 .iter()
-                .map(|(v, (n, sum, max))| format!("{v}: {n} draws, mean {:.1} ms, max {:.1} ms", sum / *n as f64, max))
+                .map(|(v, (n, sum, max))| {
+                    format!(
+                        "{v}: {n} draws, mean {:.1} ms, max {:.1} ms",
+                        sum / *n as f64,
+                        max
+                    )
+                })
                 .collect();
             out.lines.push(format!(
                 "{tag}: viewer:Draw (Rust, this build profile) {}",
@@ -1071,7 +1100,8 @@ fn u23_scenarios() {
             let first = divs.first().map(|(fi, d)| {
                 format!(
                     "frame {fi}: {}",
-                    d.first().map_or_else(|| "frame missing".to_owned(), describe)
+                    d.first()
+                        .map_or_else(|| "frame missing".to_owned(), describe)
                 )
             });
             let ops = draw_ops(&run.lua);
@@ -1333,7 +1363,8 @@ fn u23_assets() {
         let built = t0.elapsed();
         let a = rust_side.app.cx.app().trees.trees[*v].1.clone();
         let rust_text = rust_describe(&a);
-        let (ll, rl): (Vec<&str>, Vec<&str>) = (lua_text.lines().collect(), rust_text.lines().collect());
+        let (ll, rl): (Vec<&str>, Vec<&str>) =
+            (lua_text.lines().collect(), rust_text.lines().collect());
         let count = |p: &str, l: &[&str]| l.iter().filter(|x| x.starts_with(p)).count();
         let first = ll
             .iter()
@@ -1374,16 +1405,24 @@ fn u23_assets() {
 #[ignore = "authoring aid"]
 fn u23_probe() {
     let Some(root) = inputs() else { return };
-    let Ok(build) = std::env::var("U23_PROBE") else { return };
+    let Ok(build) = std::env::var("U23_PROBE") else {
+        return;
+    };
     let scr = std::env::var("U23_SCREEN").unwrap_or_else(|_| "1280x800@1".to_owned());
     let (wh, s) = scr.split_once('@').unwrap();
     let (w, h) = wh.split_once('x').unwrap();
     let (w, h, s): (i32, i32, f32) = (w.parse().unwrap(), h.parse().unwrap(), s.parse().unwrap());
-    let max_dist: f64 = std::env::var("U23_PROBE_DIST").ok().and_then(|v| v.parse().ok()).unwrap_or(4.0);
-    let steps = std::env::var("U23_PROBE_STEPS").unwrap_or_default().replace(';', "\n");
-    let script =
-        runner::parse_script(&format!("frames 2\nload-build \"{build}\"\nframes 2\n{steps}\nframes 1\n"))
-            .unwrap();
+    let max_dist: f64 = std::env::var("U23_PROBE_DIST")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4.0);
+    let steps = std::env::var("U23_PROBE_STEPS")
+        .unwrap_or_default()
+        .replace(';', "\n");
+    let script = runner::parse_script(&format!(
+        "frames 2\nload-build \"{build}\"\nframes 2\n{steps}\nframes 1\n"
+    ))
+    .unwrap();
     let user = UserDir::new(Some(&test_dir().join("user"))).unwrap();
     let handles = OracleHandles::default();
     let (sg, sys) = boot::oracle_parts(&root, &user.path, &handles).unwrap();
@@ -1394,7 +1433,12 @@ fn u23_probe() {
     r.unwrap();
     let cx = &rust_side.app.cx;
     let (sw, sh) = (cx.main.screen_w, cx.main.screen_h);
-    let vp = ViewPort { x: 312.0, y: 32.0, width: sw - 312.0, height: sh - 32.0 - 32.0 };
+    let vp = ViewPort {
+        x: 312.0,
+        y: 32.0,
+        width: sw - 312.0,
+        height: sh - 32.0 - 32.0,
+    };
     let spec = cx.build().model.spec.get();
     let tree = spec.tree.get();
     let (zoom, zx, zy) = with_viewer(|v| (v.zoom, v.zoom_x.unwrap(), v.zoom_y.unwrap()));

@@ -446,7 +446,11 @@ fn ofa_l4_setup() {
         // The 98 % gate is defined on the full corpus. The quick corpus (14 builds) holds the two
         // builds with the known ActiveMineLimit/ActiveTrapLimit L4 hits (FOLLOWUPS "OF-A") at a
         // much larger share, so it gets a looser floor at the measured value (97.16 %).
-        let min = if pob_testpaths::quick_corpus() { 0.97 } else { 0.98 };
+        let min = if pob_testpaths::quick_corpus() {
+            0.97
+        } else {
+            0.98
+        };
         assert!(
             ratio >= min,
             "OF-A L4 on all57: {:.2}% < {:.0}%",
@@ -1743,7 +1747,13 @@ fn check_duration(n: usize) -> Check {
                 }
                 let env = new_env();
                 env.mode_effective.set(effective);
-                f17(hs::calcSkillDuration(&ml, None, &sd, Some(&env), Some(&edb)))
+                f17(hs::calcSkillDuration(
+                    &ml,
+                    None,
+                    &sd,
+                    Some(&env),
+                    Some(&edb),
+                ))
             }),
         );
     }

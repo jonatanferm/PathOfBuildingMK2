@@ -128,7 +128,8 @@ pub fn default_tab_seams() -> TabSeams {
         }),
         // U31's SkillListControl (`controls.groupList.selIndex = nil`, `.selValue = nil`)
         skills_clear_group_list_selection: Rc::new(|cx| {
-            let Some(gl) = crate::tabs::skills::core::tab(cx).and_then(|t| cx.child(t, "groupList"))
+            let Some(gl) =
+                crate::tabs::skills::core::tab(cx).and_then(|t| cx.child(t, "groupList"))
             else {
                 return;
             };

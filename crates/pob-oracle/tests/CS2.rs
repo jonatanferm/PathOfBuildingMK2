@@ -152,7 +152,10 @@ fn xmls_in(dir: &Path) -> Vec<PathBuf> {
 ///   entry for the non-unique ones only;
 /// * `cs2_ejf_unique_amulet`: on the unique amulet. Its tags test `itemList["Amulet"]`, which is
 ///   UNIQUE, so `Tabulate` at 1429 lists nothing and PoB does not restart.
-const SYNTHETIC: &[(&str, bool)] = &[("cs2_ejf_rare_jewel", true), ("cs2_ejf_unique_amulet", false)];
+const SYNTHETIC: &[(&str, bool)] = &[
+    ("cs2_ejf_rare_jewel", true),
+    ("cs2_ejf_unique_amulet", false),
+];
 
 fn builds(parity: &Path, synthetic: bool) -> Vec<PathBuf> {
     let mut v = xmls_in(&parity.join("builds"));
@@ -190,7 +193,11 @@ fn ensure_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
 /// Dump files of a probe by hit number.
 fn hit_files(state: &Path, probe: &str) -> BTreeMap<u64, PathBuf> {
     let mut out = BTreeMap::new();
-    for e in std::fs::read_dir(state).into_iter().flatten().filter_map(Result::ok) {
+    for e in std::fs::read_dir(state)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+    {
         let name = e.file_name().to_string_lossy().into_owned();
         let base = name
             .strip_suffix(".json.zst")
@@ -271,7 +278,9 @@ const EAGER_FIELDS: &[(&str, fn(&J) -> bool)] = &[
     // `SpecEnv.accelerate`: calcFullDPS's `specEnv` table (Calcs.lua:392) has no `accelerate`;
     // the probe seam hands the `specEnv` local back as the typed `SpecEnv` (probe.rs), which
     // always has one (no CS2 write)
-    ("specEnv.accelerate", |v| v.as_object().is_some_and(serde_json::Map::is_empty)),
+    ("specEnv.accelerate", |v| {
+        v.as_object().is_some_and(serde_json::Map::is_empty)
+    }),
 ];
 
 /// `Extra` mismatches of the typed struct fields in [`EAGER_FIELDS`] with their default value.
@@ -342,7 +351,10 @@ fn at_path<'a>(root: &'a J, path: &str) -> Option<&'a J> {
                 Some(i) => (i, true),
                 None => (at, false),
             };
-            let pair = cur.get("$keys")?.as_array()?.get(i.parse::<usize>().ok()?.checked_sub(1)?)?;
+            let pair = cur
+                .get("$keys")?
+                .as_array()?
+                .get(i.parse::<usize>().ok()?.checked_sub(1)?)?;
             cur = pair.get(usize::from(!is_key))?;
             continue;
         }
@@ -350,7 +362,12 @@ fn at_path<'a>(root: &'a J, path: &str) -> Option<&'a J> {
             v
         } else if let Some(v) = cur.get("$num").and_then(|n| n.get(&seg)) {
             v
-        } else if let (Some(a), Ok(i)) = (cur.get("$seq").and_then(J::as_array).or_else(|| cur.as_array()), seg.parse::<usize>()) {
+        } else if let (Some(a), Ok(i)) = (
+            cur.get("$seq")
+                .and_then(J::as_array)
+                .or_else(|| cur.as_array()),
+            seg.parse::<usize>(),
+        ) {
             a.get(i.checked_sub(1)?)?
         } else {
             return None;
@@ -365,10 +382,17 @@ fn at_path<'a>(root: &'a J, path: &str) -> Option<&'a J> {
 fn order_outside_tree_equal(pob: &J, ours: &J, path: &str) -> bool {
     let list = |t: &J| -> Option<Vec<String>> {
         let v = at_path(t, path)?;
-        let a = v.as_array().cloned().or_else(|| v.get("$seq").and_then(J::as_array).cloned())?;
+        let a = v
+            .as_array()
+            .cloned()
+            .or_else(|| v.get("$seq").and_then(J::as_array).cloned())?;
         Some(
             a.iter()
-                .filter(|m| !m.get("source").and_then(J::as_str).is_some_and(|s| s.starts_with("Tree")))
+                .filter(|m| {
+                    !m.get("source")
+                        .and_then(J::as_str)
+                        .is_some_and(|s| s.starts_with("Tree"))
+                })
                 .map(|m| {
                     let mut m = m.clone();
                     if let Some(o) = m.as_object_mut() {
@@ -433,7 +457,9 @@ fn norm_fn(v: &J, srcs: Option<&JfSrcs>) -> J {
                     Some(_) if f == "$default" => "Modules/CalcSetup.lua:877-884".to_owned(),
                     Some(_) if f.starts_with("Modules/") => f.to_owned(),
                     Some(s) => match s.get(&Name::from(f)) {
-                        Some(set) if set.len() == 1 => set.iter().next().cloned().unwrap_or_default(),
+                        Some(set) if set.len() == 1 => {
+                            set.iter().next().cloned().unwrap_or_default()
+                        }
                         _ => format!("? {f}"),
                     },
                 };
@@ -460,7 +486,10 @@ fn norm_fn(v: &J, srcs: Option<&JfSrcs>) -> J {
 fn mods_equal_norm(pob: &J, ours: &J, path: &str, srcs: &JfSrcs) -> bool {
     let list = |t: &J, s: Option<&JfSrcs>| -> Option<Vec<String>> {
         let v = at_path(t, path)?;
-        let a = v.as_array().cloned().or_else(|| v.get("$seq").and_then(J::as_array).cloned())?;
+        let a = v
+            .as_array()
+            .cloned()
+            .or_else(|| v.get("$seq").and_then(J::as_array).cloned())?;
         let mut l: Vec<String> = a.iter().map(|m| norm_fn(m, s).to_string()).collect();
         l.sort();
         Some(l)
@@ -473,8 +502,20 @@ fn mods_equal_norm(pob: &J, ours: &J, path: &str, srcs: &JfSrcs) -> bool {
 /// key must stand for PoB's closure source exactly ([`JfSrcs`]: the source ranges the model's
 /// specs with that key map to), so a wrong funcList choice is not excused.
 fn jewel_func_equal(m: &Mismatch, srcs: &JfSrcs) -> bool {
-    let pob = m.pob.as_ref().and_then(|p| p.get("$fn")).and_then(J::as_str);
-    let ours = m.ours.as_ref().and_then(|o| o.get("func")).and_then(|f| f.get("$fn").or_else(|| f.get("func").and_then(|g| g.get("$fn")))).and_then(J::as_str);
+    let pob = m
+        .pob
+        .as_ref()
+        .and_then(|p| p.get("$fn"))
+        .and_then(J::as_str);
+    let ours = m
+        .ours
+        .as_ref()
+        .and_then(|o| o.get("func"))
+        .and_then(|f| {
+            f.get("$fn")
+                .or_else(|| f.get("func").and_then(|g| g.get("$fn")))
+        })
+        .and_then(J::as_str);
     match (pob, ours) {
         (Some("Modules/CalcSetup.lua:877-884"), Some(k)) => k == "$default",
         (Some(p), Some(k)) if p.starts_with("Modules/ModParser.lua:") => {
@@ -515,7 +556,11 @@ fn jf_list_func_src(o: &pob_gamedata::JewelFuncSpec) -> Option<String> {
         return jf_closure_src(o);
     };
     if o.r#type.as_deref() == Some("Other") {
-        return Some(jf_src_key(if o.args.is_empty() { (6555, 6570) } else { (6564, 6569) }));
+        return Some(jf_src_key(if o.args.is_empty() {
+            (6555, 6570)
+        } else {
+            (6564, 6569)
+        }));
     }
     if v.key.as_str() == "$list" {
         return o.args.is_empty().then(|| jf_src_key((6582, 6589)));
@@ -534,7 +579,11 @@ fn jewel_func_srcs(build: &BuildRef) -> JfSrcs {
     let items: Vec<ItemRef> = build.itemsTab.items.with(|m| m.values().cloned().collect());
     for item in &items {
         for (_, l) in item_mod_lists(item) {
-            for m in l.mods_named(n!("JewelFunc")).into_iter().chain(l.mods_named(n!("ExtraJewelFunc"))) {
+            for m in l
+                .mods_named(n!("JewelFunc"))
+                .into_iter()
+                .chain(l.mods_named(n!("ExtraJewelFunc")))
+            {
                 // a jewelFuncList value is `{ func = spec, type = … }`; an inline closure the spec
                 let j = match &m.value {
                     Value::Table(t) => match t.get(n!("func")) {
@@ -584,7 +633,9 @@ fn jewel_func_args(build: &BuildRef) -> JfArgs {
                     if j.args.is_empty() {
                         continue;
                     }
-                    let e = out.entry((j.key, j.radius)).or_insert_with(|| Some(j.clone()));
+                    let e = out
+                        .entry((j.key, j.radius))
+                        .or_insert_with(|| Some(j.clone()));
                     if e.as_ref().is_some_and(|x| x.args != j.args) {
                         *e = None;
                     }
@@ -601,11 +652,17 @@ fn jewel_func_args(build: &BuildRef) -> JfArgs {
 /// lists and the `override.extraJewelFuncs` local, against the upvalues the Rust parse of the
 /// same build gave (`args`; the closure is the same source range with the same upvalues in PoB:
 /// the parse is L3, MP3). Returns how many were compared, or the first that differs.
-fn check_jewel_func_args(build: &BuildRef, locals: &[(String, Val)], args: &JfArgs) -> Result<usize, String> {
+fn check_jewel_func_args(
+    build: &BuildRef,
+    locals: &[(String, Val)],
+    args: &JfArgs,
+) -> Result<usize, String> {
     let mut n = 0;
     let mut check = |l: &ModList, what: &str| -> Result<(), String> {
         for m in l.all_mods() {
-            let Value::JewelFunc(j) = &m.value else { continue };
+            let Value::JewelFunc(j) = &m.value else {
+                continue;
+            };
             if m.name != n!("ExtraJewelFunc") {
                 continue;
             }
@@ -675,10 +732,17 @@ fn extra_func_entries(env: &Env) -> usize {
 /// Replace each item of `actor.itemList` (decoded from a dump) by the build model's item with the
 /// same `id`, the object PoB's foreign actor shares with the dumped env (FUP7, CCR-0140 §2).
 fn share_model_items(build: &BuildRef, actor: &ActorRef) {
-    let Some(list) = actor.itemList.get() else { return };
+    let Some(list) = actor.itemList.get() else {
+        return;
+    };
     list.with_mut(|m| {
         for it in m.values_mut() {
-            let model = it.id.get().and_then(|id| build.itemsTab.items.with(|items| items.get(&(id as u32)).cloned()));
+            let model = it.id.get().and_then(|id| {
+                build
+                    .itemsTab
+                    .items
+                    .with(|items| items.get(&(id as u32)).cloned())
+            });
             if let Some(model) = model {
                 *it = model;
             }
@@ -754,7 +818,9 @@ fn run_hit(
     // the swap changes is not taken for an inject/export round trip)
     if let Some(c) = carry {
         if c.store.actor.get().upgrade().is_none() {
-            return Outcome::RestartWrong("override.extraJewelFuncs.actor died with pass 1's env".to_owned());
+            return Outcome::RestartWrong(
+                "override.extraJewelFuncs.actor died with pass 1's env".to_owned(),
+            );
         }
         for (name, v) in &locals {
             if name == "override" {
@@ -792,7 +858,9 @@ fn run_hit(
                 *carry_out = Some(Carry { store, actor });
             }
         }
-        let ours = ov.and_then(|o| o.extraJewelFuncs.get()).map_or(0, |l| l.len());
+        let ours = ov
+            .and_then(|o| o.extraJewelFuncs.get())
+            .map_or(0, |l| l.len());
         return match inner_ejf {
             Some(n) if n != ours => Outcome::RestartWrong(format!(
                 "override.extraJewelFuncs: PoB {n} mods, Rust {ours}"
@@ -841,16 +909,26 @@ fn run_hit(
         .snapshot()
         .into_iter()
         .map(|v| match v {
-            pob_calc::env::ExplodeSource::Node(n) => format!("node {}", pob_lua::tostring_num(n.id)),
+            pob_calc::env::ExplodeSource::Node(n) => {
+                format!("node {}", pob_lua::tostring_num(n.id))
+            }
             pob_calc::env::ExplodeSource::Item(i) => format!("item {}", i.name.get()),
         })
         .collect();
     let pob_es_ids = list_ids(&dout.root, pob_es);
     // LUA-ORDER: the node half follows `env.allocNodes`' layout (injected); the items keep order
     let split = |l: &[String]| {
-        let mut nodes: Vec<String> = l.iter().filter(|x| x.starts_with("node ")).cloned().collect();
+        let mut nodes: Vec<String> = l
+            .iter()
+            .filter(|x| x.starts_with("node "))
+            .cloned()
+            .collect();
         nodes.sort();
-        let rest: Vec<String> = l.iter().filter(|x| !x.starts_with("node ")).cloned().collect();
+        let rest: Vec<String> = l
+            .iter()
+            .filter(|x| !x.starts_with("node "))
+            .cloned()
+            .collect();
         (nodes, rest)
     };
     let es_equal = split(&pob_es_ids) == split(&ours_es);
@@ -874,11 +952,15 @@ fn run_hit(
             && (carry.is_none() || p.contains("extraJewelFuncs.actor"))
         {
             Some("override.extraJewelFuncs (second pass, $foreign actor)")
-        } else if kind(&m) == "LuaOrder" && p.contains(".mods") && order_outside_tree_equal(&dout.root, &ours_tree, p) {
+        } else if kind(&m) == "LuaOrder"
+            && p.contains(".mods")
+            && order_outside_tree_equal(&dout.root, &ours_tree, p)
+        {
             Some("LUA-ORDER (tree-node mods: injected allocNodes layout)")
         } else if p.ends_with(".func") && jewel_func_equal(&m, jsrc) {
             Some("jewel func (closure as data, calc doc §6)")
-        } else if p.ends_with(".mods.JewelFunc") && mods_equal_norm(&dout.root, &ours_tree, p, jsrc) {
+        } else if p.ends_with(".mods.JewelFunc") && mods_equal_norm(&dout.root, &ours_tree, p, jsrc)
+        {
             Some("jewel func (closure as data, calc doc §6)")
         } else if kind(&m) == "Value"
             && m.pob.as_ref().zip(m.ours.as_ref()).is_some_and(|(a, b)| {
@@ -887,9 +969,14 @@ fn run_hit(
         {
             Some("same object, other canonical path (explodeSources node order)")
         } else if kind(&m) == "Value"
-            && m.pob.as_ref().and_then(|v| v.get("$ref")).and_then(J::as_str).is_some_and(|r| {
-                r.starts_with("env.override.extraJewelFuncs.actor") || r.starts_with("locals.override.extraJewelFuncs.actor")
-            })
+            && m.pob
+                .as_ref()
+                .and_then(|v| v.get("$ref"))
+                .and_then(J::as_str)
+                .is_some_and(|r| {
+                    r.starts_with("env.override.extraJewelFuncs.actor")
+                        || r.starts_with("locals.override.extraJewelFuncs.actor")
+                })
         {
             // a reused override's extraJewelFuncs store has an earlier env's player as its actor
             // (`$foreign` at injection): PoB's canonical path for that player's tables goes through it
@@ -921,7 +1008,15 @@ fn run_hit(
     } else {
         Outcome::Fail(
             kept.iter()
-                .map(|m| format!("{} {:?}: pob={} ours={}", m.path, m.kind, short(&m.pob), short(&m.ours)))
+                .map(|m| {
+                    format!(
+                        "{} {:?}: pob={} ours={}",
+                        m.path,
+                        m.kind,
+                        short(&m.pob),
+                        short(&m.ours)
+                    )
+                })
                 .collect(),
             why,
         )
@@ -931,7 +1026,10 @@ fn run_hit(
 fn short(v: &Option<J>) -> String {
     let s = v.as_ref().map_or("-".to_owned(), J::to_string);
     if s.len() > 160 {
-        format!("{}…", &s[..s.char_indices().nth(160).map_or(s.len(), |(i, _)| i)])
+        format!(
+            "{}…",
+            &s[..s.char_indices().nth(160).map_or(s.len(), |(i, _)| i)]
+        )
     } else {
         s
     }
@@ -1029,7 +1127,10 @@ fn restart_check(build: &BuildRef, din: &StateDump, ejf: &[ModRef]) -> Result<us
     if flow != Flow::Restart {
         return Err(format!("pass 1 returned {flow:?}"));
     }
-    let l = ov.extraJewelFuncs.get().ok_or("override.extraJewelFuncs is nil")?;
+    let l = ov
+        .extraJewelFuncs
+        .get()
+        .ok_or("override.extraJewelFuncs is nil")?;
     let names: Vec<Name> = l.ipairs().iter().map(|m| m.name).collect();
     if names != vec![n!("ExtraJewelFunc")] {
         return Err(format!("override.extraJewelFuncs holds {names:?}"));
@@ -1064,7 +1165,9 @@ fn restart_check(build: &BuildRef, din: &StateDump, ejf: &[ModRef]) -> Result<us
             .count()
     });
     if extra != want {
-        return Err(format!("pass 2: {extra} extra radius entries, {want} non-unique socketed jewels"));
+        return Err(format!(
+            "pass 2: {extra} extra radius entries, {want} non-unique socketed jewels"
+        ));
     }
     Ok(extra)
 }
@@ -1114,33 +1217,86 @@ fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
     let mut remove_checks = 0;
     let mut failures = Vec::new();
     let stem = stem(xml);
-    let Ok(dir) = ensure_dumps(xml) else { return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
-    let Ok(build) = load_model(xml) else { return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
+    let Ok(dir) = ensure_dumps(xml) else {
+        return OvOut::done(
+            failures,
+            flask_checks,
+            rep_checks,
+            staff_checks,
+            restart_checks,
+            restart_entries,
+            remove_checks,
+        );
+    };
+    let Ok(build) = load_model(xml) else {
+        return OvOut::done(
+            failures,
+            flask_checks,
+            rep_checks,
+            staff_checks,
+            restart_checks,
+            restart_entries,
+            remove_checks,
+        );
+    };
     // the first MAIN hit whose PoB env has items (post-load) and that does not restart
     let state = dir.path().to_path_buf();
     let outs = hit_files(&state, "initEnv:1451");
-    let out_by_call: HashMap<String, PathBuf> =
-        outs.values().filter_map(|p| call_of(p).map(|c| (c, p.clone()))).collect();
+    let out_by_call: HashMap<String, PathBuf> = outs
+        .values()
+        .filter_map(|p| call_of(p).map(|c| (c, p.clone())))
+        .collect();
     let mut din = None;
     for p in hit_files(&state, "initEnv:800").values() {
-        let Some(out) = call_of(p).and_then(|c| out_by_call.get(&c)).and_then(|q| StateDump::load(q).ok()) else {
+        let Some(out) = call_of(p)
+            .and_then(|c| out_by_call.get(&c))
+            .and_then(|q| StateDump::load(q).ok())
+        else {
             continue;
         };
-        let items = out.root.get("env").and_then(|e| e.get("player")).and_then(|p| p.get("itemList"))
-            .and_then(J::as_object).map_or(0, |o| o.keys().filter(|k| !k.starts_with('$')).count());
+        let items = out
+            .root
+            .get("env")
+            .and_then(|e| e.get("player"))
+            .and_then(|p| p.get("itemList"))
+            .and_then(J::as_object)
+            .map_or(0, |o| o.keys().filter(|k| !k.starts_with('$')).count());
         let Ok(d) = StateDump::load(p) else { continue };
-        let main = d.root.get("locals").and_then(|l| l.get("mode")).and_then(J::as_str) == Some("MAIN");
+        let main = d
+            .root
+            .get("locals")
+            .and_then(|l| l.get("mode"))
+            .and_then(J::as_str)
+            == Some("MAIN");
         if main && items > 0 {
             din = Some(d);
             break;
         }
     }
-    let Some(din) = din else { return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks) };
+    let Some(din) = din else {
+        return OvOut::done(
+            failures,
+            flask_checks,
+            rep_checks,
+            staff_checks,
+            restart_checks,
+            restart_entries,
+            remove_checks,
+        );
+    };
     let base = match run_with_override(&build, &din, Override::default()) {
         Ok(e) => e,
         Err(e) => {
             failures.push(format!("{stem}: base run: {e}"));
-            return OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks);
+            return OvOut::done(
+                failures,
+                flask_checks,
+                rep_checks,
+                staff_checks,
+                restart_checks,
+                restart_entries,
+                remove_checks,
+            );
         }
     };
     // toggleFlask: every flask in a flask slot
@@ -1152,11 +1308,17 @@ fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
         .filter_map(|s| {
             let name = s.get(n!("slotName")).str()?;
             let id = s.get(n!("selItemId")).opt_num()?;
-            let item = build.itemsTab.items.with(|m| m.get(&(id as u32)).cloned())?;
+            let item = build
+                .itemsTab
+                .items
+                .with(|m| m.get(&(id as u32)).cloned())?;
             Some((Name::from(&*name), item))
         })
         .collect();
-    for (slot, item) in slotted.iter().filter(|(s, i)| s.as_str().starts_with("Flask ") && i.r#type.get() == n!("Flask")) {
+    for (slot, item) in slotted
+        .iter()
+        .filter(|(s, i)| s.as_str().starts_with("Flask ") && i.r#type.get() == n!("Flask"))
+    {
         let was = base.flasks.get().with(|m| m.get(item)).unwrap_or(false);
         let ov = Override::default();
         ov.toggleFlask.set(Some(item.clone()));
@@ -1165,14 +1327,19 @@ fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
                 flask_checks += 1;
                 let now = e.flasks.get().with(|m| m.get(item)).unwrap_or(false);
                 if now == was {
-                    failures.push(format!("{stem}: toggleFlask {slot}: env.flasks stayed {was}"));
+                    failures.push(format!(
+                        "{stem}: toggleFlask {slot}: env.flasks stayed {was}"
+                    ));
                 }
             }
             Err(e) => failures.push(format!("{stem}: toggleFlask {slot}: {e}")),
         }
     }
     // repSlotName / repItem: put the Ring 1 item into Ring 2 (or the Amulet into itself)
-    let ring1 = slotted.iter().find(|(s, _)| *s == n!("Ring 1")).map(|(_, i)| i.clone());
+    let ring1 = slotted
+        .iter()
+        .find(|(s, _)| *s == n!("Ring 1"))
+        .map(|(_, i)| i.clone());
     if let Some(r1) = ring1 {
         let ov = Override::default();
         ov.repSlotName.set(Some(n!("Ring 2")));
@@ -1202,27 +1369,50 @@ fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
         match run_with_override(&build, &din, ov) {
             Ok(e) => {
                 remove_checks += 1;
-                let left: Vec<i64> = granted.iter().copied().filter(|&id| e.grantedPassives.get().with(|m| m.contains_key(id))).collect();
+                let left: Vec<i64> = granted
+                    .iter()
+                    .copied()
+                    .filter(|&id| e.grantedPassives.get().with(|m| m.contains_key(id)))
+                    .collect();
                 if !left.is_empty() {
-                    failures.push(format!("{stem}: $removeNodeIds {granted:?}: still granted {left:?}"));
+                    failures.push(format!(
+                        "{stem}: $removeNodeIds {granted:?}: still granted {left:?}"
+                    ));
                 }
             }
             Err(e) => failures.push(format!("{stem}: $removeNodeIds: {e}")),
         }
     }
     // a two-handed repItem in Weapon 1 skips Weapon 2 (817-820)
-    let staff = catch(|| pob_calc::classes::item::new_Item(Some("Rarity: NORMAL\nLong Staff\nLong Staff"), None, false));
-    if let Some(staff) = staff.ok().filter(|s| s.base.get().is_some_and(|b| b.r#type == n!("Staff"))) {
+    let staff = catch(|| {
+        pob_calc::classes::item::new_Item(
+            Some("Rarity: NORMAL\nLong Staff\nLong Staff"),
+            None,
+            false,
+        )
+    });
+    if let Some(staff) = staff
+        .ok()
+        .filter(|s| s.base.get().is_some_and(|b| b.r#type == n!("Staff")))
+    {
         let ov = Override::default();
         ov.repSlotName.set(Some(n!("Weapon 1")));
         ov.repItem.set(Some(staff.clone()));
         match run_with_override(&build, &din, ov) {
             Ok(e) => {
                 staff_checks += 1;
-                let w1 = e.player.itemList().with(|m| m.get(&n!("Weapon 1")).cloned());
-                let w2 = e.player.itemList().with(|m| m.contains_key(&n!("Weapon 2")));
+                let w1 = e
+                    .player
+                    .itemList()
+                    .with(|m| m.get(&n!("Weapon 1")).cloned());
+                let w2 = e
+                    .player
+                    .itemList()
+                    .with(|m| m.contains_key(&n!("Weapon 2")));
                 if !w1.is_some_and(|g| Rc::ptr_eq(&g, &staff)) || w2 {
-                    failures.push(format!("{stem}: staff repItem: Weapon 1 not the staff or Weapon 2 kept"));
+                    failures.push(format!(
+                        "{stem}: staff repItem: Weapon 1 not the staff or Weapon 2 kept"
+                    ));
                 }
             }
             Err(e) => failures.push(format!("{stem}: staff repItem: {e}")),
@@ -1241,7 +1431,15 @@ fn overrides_build(xml: &Path, ejf: &[ModRef]) -> OvOut {
     pob_calc::global_cache::clear_all();
     // the LUT table is process-global: dropped here only when no pool runs (else after it)
     testkit::release_shared(|| lut::clear_timeless_jewel_luts(None));
-    OvOut::done(failures, flask_checks, rep_checks, staff_checks, restart_checks, restart_entries, remove_checks)
+    OvOut::done(
+        failures,
+        flask_checks,
+        rep_checks,
+        staff_checks,
+        restart_checks,
+        restart_entries,
+        remove_checks,
+    )
 }
 
 #[test]
@@ -1296,7 +1494,10 @@ fn cs2_l4_overrides() {
         "CS2 overrides: toggleFlask {flask_checks} runs, repItem {rep_checks} runs, two-handed repItem {staff_checks} runs, $removeNodeIds {remove_checks} runs, restart {restart_checks} builds ({restart_entries} extra-func radius entries in pass 2); {} failures",
         failures.len()
     );
-    assert!(flask_checks + rep_checks + staff_checks > 0, "nothing checked");
+    assert!(
+        flask_checks + rep_checks + staff_checks > 0,
+        "nothing checked"
+    );
     // all57 builds with a granted (anointed / Forbidden) node: 51 measured 2026-11-10
     // (the quick corpus, 14 of all57, has fewer such builds: only require coverage there)
     let remove_min = if pob_testpaths::quick_corpus() { 1 } else { 51 };
@@ -1318,7 +1519,10 @@ const PRELOAD_MAX: usize = 354;
 /// left: the tables a dumped foreign actor shares with this env's items (`weaponData1/2`: PoB's
 /// canonical path runs through the actor, the decoder makes copies) and, on a carry, Rust's
 /// pass-1 player against PoB's (its dead `enemy`, its own `cachedPlayerDB` parent, eager fields).
-const EXPLAINED_MAX: &[(&str, usize)] = &[("override.extraJewelFuncs (second pass, $foreign actor)", 1_768)];
+const EXPLAINED_MAX: &[(&str, usize)] = &[(
+    "override.extraJewelFuncs (second pass, $foreign actor)",
+    1_768,
+)];
 
 #[derive(Default)]
 struct Tally {
@@ -1365,7 +1569,9 @@ fn items_build(xml: &Path, verbose: bool, max_hits: usize) -> (Tally, Vec<String
     };
     // a second, never injected copy: the upvalues of its ExtraJewelFunc closures
     // (`check_jewel_func_args`) and the closure sources of its jewel funcs (`jewel_func_equal`)
-    let (jf, jsrc) = load_model(xml).map(|b| (jewel_func_args(&b), jewel_func_srcs(&b))).unwrap_or_default();
+    let (jf, jsrc) = load_model(xml)
+        .map(|b| (jewel_func_args(&b), jewel_func_srcs(&b)))
+        .unwrap_or_default();
     let state = dir.path().to_path_buf();
     let ins = hit_files(&state, "initEnv:800");
     let outs = hit_files(&state, "initEnv:1451");
@@ -1393,7 +1599,11 @@ fn items_build(xml: &Path, verbose: bool, max_hits: usize) -> (Tally, Vec<String
             .and_then(|p| StateDump::load(p).ok());
         // a restart: the recursive call's own 800 hit carries the override PoB built
         let inner_ejf = if dout.is_none() {
-            match calls.get(i + 1).and_then(|(m, _)| StateDump::load(&ins[m]).ok()).and_then(|d| dumped_ejf(&d)) {
+            match calls
+                .get(i + 1)
+                .and_then(|(m, _)| StateDump::load(&ins[m]).ok())
+                .and_then(|d| dumped_ejf(&d))
+            {
                 Some(k) => Some(k),
                 None => {
                     t.restart_wrong += 1;
@@ -1405,7 +1615,9 @@ fn items_build(xml: &Path, verbose: bool, max_hits: usize) -> (Tally, Vec<String
             None
         };
         // the recursive call of the previous hit's restart (its override holds PoB's store)
-        let this_carry = carry.take().filter(|_| dumped_ejf(&din).is_some_and(|k| k > 0));
+        let this_carry = carry
+            .take()
+            .filter(|_| dumped_ejf(&din).is_some_and(|k| k > 0));
         let second = this_carry.is_some();
         let mode = din
             .root
@@ -1416,7 +1628,19 @@ fn items_build(xml: &Path, verbose: bool, max_hits: usize) -> (Tally, Vec<String
             .to_owned();
         let tag = format!("{stem} initEnv:800#{n} ({mode})");
         let (mut next, mut entries) = (None, 0);
-        let outcome = run_hit(&build, &jf, &jsrc, &din, dout.as_ref(), inner_ejf, &stem, this_carry.as_ref(), &mut next, &mut entries, &mut t.jf_args_checked);
+        let outcome = run_hit(
+            &build,
+            &jf,
+            &jsrc,
+            &din,
+            dout.as_ref(),
+            inner_ejf,
+            &stem,
+            this_carry.as_ref(),
+            &mut next,
+            &mut entries,
+            &mut t.jf_args_checked,
+        );
         drop(this_carry);
         carry = next;
         if second && matches!(outcome, Outcome::Pass(_) | Outcome::Fail(..)) {
@@ -1428,7 +1652,9 @@ fn items_build(xml: &Path, verbose: bool, max_hits: usize) -> (Tally, Vec<String
                     t.synthetic.entry(stem.clone()).or_default().1 += 1;
                 }
             }
-            lines.push(format!("second  {tag}: {entries} ExtraJewelFunc radius entries"));
+            lines.push(format!(
+                "second  {tag}: {entries} ExtraJewelFunc radius entries"
+            ));
         }
         if synthetic && matches!(outcome, Outcome::Restart) {
             t.synthetic.entry(stem.clone()).or_default().0 += 1;
@@ -1521,13 +1747,17 @@ fn cs2_l4_items_segment() {
         return;
     };
     let corpus = builds(&parity, true);
-    if pob_testpaths::require((!corpus.is_empty()).then_some(()), ".parity/builds/*.xml").is_none() {
+    if pob_testpaths::require((!corpus.is_empty()).then_some(()), ".parity/builds/*.xml").is_none()
+    {
         return;
     }
     quiet_lua_errors();
     setup_luts(&pob_src);
     let verbose = std::env::var_os("CS2_VERBOSE").is_some();
-    let max_hits: usize = std::env::var("CS2_MAX_HITS").ok().and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
+    let max_hits: usize = std::env::var("CS2_MAX_HITS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(usize::MAX);
     let mut t = Tally::default();
     let mut lines = Vec::new();
     let mut missing = Vec::new();
@@ -1547,7 +1777,11 @@ fn cs2_l4_items_segment() {
         eprintln!("{l}");
     }
     let compared = t.pass + t.fail;
-    let pct = if compared == 0 { 0.0 } else { 100.0 * t.pass as f64 / compared as f64 };
+    let pct = if compared == 0 {
+        0.0
+    } else {
+        100.0 * t.pass as f64 / compared as f64
+    };
     eprintln!(
         "CS2 L4 initEnv:800 -> initEnv:1451: pass {} / fail {} ({pct:.1}% of {compared} compared) / restart {} (wrong {}) / pre-load {} / errors {}; {} builds without dumps; {:.0}s",
         t.pass, t.fail, t.restart, t.restart_wrong, t.preload, t.errors, missing.len(), t0.elapsed().as_secs_f64()
@@ -1556,7 +1790,10 @@ fn cs2_l4_items_segment() {
         "  restart second passes (on Rust's pass-1 store): {} compared, {} identical, {} ExtraJewelFunc radius entries; synthetic builds (restarts, identical second passes): {:?}",
         t.second_pass, t.second_pass_ok, t.second_pass_entries, t.synthetic
     );
-    eprintln!("  injected ExtraJewelFunc closures with their decoded upvalues checked: {}", t.jf_args_checked);
+    eprintln!(
+        "  injected ExtraJewelFunc closures with their decoded upvalues checked: {}",
+        t.jf_args_checked
+    );
     eprintln!("  explained representation differences: {:?}", t.explained);
     let mut fp: Vec<(&String, &usize)> = t.fail_paths.iter().collect();
     fp.sort_by(|a, b| b.1.cmp(a.1));
@@ -1569,21 +1806,41 @@ fn cs2_l4_items_segment() {
     if !missing.is_empty() && pob_testpaths::require::<()>(None, &missing.join("; ")).is_none() {
         return;
     }
-    let min_pct: f64 = std::env::var("CS2_MIN_PASS_PCT").ok().and_then(|s| s.parse().ok()).unwrap_or(98.0);
+    let min_pct: f64 = std::env::var("CS2_MIN_PASS_PCT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(98.0);
     assert_eq!(t.errors, 0, "CS2 L4: {} hits raised (see stderr)", t.errors);
-    assert_eq!(t.restart_wrong, 0, "CS2 L4: {} restart mismatches", t.restart_wrong);
+    assert_eq!(
+        t.restart_wrong, 0,
+        "CS2 L4: {} restart mismatches",
+        t.restart_wrong
+    );
     assert!(compared > 0, "CS2 L4: nothing compared");
-    assert!(pct >= min_pct, "CS2 L4: {pct:.1}% of compared hits identical < {min_pct}%");
+    assert!(
+        pct >= min_pct,
+        "CS2 L4: {pct:.1}% of compared hits identical < {min_pct}%"
+    );
     // skipped and excused hits stay at their measured counts (a regression must not move more
     // hits into them silently; FOLLOWUPS "CS2" 3)
-    assert!(t.preload <= PRELOAD_MAX, "CS2 L4: {} pre-load hits skipped > {PRELOAD_MAX}", t.preload);
+    assert!(
+        t.preload <= PRELOAD_MAX,
+        "CS2 L4: {} pre-load hits skipped > {PRELOAD_MAX}",
+        t.preload
+    );
     for (bucket, max) in EXPLAINED_MAX {
         let n = t.explained.get(bucket).copied().unwrap_or(0);
-        assert!(n <= *max, "CS2 L4: {n} mismatches explained as {bucket:?} > {max}");
+        assert!(
+            n <= *max,
+            "CS2 L4: {n} mismatches explained as {bucket:?} > {max}"
+        );
     }
     // the restart path (1425-1433 and the 905-931 pass) against PoB: every second pass identical,
     // and each synthetic build that expects a restart (see SYNTHETIC) restarted with one
-    assert_eq!(t.second_pass, t.second_pass_ok, "CS2 L4: restart second passes differ from PoB");
+    assert_eq!(
+        t.second_pass, t.second_pass_ok,
+        "CS2 L4: restart second passes differ from PoB"
+    );
     // the dumped upvalues reach the injected closures (a wrong one is an `errors` hit above)
     assert!(
         t.synthetic.is_empty() || t.jf_args_checked > 0,

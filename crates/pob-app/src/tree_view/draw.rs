@@ -118,7 +118,11 @@ fn node_state_key(state: &str, ascend: bool, blighted: bool) -> Name {
         ("unalloc", false, true) => n!("unallocBlighted"),
         ("unalloc", true, true) => n!("unallocAscendBlighted"),
         (s, a, b) => with_key(
-            &[s, if a { "Ascend" } else { "" }, if b { "Blighted" } else { "" }],
+            &[
+                s,
+                if a { "Ascend" } else { "" },
+                if b { "Blighted" } else { "" },
+            ],
             Name::from,
         ),
     }
@@ -183,9 +187,7 @@ impl PassiveTreeView {
         if bg.width.get() == 0.0 {
             // L549
             let h = bg.handle();
-            let (w, hh) = h
-                .as_ref()
-                .map_or((0, 0), |h| h.image_size(&mut cx.sg));
+            let (w, hh) = h.as_ref().map_or((0, 0), |h| h.image_size(&mut cx.sg));
             bg.width.set(f64::from(w));
             bg.height.set(f64::from(hh));
         }
@@ -223,7 +225,14 @@ impl PassiveTreeView {
         };
         if let Some((x, y, name)) = class_bg {
             let (scr_x, scr_y) = f.tree_to_screen(x, y);
-            self.draw_asset(cx, assets.asset(name).map(Rc::as_ref), scr_x, scr_y, scale, false);
+            self.draw_asset(
+                cx,
+                assets.asset(name).map(Rc::as_ref),
+                scr_x,
+                scr_y,
+                scale,
+                false,
+            );
         }
 
         // Draw the group backgrounds
@@ -307,7 +316,10 @@ impl PassiveTreeView {
 
                 // L588
                 let class1 = tree.classes.get(1.0).table();
-                if class1.as_ref().is_some_and(|c| c.truthy(n!("ascendancies"))) {
+                if class1
+                    .as_ref()
+                    .is_some_and(|c| c.truthy(n!("ascendancies")))
+                {
                     // L589-590
                     let mut ascendancy_data: Option<Table> = None;
                     let mut is_alternate_ascendancy = false;
@@ -315,9 +327,7 @@ impl PassiveTreeView {
                     // L592
                     'outer: for (_, class) in tree.classes.ipairs() {
                         let Some(asc_list) = class.get(n!("ascendancies")).table() else {
-                            lua_error!(
-                                "bad argument #1 to 'ipairs' (table expected, got nil)"
-                            )
+                            lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)")
                         };
                         // L593
                         for (_, ascendancy) in asc_list.ipairs() {
@@ -358,9 +368,17 @@ impl PassiveTreeView {
                         // Normal ascendancy images are 1300x1300, bloodline appears to be 1488x1412
                         // L616-617
                         let offset_x = rect.num(n!("x"))
-                            - if is_alternate_ascendancy { 744.0 } else { 650.0 };
+                            - if is_alternate_ascendancy {
+                                744.0
+                            } else {
+                                650.0
+                            };
                         let offset_y = rect.num(n!("y"))
-                            - if is_alternate_ascendancy { 706.0 } else { 650.0 };
+                            - if is_alternate_ascendancy {
+                                706.0
+                            } else {
+                                650.0
+                            };
 
                         // L619
                         let (text_x, text_y) = f.tree_to_screen(
@@ -427,7 +445,14 @@ impl PassiveTreeView {
             } else {
                 "PSGroupBackground3"
             };
-            self.draw_asset(cx, assets.asset(name).map(Rc::as_ref), scr_x, scr_y, scale, true);
+            self.draw_asset(
+                cx,
+                assets.asset(name).map(Rc::as_ref),
+                scr_x,
+                scr_y,
+                scale,
+                true,
+            );
         } else if oo.get(2.0).truthy() {
             // L643
             let name = if is_expansion {
@@ -435,7 +460,14 @@ impl PassiveTreeView {
             } else {
                 "PSGroupBackground2"
             };
-            self.draw_asset(cx, assets.asset(name).map(Rc::as_ref), scr_x, scr_y, scale, false);
+            self.draw_asset(
+                cx,
+                assets.asset(name).map(Rc::as_ref),
+                scr_x,
+                scr_y,
+                scale,
+                false,
+            );
         } else if oo.get(1.0).truthy() {
             // L645
             let name = if is_expansion {
@@ -443,7 +475,14 @@ impl PassiveTreeView {
             } else {
                 "PSGroupBackground1"
             };
-            self.draw_asset(cx, assets.asset(name).map(Rc::as_ref), scr_x, scr_y, scale, false);
+            self.draw_asset(
+                cx,
+                assets.asset(name).map(Rc::as_ref),
+                scr_x,
+                scr_y,
+                scale,
+                false,
+            );
         }
     }
 
@@ -463,7 +502,9 @@ impl PassiveTreeView {
         }
         // L749 (ORDER: module notes)
         for (_, sub_graph) in spec.subGraphs.pairs() {
-            let Some(sg) = sub_graph.table() else { continue };
+            let Some(sg) = sub_graph.table() else {
+                continue;
+            };
             // L750
             for connector in assets.subgraph_connectors(&sg).iter() {
                 // L751
@@ -480,7 +521,9 @@ impl PassiveTreeView {
                 if spec.subGraphs.truthy(sub_graph_id) {
                     continue;
                 }
-                let Some(sg) = sub_graph.table() else { continue };
+                let Some(sg) = sub_graph.table() else {
+                    continue;
+                };
                 // L758
                 for connector in c_assets.subgraph_connectors(&sg).iter() {
                     // L759-760
@@ -504,19 +547,18 @@ impl PassiveTreeView {
                         // L770
                         cx.sg.set_draw_color(0.0, 1.0, 0.0);
                         // L771
-                        let asset = with_key(&[&connector.r#type, state], |k| {
-                            f.assets.asset(k).cloned()
-                        })
-                        .or_else(|| {
-                            with_key(&[&connector.r#type, "Normal"], |k| f.assets.asset(k).cloned())
-                        });
+                        let asset =
+                            with_key(&[&connector.r#type, state], |k| f.assets.asset(k).cloned())
+                                .or_else(|| {
+                                    with_key(&[&connector.r#type, "Normal"], |k| {
+                                        f.assets.asset(k).cloned()
+                                    })
+                                });
                         // L772
                         if let Some(asset) = asset {
                             let c = *connector.c.borrow();
-                            let (p, tc): ([f64; 8], [f64; 8]) = (
-                                c[..8].try_into().unwrap(),
-                                c[8..].try_into().unwrap(),
-                            );
+                            let (p, tc): ([f64; 8], [f64; 8]) =
+                                (c[..8].try_into().unwrap(), c[8..].try_into().unwrap());
                             // L773
                             cx.sg.draw_image_quad_tc(asset.handle().as_ref(), p, tc);
                         }
@@ -540,7 +582,9 @@ impl PassiveTreeView {
         } else if let Some(hp) = &f.hover_path {
             // L679
             let on = |n: &NodeRef| {
-                n.alloc.get() || f.hover_node.as_ref().is_some_and(|h| Rc::ptr_eq(h, n)) || hp.has(n)
+                n.alloc.get()
+                    || f.hover_node.as_ref().is_some_and(|h| Rc::ptr_eq(h, n))
+                    || hp.has(n)
             };
             if on(n1) && on(n2) {
                 // L680
@@ -614,7 +658,10 @@ impl PassiveTreeView {
         }
 
         // L718
-        if f.hover_dep.as_ref().is_some_and(|d| d.has(&node1) && d.has(&node2)) {
+        if f.hover_dep
+            .as_ref()
+            .is_some_and(|d| d.has(&node1) && d.has(&node2))
+        {
             // Both nodes depend on the node currently being hovered over, so color the line red
             // L720
             connector_color = DrawColor::Rgb(1.0, 0.0, 0.0);
@@ -837,12 +884,13 @@ impl PassiveTreeView {
                         // L865
                         if is_alloc {
                             // L866-867
-                            base = sprite(sprites.as_ref(), "masteryActiveSelected").or_else(|| {
-                                sprite(
-                                    ms.as_ref().and_then(|m| m.active_icon.as_ref()),
-                                    "masteryActiveSelected",
-                                )
-                            });
+                            base =
+                                sprite(sprites.as_ref(), "masteryActiveSelected").or_else(|| {
+                                    sprite(
+                                        ms.as_ref().and_then(|m| m.active_icon.as_ref()),
+                                        "masteryActiveSelected",
+                                    )
+                                });
                             // L868-869
                             effect = sprite(effect_sprites.as_ref(), "masteryActiveEffect")
                                 .or_else(|| {
@@ -993,8 +1041,7 @@ impl PassiveTreeView {
                         let dps_col = lpow(offence / pm(n!("offence")) * 1.5, 0.5);
                         let def_col = lpow(defence / pm(n!("defence")) * 1.5, 0.5);
                         // L936
-                        let mix_col =
-                            (m_max(dps_col - 0.5, 0.0) + m_max(def_col - 0.5, 0.0)) / 2.0;
+                        let mix_col = (m_max(dps_col - 0.5, 0.0) + m_max(def_col - 0.5, 0.0)) / 2.0;
                         // L937-943
                         match node_power_theme.as_str() {
                             "RED/BLUE" => cx.sg.set_draw_color(dps_col, mix_col, def_col),
@@ -1005,8 +1052,14 @@ impl PassiveTreeView {
                     }
                 } else {
                     // L946
-                    self.get_compare_node_color(cx, &node, compare_node.as_deref(), spec, &node_default_color)
-                        .set(cx);
+                    self.get_compare_node_color(
+                        cx,
+                        &node,
+                        compare_node.as_deref(),
+                        spec,
+                        &node_default_color,
+                    )
+                    .set(cx);
                 }
             } else if devmode_alt {
                 // Debug display
@@ -1023,8 +1076,14 @@ impl PassiveTreeView {
                 }
             } else {
                 // L958
-                self.get_compare_node_color(cx, &node, compare_node.as_deref(), spec, &node_default_color)
-                    .set(cx);
+                self.get_compare_node_color(
+                    cx,
+                    &node,
+                    compare_node.as_deref(),
+                    spec,
+                    &node_default_color,
+                )
+                .set(cx);
             }
 
             // Draw mastery/tattoo effect artwork
@@ -1064,19 +1123,23 @@ impl PassiveTreeView {
                             // This node depends on the hover node, turn it red
                             // L986
                             cx.sg.set_draw_color(1.0, 0.0, 0.0);
-                        } else if &*hover.r#type.get() == "Socket" && hover.nodesInRadius.get().is_some() {
+                        } else if &*hover.r#type.get() == "Socket"
+                            && hover.nodesInRadius.get().is_some()
+                        {
                             // Hover node is a socket, check if this node falls within its radius and color it accordingly
                             // L989
-                            let (_socket, jewel) = build.itemsTab.GetSocketAndJewelForNodeID(hover.id);
+                            let (_socket, jewel) =
+                                build.itemsTab.GetSocketAndJewelForNodeID(hover.id);
                             // L990
-                            let is_thread_of_hope = jewel
-                                .as_ref()
-                                .is_some_and(|j| j.jewelRadiusLabel.get().as_deref() == Some("Variable"));
+                            let is_thread_of_hope = jewel.as_ref().is_some_and(|j| {
+                                j.jewelRadiusLabel.get().as_deref() == Some("Variable")
+                            });
                             let radii = pob_gamedata::jewelRadius();
                             // L991
                             for (i0, data) in radii.jewelRadius.iter().enumerate() {
                                 // L994 / L1005
-                                let in_radius = pob_calc::classes::passive_tree::nodesInRadiusAt( // CCR-0115
+                                let in_radius = pob_calc::classes::passive_tree::nodesInRadiusAt(
+                                    // CCR-0115
                                     hover,
                                     (i0 + 1) as f64,
                                 )
@@ -1105,12 +1168,24 @@ impl PassiveTreeView {
                     }
                 }
                 // L1017
-                self.draw_asset(cx, assets.asset(overlay).map(Rc::as_ref), scr_x, scr_y, scale, false);
+                self.draw_asset(
+                    cx,
+                    assets.asset(overlay).map(Rc::as_ref),
+                    scr_x,
+                    scr_y,
+                    scale,
+                    false,
+                );
                 // L1018
                 cx.sg.set_draw_color(1.0, 1.0, 1.0);
             }
             // L1020
-            if self.search_str_results.get(&node_id).copied().unwrap_or(false) {
+            if self
+                .search_str_results
+                .get(&node_id)
+                .copied()
+                .unwrap_or(false)
+            {
                 // Node matches the search string, show the highlight circle
                 // L1022
                 cx.sg.set_draw_layer(None, Some(30));
@@ -1146,8 +1221,13 @@ impl PassiveTreeView {
                         new_y += size / 2.0;
                     }
                     // L1041
-                    cx.sg
-                        .draw_image(Some(&self.highlight_ring), new_x, new_y, size * 2.0, size * 2.0);
+                    cx.sg.draw_image(
+                        Some(&self.highlight_ring),
+                        new_x,
+                        new_y,
+                        size * 2.0,
+                        size * 2.0,
+                    );
                 } else {
                     // L1043
                     cx.sg.draw_image(
@@ -1192,9 +1272,9 @@ impl PassiveTreeView {
         let params = [
             TtKey::Obj(TtObj(node.clone() as Rc<dyn std::any::Any>)),
             TtKey::Bool(self.show_stat_differences),
-            self.trace_path
-                .as_ref()
-                .map_or(TtKey::Nil, |tp| TtKey::Obj(TtObj(tp.clone() as Rc<dyn std::any::Any>))),
+            self.trace_path.as_ref().map_or(TtKey::Nil, |tp| {
+                TtKey::Obj(TtObj(tp.clone() as Rc<dyn std::any::Any>))
+            }),
             TtKey::Bool(cx.app().launch.dev_mode_alt),
             TtKey::Num(f.build.outputRevision.get()),
             // `build.spec.allocMode`: nothing in PoB sets it
@@ -1392,7 +1472,14 @@ impl PassiveTreeView {
             // L1148
             if let Some(overlay) = &overlay {
                 // L1149
-                self.draw_asset(cx, f.assets.asset(overlay).map(Rc::as_ref), scr_x, scr_y, scale, false);
+                self.draw_asset(
+                    cx,
+                    f.assets.asset(overlay).map(Rc::as_ref),
+                    scr_x,
+                    scr_y,
+                    scale,
+                    false,
+                );
             }
             // L1151
             cx.sg.set_draw_color(1.0, 1.0, 1.0);
@@ -1440,7 +1527,15 @@ impl PassiveTreeView {
     }
 
     /// lua: PassiveTreeView.lua:1168-1214 `local function drawJewelRadius(jewel, scrX, scrY, tint)`
-    fn draw_jewel_radius(&mut self, cx: &mut Cx, f: &Frame, jewel: &ItemRef, scr_x: f64, scr_y: f64, tint: [f64; 4]) {
+    fn draw_jewel_radius(
+        &mut self,
+        cx: &mut Cx,
+        f: &Frame,
+        jewel: &ItemRef,
+        scr_x: f64,
+        scr_y: f64,
+        tint: [f64; 4],
+    ) {
         let scale = f.scale;
         let jewel_data = jewel.jewelData.get();
         // Abyss jewels do not show radius art in game.
@@ -1564,7 +1659,9 @@ impl PassiveTreeView {
         // L1216 (ORDER: module notes)
         for node_id in f.tree.sockets.keys() {
             // L1217
-            let Some(node) = spec.nodes.with(|m| m.get(node_id)) else { continue };
+            let Some(node) = spec.nodes.with(|m| m.get(node_id)) else {
+                continue;
+            };
             // L1218
             if node.extra.str(n!("name")).as_deref() == Some("Charm Socket") {
                 continue;
@@ -1645,8 +1742,12 @@ impl PassiveTreeView {
             // L1245
             if node.alloc.get() || alloc_of(compare_node.as_ref()) {
                 // L1246-1248
-                let p_has_radius = jewel.as_ref().is_some_and(|j| j.jewelRadiusIndex.get().is_some());
-                let c_has_radius = c_jewel.as_ref().is_some_and(|j| j.jewelRadiusIndex.get().is_some());
+                let p_has_radius = jewel
+                    .as_ref()
+                    .is_some_and(|j| j.jewelRadiusIndex.get().is_some());
+                let c_has_radius = c_jewel
+                    .as_ref()
+                    .is_some_and(|j| j.jewelRadiusIndex.get().is_some());
                 let same_jewel = compare_jewels_equal(jewel.as_ref(), c_jewel.as_ref());
                 // L1249
                 if p_has_radius {
@@ -1736,8 +1837,13 @@ impl PassiveTreeView {
             // L1302 DrawImage(data.handle, x - width, y - height, width * 2, height * 2, unpack(data))
             match &data.seq {
                 AssetSeq::Empty => {
-                    cx.sg
-                        .draw_image(handle.as_ref(), x - width, y - height, width * 2.0, height * 2.0);
+                    cx.sg.draw_image(
+                        handle.as_ref(),
+                        x - width,
+                        y - height,
+                        width * 2.0,
+                        height * 2.0,
+                    );
                 }
                 AssetSeq::Tc(tc) => {
                     cx.sg.draw_image_tc(
@@ -1789,8 +1895,13 @@ pub fn draw_image_rotated(
     if !cx.app().main.show_animations {
         // Skip rotation and animation
         // L1263
-        cx.sg
-            .draw_image(Some(handle), x - width / 2.0, y - height / 2.0, width, height);
+        cx.sg.draw_image(
+            Some(handle),
+            x - width / 2.0,
+            y - height / 2.0,
+            width,
+            height,
+        );
         // L1264
         return;
     }

@@ -397,7 +397,12 @@ impl Widget for ListStandIn {
 }
 
 /// The stand-in for `SkillListControl` until U31 lands ([`ListStandIn`] over `socketGroupList`).
-pub fn standin_skill_list(cx: &mut Cx, tab: CtrlId, anchor: Anchor, rect: [Prop<f64>; 4]) -> CtrlId {
+pub fn standin_skill_list(
+    cx: &mut Cx,
+    tab: CtrlId,
+    anchor: Anchor,
+    rect: [Prop<f64>; 4],
+) -> CtrlId {
     let list = cx.build().model.skillsTab.socketGroupList.get();
     cx.add(
         tab,
@@ -589,9 +594,8 @@ pub fn default_skills_hooks() -> SkillsHooks {
             crate::tabs::items::tooltip::GetSocketDescriptionLine(cx, item)
         }),
         items_add_item_tooltip: Rc::new(|cx, tooltip, item, slot| {
-            let me = crate::tabs::items::slot_helper::items_tab(cx).unwrap_or_else(|| {
-                lua_error!("attempt to index field 'itemsTab' (a nil value)")
-            });
+            let me = crate::tabs::items::slot_helper::items_tab(cx)
+                .unwrap_or_else(|| lua_error!("attempt to index field 'itemsTab' (a nil value)"));
             let slot = Val::Table(slot.clone());
             crate::tabs::items::tooltip::AddItemTooltip(cx, me, tooltip, item, &slot, false, None);
         }),

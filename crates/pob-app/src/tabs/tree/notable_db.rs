@@ -66,7 +66,7 @@ use pob_ui_core::controls::list::{ListControl, ListData, ListHooks, ListValue};
 use pob_ui_core::controls::popup_dialog::PopupDialog;
 use pob_ui_core::coroutine::{co, Coroutine};
 use pob_ui_core::prelude::*;
-use pob_ui_core::tooltip::{TtKey, TtObj, Tooltip};
+use pob_ui_core::tooltip::{Tooltip, TtKey, TtObj};
 
 use crate::calc::MiscCalc;
 use crate::model::{self, ItemRef, LjIntMap, Name, NodeRef, Output, Override, Table, Val};
@@ -138,7 +138,10 @@ fn len_of(v: &Val) -> usize {
 #[track_caller]
 fn ipairs_of(v: &Val) -> Vec<Val> {
     if !matches!(v, Val::Table(_) | Val::Data(_)) {
-        lua_error!("bad argument #1 to 'ipairs' (table expected, got {})", v.lua_type());
+        lua_error!(
+            "bad argument #1 to 'ipairs' (table expected, got {})",
+            v.lua_type()
+        );
     }
     let mut out = Vec::new();
     let mut i = 1i64;
@@ -245,7 +248,14 @@ impl NotableDBControl {
         db_type: Option<&str>,
     ) -> New<NotableDBControl> {
         // L26
-        let l = ListControl::state(&HOOKS, 16.0, true, false, ListData::Local(Vec::new()), false);
+        let l = ListControl::state(
+            &HOOKS,
+            16.0,
+            true,
+            false,
+            ListData::Local(Vec::new()),
+            false,
+        );
         New::new(
             Base::new(anchor, rect),
             NotableDBControl {
@@ -356,8 +366,13 @@ impl NotableDBControl {
 
         // L59
         let buf = cx.get(cx.child_as::<EditControl>(me, "search")).buf.clone();
-        let searchStr =
-            pattern::gsub(&pob_lua::string::lower(&buf), "[%-%.%+%[%]%$%^%%%?%*]", "%%%0", None).0;
+        let searchStr = pattern::gsub(
+            &pob_lua::string::lower(&buf),
+            "[%-%.%+%[%]%$%^%%%?%*]",
+            "%%%0",
+            None,
+        )
+        .0;
         // L60
         if pattern::r#match(&searchStr, "%S", None).is_some() {
             // L61
@@ -566,7 +581,8 @@ impl NotableDBControl {
                 let it = cx.w::<Self>(me).items_tab.clone();
                 it.anoint_item(cx, None)
             });
-            let calcBase = Self::call_calc(&calc_func, Self::rep_override(item_type, base_item)).await;
+            let calcBase =
+                Self::call_calc(&calc_func, Self::rep_override(item_type, base_item)).await;
             // L138
             co::with_cx(|cx| cx.w_mut::<Self>(me).sort_max_power = Some(0.0));
             // L139
@@ -582,7 +598,8 @@ impl NotableDBControl {
                         let it = cx.w::<Self>(me).items_tab.clone();
                         it.anoint_item(cx, Some(node))
                     });
-                    let output = Self::call_calc(&calc_func, Self::rep_override(item_type, item)).await;
+                    let output =
+                        Self::call_calc(&calc_func, Self::rep_override(item_type, item)).await;
                     // L143
                     let power = co::with_cx(|cx| {
                         let Some(detail) = cx.w::<Self>(me).sort_detail.clone() else {
@@ -709,7 +726,12 @@ impl NotableDBControl {
                 lua_error!("{}", err_msg.unwrap_or_default());
             }
             // L208
-            if cx.w::<Self>(me).list_builder.as_ref().is_some_and(Coroutine::is_dead) {
+            if cx
+                .w::<Self>(me)
+                .list_builder
+                .as_ref()
+                .is_some_and(Coroutine::is_dead)
+            {
                 // L209
                 cx.w_mut::<Self>(me).list_builder = None;
             }
@@ -780,15 +802,20 @@ fn get_row_value(cx: &Cx, me: CtrlId, column: usize, _index: usize, v: &ListValu
 fn add_value_tooltip(cx: &mut Cx, me: CtrlId, tooltip: &mut Tooltip, _index: usize, v: &ListValue) {
     let node = node_of(v);
     // L240 (`self.controls.type` never exists: nil)
-    let dropped = |key: &'static str| cx.w::<DropDownControl>(cx.child_as::<DropDownControl>(me, key)).dropped;
+    let dropped = |key: &'static str| {
+        cx.w::<DropDownControl>(cx.child_as::<DropDownControl>(me, key))
+            .dropped
+    };
     let type_dropped = cx
         .child(me, "type")
         .is_some_and(|t| cx.w::<DropDownControl>(t).dropped);
     let dropdownDropped = type_dropped || dropped("sort") || dropped("searchMode");
     // L241
-    let other_popup = cx.main.popups.first().is_some_and(|p| {
-        cx.prop::<PopupDialog, _>(p.id(), |w| &w.title) != "Anoint Item"
-    });
+    let other_popup = cx
+        .main
+        .popups
+        .first()
+        .is_some_and(|p| cx.prop::<PopupDialog, _>(p.id(), |w| &w.title) != "Anoint Item");
     if dropdownDropped || other_popup {
         // L242
         tooltip.clear(false);
@@ -828,7 +855,10 @@ fn add_value_tooltip(cx: &mut Cx, me: CtrlId, tooltip: &mut Tooltip, _index: usi
                     let line = format!("{}{line}", cx.main.cc.UNSUPPORTED);
                     // L255
                     let line = if cx.main.not_supported_mod_tooltips {
-                        format!("{line}{}", pob_calc::classes::item_tools::main_notSupportedTooltipText)
+                        format!(
+                            "{line}{}",
+                            pob_calc::classes::item_tools::main_notSupportedTooltipText
+                        )
                     } else {
                         line
                     };
@@ -865,14 +895,25 @@ fn add_value_tooltip(cx: &mut Cx, me: CtrlId, tooltip: &mut Tooltip, _index: usi
 
 /// lua: NotableDBControl.lua:279-281 GetDragValue(index, node)
 /// @pob Classes/NotableDBControl.lua:277-281 h=9b78c0c7
-fn get_drag_value(_cx: &Cx, _me: CtrlId, _index: usize, v: &ListValue) -> Option<(Rc<str>, DragValue)> {
+fn get_drag_value(
+    _cx: &Cx,
+    _me: CtrlId,
+    _index: usize,
+    v: &ListValue,
+) -> Option<(Rc<str>, DragValue)> {
     // L280
     Some((Rc::from("Node"), DragValue(v.data.clone())))
 }
 
 /// lua: NotableDBControl.lua:286-288 OnSelClick(index, node, doubleClick)
 /// @pob Classes/NotableDBControl.lua:283-288 h=bb48da61
-fn on_sel_click(_cx: &mut Cx, _me: CtrlId, _index: usize, _v: &ListValue, _dbl: bool) -> Option<bool> {
+fn on_sel_click(
+    _cx: &mut Cx,
+    _me: CtrlId,
+    _index: usize,
+    _v: &ListValue,
+    _dbl: bool,
+) -> Option<bool> {
     // L287 Do nothing
     None
 }
@@ -1033,15 +1074,19 @@ mod tests {
     }
 
     fn setup() -> (Cx, CtrlId, Headless, Rc<RefCell<Vec<String>>>, Vec<NodeRef>) {
-        let list: &'static PowerStatList =
-            Box::leak(Box::new(serde_json::from_str(POWER_STATS).expect("power stats")));
+        let list: &'static PowerStatList = Box::leak(Box::new(
+            serde_json::from_str(POWER_STATS).expect("power stats"),
+        ));
         set_power_stat_list(Some(list));
         let mut cx = Cx::headless();
         let h = HeadlessState::new("", "");
         let (p, f, n) = services(&h);
         cx.sys = pob_sg::Sys::new(p, f, n);
         let host = cx
-            .add_free(None, New::new(Base::new(Anchor::NONE, rect(0, 0, 0, 0)), Host).host())
+            .add_free(
+                None,
+                New::new(Base::new(Anchor::NONE, rect(0, 0, 0, 0)), Host).host(),
+            )
             .id();
         let base: model::gamedata::ItemBase =
             serde_json::from_str(r#"{"type": "Amulet", "tags": {}, "req": {}}"#).expect("base");
@@ -1084,7 +1129,12 @@ mod tests {
 
     fn names(cx: &Cx, me: CtrlId) -> Vec<String> {
         (1..=ListControl::list_len(cx, me))
-            .map(|i| node_of(&ListControl::list_get(cx, me, i).unwrap()).dn.get().to_string())
+            .map(|i| {
+                node_of(&ListControl::list_get(cx, me, i).unwrap())
+                    .dn
+                    .get()
+                    .to_string()
+            })
             .collect()
     }
 
@@ -1099,16 +1149,30 @@ mod tests {
         // L94-L114: entry 1 is ignoreForItems; "Sort by Name" (sortMode "Name") is selected
         // because SelByValue("NAME", "sortMode") finds nothing and selIndex stays 1.
         let sort = cx.child(me, "sort").unwrap();
-        let labels: Vec<String> =
-            cx.w::<DropDownControl>(sort).list.iter().map(|i| i.label.clone()).collect();
+        let labels: Vec<String> = cx
+            .w::<DropDownControl>(sort)
+            .list
+            .iter()
+            .map(|i| i.label.clone())
+            .collect();
         assert_eq!(labels, ["Sort by Name", "Sort by Full DPS", "Sort by Life"]);
-        assert_eq!(cx.w::<NotableDBControl>(me).sort_order, vec![SortControl::Name]);
+        assert_eq!(
+            cx.w::<NotableDBControl>(me).sort_order,
+            vec![SortControl::Name]
+        );
         step(&mut cx, me);
         assert!(cx.w::<NotableDBControl>(me).list_builder.is_none());
         assert!(calls.borrow().is_empty());
         assert_eq!(
             names(&cx, me),
-            ["Arcane Focus", "Arsonist", "Bravery", "Cold Heart", "Divine Fury", "Explosive"]
+            [
+                "Arcane Focus",
+                "Arsonist",
+                "Bravery",
+                "Cold Heart",
+                "Divine Fury",
+                "Explosive"
+            ]
         );
         assert_eq!(
             cx.w::<ListControl>(me).default_text.as_deref(),
@@ -1140,10 +1204,21 @@ mod tests {
         for _ in 0..3 {
             step(&mut cx, me);
             assert!(cx.w::<NotableDBControl>(me).list_builder.is_some());
-            assert_eq!(ListControl::list_len(&cx, me), 0, "the list stays wiped while sorting");
+            assert_eq!(
+                ListControl::list_len(&cx, me),
+                0,
+                "the list stays wiped while sorting"
+            );
             texts.push(cx.w::<ListControl>(me).default_text.clone().unwrap());
         }
-        assert_eq!(texts, ["^7Sorting... (16%)", "^7Sorting... (50%)", "^7Sorting... (100%)"]);
+        assert_eq!(
+            texts,
+            [
+                "^7Sorting... (16%)",
+                "^7Sorting... (50%)",
+                "^7Sorting... (100%)"
+            ]
+        );
         step(&mut cx, me);
         assert!(cx.w::<NotableDBControl>(me).list_builder.is_none());
         assert_eq!(
@@ -1168,7 +1243,14 @@ mod tests {
         assert_eq!(cx.w::<NotableDBControl>(me).sort_max_power, Some(200.0));
         assert_eq!(
             names(&cx, me),
-            ["Divine Fury", "Arsonist", "Cold Heart", "Bravery", "Explosive", "Arcane Focus"]
+            [
+                "Divine Fury",
+                "Arsonist",
+                "Cold Heart",
+                "Bravery",
+                "Explosive",
+                "Arcane Focus"
+            ]
         );
         // L222-L228 colours: 200/200 -> FF, 100/200 -> 0xBF (191.5), <= 0 -> 808080
         let row =
@@ -1185,7 +1267,10 @@ mod tests {
         step(&mut cx, me);
         let search = cx.child(me, "search").unwrap();
         EditControl::set_text(&mut cx, search, "ar(s|c)", true);
-        assert!(cx.w::<NotableDBControl>(me).list_build_flag, "changeFunc sets listBuildFlag");
+        assert!(
+            cx.w::<NotableDBControl>(me).list_build_flag,
+            "changeFunc sets listBuildFlag"
+        );
         step(&mut cx, me);
         assert_eq!(names(&cx, me), ["Arcane Focus", "Arsonist"]);
         // "Modifiers" only: every node's sd line is "<dn> line"
@@ -1217,6 +1302,9 @@ mod tests {
         let (mut cx, me, _h, _calls, nodes) = setup();
         let v = ListValue::of(nodes[0].clone());
         let r = pcall(|| on_sel_copy(&mut cx, me, 1, &v));
-        assert_eq!(r.unwrap_err(), "attempt to index global 'item' (a nil value)");
+        assert_eq!(
+            r.unwrap_err(),
+            "attempt to index global 'item' (a nil value)"
+        );
     }
 }

@@ -27,7 +27,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as J};
 
 use crate::oracle::{flatten, Leaf, OracleError, Result};
-use crate::schema::{children, decode_num, is_marker, read_text, store_class, Provenance, INPUT_KEYS};
+use crate::schema::{
+    children, decode_num, is_marker, read_text, store_class, Provenance, INPUT_KEYS,
+};
 
 fn is_input_key(k: &str) -> bool {
     INPUT_KEYS.contains(&k)
@@ -40,7 +42,9 @@ fn whole_eq(a: &J, b: &J) -> bool {
         (J::Object(x), J::Object(y)) => {
             x.len() - x.keys().filter(|k| is_input_key(k)).count()
                 == y.len() - y.keys().filter(|k| is_input_key(k)).count()
-                && x.iter().filter(|(k, _)| !is_input_key(k)).all(|(k, v)| y.get(k) == Some(v))
+                && x.iter()
+                    .filter(|(k, _)| !is_input_key(k))
+                    .all(|(k, v)| y.get(k) == Some(v))
         }
         _ => a == b,
     }

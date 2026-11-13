@@ -10,11 +10,11 @@
 mod common;
 
 use common::*;
+use mlua::{Table, Value};
 use pob_lua::pattern::{
     find_bytes, gmatch_bytes, gsub_bytes_with, match_bytes, Capture, Captures, Repl,
 };
 use pob_lua::string as ls;
-use mlua::{Table, Value};
 
 const SUBJ: &[u8] = b"aabbxyzAZ_12 ()[]-.%^$\n\xe2";
 
@@ -719,7 +719,15 @@ fn pob_match_or_pattern() {
     .collect();
     let mut r = Rng(1038);
     let subjects = [
-        "", "a", "ab", "abc", "bca", "fire cold", "x1 y2", "lightning", "abcdefgh",
+        "",
+        "a",
+        "ab",
+        "abc",
+        "bca",
+        "fire cold",
+        "x1 y2",
+        "lightning",
+        "abcdefgh",
     ];
     for _ in 0..6000 {
         let mut letters: Vec<u8> = b"abcdefghijklmnopqrstuvwxyz".to_vec();

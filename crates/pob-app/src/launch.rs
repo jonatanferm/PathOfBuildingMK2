@@ -32,8 +32,8 @@ use pob_ui_core::popups::LaunchInfo;
 use pob_ui_core::prelude::*;
 
 use crate::app::CxApp;
-use crate::main_mode::folders::APP_NAME;
 use crate::main_mode;
+use crate::main_mode::folders::APP_NAME;
 use crate::model::XmlChild;
 use crate::platform::net::PageResponse;
 
@@ -294,9 +294,13 @@ pub fn on_frame(cx: &mut Cx) {
         // L113
         if let Some(err_msg) = err_msg {
             // L114-115 Send user to build list menu if a build crashes on initial load
-            let build = cx.app().main.modes.get("BUILD").cloned().unwrap_or_else(|| {
-                lua_error!("attempt to index field 'BUILD' (a nil value)")
-            });
+            let build = cx
+                .app()
+                .main
+                .modes
+                .get("BUILD")
+                .cloned()
+                .unwrap_or_else(|| lua_error!("attempt to index field 'BUILD' (a nil value)"));
             if build.output_revision(cx) == Some(1.0)
                 && build.build_flag(cx)
                 && !cx.app().launch.dev_mode
@@ -494,7 +498,9 @@ pub fn on_sub_finished(cx: &mut Cx, id: u64, resp: HttpResponse) {
             // L226
             l.update_check_running = false;
             // L227
-            if l.update_check_background == Some(true) && l.update_available.as_deref() == Some("none") {
+            if l.update_check_background == Some(true)
+                && l.update_available.as_deref() == Some("none")
+            {
                 // L228
                 l.update_available = None;
             }

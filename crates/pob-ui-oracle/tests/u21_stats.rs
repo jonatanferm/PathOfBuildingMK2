@@ -28,7 +28,10 @@
 //! `DrawControls`; `SkillsTab:AddSocketGroupTooltip` (U30) adds one line naming the group.
 //! Compared side effects exclude `ImageLoad` (the Lua tabs load the tree's images; U23).
 
-#![allow(clippy::format_push_string, clippy::case_sensitive_file_extension_comparisons)]
+#![allow(
+    clippy::format_push_string,
+    clippy::case_sensitive_file_extension_comparisons
+)]
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -75,10 +78,7 @@ const POINT_REQ: &str = "Required Level: 90\nEstimated Progress:\nActs: 10";
 
 fn inputs() -> Option<PathBuf> {
     oracle_cache::limit_par(1);
-    let root = pob_testpaths::require(
-        pob_testpaths::pob_root(),
-        "PoB checkout (.PathOfBuilding)",
-    )?;
+    let root = pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)")?;
     let dump = pob_testpaths::require(pob_testpaths::dump_dir(), "data/dump")?;
     assert!(pob_oracle::testkit::init_data(&dump), "data dump");
     let src = std::fs::canonicalize(root.join("src")).unwrap_or_else(|_| root.join("src"));
@@ -463,7 +463,9 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
         .filter(|c| {
             matches!(
                 c.call,
-                ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
             )
         })
         .count()
@@ -611,8 +613,12 @@ fn u21_sidebar() {
         let fx = runner::fixtures(&script, &base_dir).unwrap();
         {
             let tag = format!("u21_{stem}@{w}x{h}@{s}");
-            let sides = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s))
-            {
+            let sides = match run_sides(
+                &root,
+                &script,
+                fx.user_dir.as_deref(),
+                runner::screen(w, h, s),
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     return (None, Some(format!("{tag}: {e:#}")), 0, 0);
@@ -754,7 +760,13 @@ fn cases(xml: &str) -> Vec<Case> {
 fn tooltip_lines(tt: &Tooltip) -> Vec<String> {
     tt.lines
         .iter()
-        .map(|l| format!("{}|{}", pob_lua::tostring_num(l.size), l.text.as_deref().unwrap_or("<nil>")))
+        .map(|l| {
+            format!(
+                "{}|{}",
+                pob_lua::tostring_num(l.size),
+                l.text.as_deref().unwrap_or("<nil>")
+            )
+        })
         .collect()
 }
 
@@ -831,7 +843,14 @@ fn rust_compare(rust: &mut RustSide, cases: &[Case]) -> Vec<Vec<String>> {
             Poll::Pending => unreachable!("desktop"),
         };
         let mut tt = Tooltip::default();
-        let n = stats::add_stat_compares_to_tooltip(cx, &mut tt, &base, &output, c.header, c.node_count);
+        let n = stats::add_stat_compares_to_tooltip(
+            cx,
+            &mut tt,
+            &base,
+            &output,
+            c.header,
+            c.node_count,
+        );
         let mut lines = vec![format!("count={}", pob_lua::tostring_num(n))];
         lines.extend(tooltip_lines(&tt));
         out.push(lines);
@@ -845,8 +864,9 @@ fn u21_compare_tooltips() {
     let results = oracle_cache::par_map(fixture_builds(), |name| {
         let mut out = (Vec::new(), Vec::new(), 0, 0);
         let (lines_out, failures, compared, lines_total) = &mut out;
-        let xml = std::fs::read_to_string(fixture_dir().join("Path of Building/Builds").join(&name))
-            .unwrap();
+        let xml =
+            std::fs::read_to_string(fixture_dir().join("Path of Building/Builds").join(&name))
+                .unwrap();
         let cases = cases(&xml);
         let script = runner::parse_script(&format!(
             "frames 1\nload-build \"Builds/{name}\"\nframes 2\n"
@@ -856,8 +876,16 @@ fn u21_compare_tooltips() {
         let screen = runner::screen(1280, 800, 1.0);
         // Lua (cached)
         let code = lua_compare_code(&cases);
-        let run = lua_run(&root, &script, &user, Some(&fixture_dir()), screen, Some(&code), false)
-            .unwrap_or_else(|e| panic!("{name}: Lua: {e:#}"));
+        let run = lua_run(
+            &root,
+            &script,
+            &user,
+            Some(&fixture_dir()),
+            screen,
+            Some(&code),
+            false,
+        )
+        .unwrap_or_else(|e| panic!("{name}: Lua: {e:#}"));
         if let Some(e) = &run.error {
             panic!("{name}: Lua: {e}");
         }
@@ -879,12 +907,14 @@ fn u21_compare_tooltips() {
         for ((c, l), r) in cases.iter().zip(&lua).zip(&rust) {
             *compared += 1;
             *lines_total += l.len() - 1;
-            lines_out.push(format!("{name} {}: {} | {} lines", c.name, l[0], l.len() - 1));
+            lines_out.push(format!(
+                "{name} {}: {} | {} lines",
+                c.name,
+                l[0],
+                l.len() - 1
+            ));
             if l != r {
-                failures.push(format!(
-                    "{name} {}:\n  lua:  {l:?}\n  rust: {r:?}",
-                    c.name
-                ));
+                failures.push(format!("{name} {}:\n  lua:  {l:?}\n  rust: {r:?}", c.name));
             }
         }
         out
@@ -953,9 +983,9 @@ fn rust_ser(v: &Val) -> String {
         Val::Table(t) => {
             let mut kv: Vec<(Key, Val)> = t
                 .pairs()
-                .filter(|(k, _)| {
-                    !matches!(k, Key::S(n) if &**n == "calcSection" || &**n == "enabled")
-                })
+                .filter(
+                    |(k, _)| !matches!(k, Key::S(n) if &**n == "calcSection" || &**n == "enabled"),
+                )
                 .collect();
             // Lua type names order: boolean < number < string
             let rank = |k: &Key| match k {
@@ -1067,7 +1097,10 @@ fn rust_sidebar(rust: &mut RustSide) -> Vec<String> {
                     ignored.as_deref(),
                     Some("player"),
                 );
-                res.push(format!("{actor} {i} raw {raw} => {}", rust_ser(&Val::Table(t))));
+                res.push(format!(
+                    "{actor} {i} raw {raw} => {}",
+                    rust_ser(&Val::Table(t))
+                ));
             }
         }
     }
@@ -1092,8 +1125,16 @@ fn u21_sidebar_breakdown() {
         let user = UserDir::new(Some(&fixture_dir())).unwrap();
         let screen = runner::screen(1280, 800, 1.0);
         // Lua (cached)
-        let run = lua_run(&root, &script, &user, Some(&fixture_dir()), screen, Some(&code), false)
-            .unwrap_or_else(|e| panic!("{name}: Lua: {e:#}"));
+        let run = lua_run(
+            &root,
+            &script,
+            &user,
+            Some(&fixture_dir()),
+            screen,
+            Some(&code),
+            false,
+        )
+        .unwrap_or_else(|e| panic!("{name}: Lua: {e:#}"));
         if let Some(e) = &run.error {
             panic!("{name}: Lua: {e}");
         }
@@ -1118,7 +1159,11 @@ fn u21_sidebar_breakdown() {
         *compared += lua.len();
         *cells += n_cells;
         if lua.len() != rust.len() {
-            failures.push(format!("{name}: {} Lua calls, {} Rust", lua.len(), rust.len()));
+            failures.push(format!(
+                "{name}: {} Lua calls, {} Rust",
+                lua.len(),
+                rust.len()
+            ));
         }
         for (l, r) in lua.iter().zip(&rust) {
             if l != r {
@@ -1138,7 +1183,12 @@ fn u21_sidebar_breakdown() {
     println!("u21_sidebar_breakdown: {compared} calls, {cells} breakdown fields");
     println!("{}", oracle_cache::summary());
     let shown: Vec<_> = failures.iter().take(20).cloned().collect();
-    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), shown.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        shown.join("\n")
+    );
 }
 
 // ---- u21_format_stat ------------------------------------------------------------------------
@@ -1146,10 +1196,40 @@ fn u21_sidebar_breakdown() {
 /// 500 deterministic values: integers, fractions, negatives, magnitudes around the compact
 /// thresholds (1e4, 1e6, 1e9), zero and infinities.
 fn values() -> Vec<f64> {
-    let mut v = vec![0.0, 1.0, -1.0, 0.5, -0.5, 0.05, 0.004, 9999.0, 9999.95, 10000.0, 10049.0,
-        999999.0, 999950.0, 1000000.0, 1234567.0, 999999999.0, 1e9, 1.5e9, 123456789012.0,
-        f64::INFINITY, -f64::INFINITY, 100.0, 75.0, 0.75, 1.25, 2.5, -12.345, 33.333333,
-        66.666666, 0.1, 0.2, 0.3];
+    let mut v = vec![
+        0.0,
+        1.0,
+        -1.0,
+        0.5,
+        -0.5,
+        0.05,
+        0.004,
+        9999.0,
+        9999.95,
+        10000.0,
+        10049.0,
+        999999.0,
+        999950.0,
+        1000000.0,
+        1234567.0,
+        999999999.0,
+        1e9,
+        1.5e9,
+        123456789012.0,
+        f64::INFINITY,
+        -f64::INFINITY,
+        100.0,
+        75.0,
+        0.75,
+        1.25,
+        2.5,
+        -12.345,
+        33.333333,
+        66.666666,
+        0.1,
+        0.2,
+        0.3,
+    ];
     let mut x: u64 = 0x2545_F491_4F6C_DD1D;
     while v.len() < 500 {
         // xorshift64*
@@ -1178,16 +1258,83 @@ fn values() -> Vec<f64> {
 fn stat_datas() -> Vec<(&'static str, DisplayStat)> {
     let e = DisplayStat::EMPTY;
     vec![
-        ("{ fmt = \"d\" }", DisplayStat { fmt: Some("d"), ..e }),
-        ("{ fmt = \".1f\", compactValue = true }", DisplayStat { fmt: Some(".1f"), compactValue: true, ..e }),
-        ("{ fmt = \".2f%%\" }", DisplayStat { fmt: Some(".2f%%"), ..e }),
-        ("{ fmt = \"d%%\", pc = true }", DisplayStat { fmt: Some("d%%"), pc: true, ..e }),
-        ("{ fmt = \"+d%%\", mod = true }", DisplayStat { fmt: Some("+d%%"), r#mod: true, ..e }),
-        ("{ fmt = \".3fs\" }", DisplayStat { fmt: Some(".3fs"), ..e }),
-        ("{ fmt = \".0f\", compactValue = true, chaosInoc = true }", DisplayStat { fmt: Some(".0f"), compactValue: true, chaosInoc: true, ..e }),
-        ("{ fmt = \"+.1f\", label = \"Unreserved Life\" }", DisplayStat { fmt: Some("+.1f"), label: Some("Unreserved Life"), ..e }),
-        ("{ fmt = \".1fm\" }", DisplayStat { fmt: Some(".1fm"), ..e }),
-        ("{ fmt = \".2f\", compactValue = true }", DisplayStat { fmt: Some(".2f"), compactValue: true, ..e }),
+        (
+            "{ fmt = \"d\" }",
+            DisplayStat {
+                fmt: Some("d"),
+                ..e
+            },
+        ),
+        (
+            "{ fmt = \".1f\", compactValue = true }",
+            DisplayStat {
+                fmt: Some(".1f"),
+                compactValue: true,
+                ..e
+            },
+        ),
+        (
+            "{ fmt = \".2f%%\" }",
+            DisplayStat {
+                fmt: Some(".2f%%"),
+                ..e
+            },
+        ),
+        (
+            "{ fmt = \"d%%\", pc = true }",
+            DisplayStat {
+                fmt: Some("d%%"),
+                pc: true,
+                ..e
+            },
+        ),
+        (
+            "{ fmt = \"+d%%\", mod = true }",
+            DisplayStat {
+                fmt: Some("+d%%"),
+                r#mod: true,
+                ..e
+            },
+        ),
+        (
+            "{ fmt = \".3fs\" }",
+            DisplayStat {
+                fmt: Some(".3fs"),
+                ..e
+            },
+        ),
+        (
+            "{ fmt = \".0f\", compactValue = true, chaosInoc = true }",
+            DisplayStat {
+                fmt: Some(".0f"),
+                compactValue: true,
+                chaosInoc: true,
+                ..e
+            },
+        ),
+        (
+            "{ fmt = \"+.1f\", label = \"Unreserved Life\" }",
+            DisplayStat {
+                fmt: Some("+.1f"),
+                label: Some("Unreserved Life"),
+                ..e
+            },
+        ),
+        (
+            "{ fmt = \".1fm\" }",
+            DisplayStat {
+                fmt: Some(".1fm"),
+                ..e
+            },
+        ),
+        (
+            "{ fmt = \".2f\", compactValue = true }",
+            DisplayStat {
+                fmt: Some(".2f"),
+                compactValue: true,
+                ..e
+            },
+        ),
     ]
 }
 
@@ -1301,9 +1448,11 @@ fn u21_format_stat() {
             let d = k % datas.len();
             // CCR-0001: `%d` of +inf is x64's cvttsd2si MIN in PoB (what the port prints);
             // this host's arm64 LuaJIT saturates to MAX instead
-            let x64_min = r.contains("9,223,372,036,854,775,808")
-                || r.contains("9223372036854775808");
-            if vals[i] == f64::INFINITY && datas[d].1.fmt.is_some_and(|f| f.contains('d')) && x64_min
+            let x64_min =
+                r.contains("9,223,372,036,854,775,808") || r.contains("9223372036854775808");
+            if vals[i] == f64::INFINITY
+                && datas[d].1.fmt.is_some_and(|f| f.contains('d'))
+                && x64_min
             {
                 host += 1;
                 continue;
@@ -1322,5 +1471,9 @@ fn u21_format_stat() {
         lua.len(),
         diffs.len()
     );
-    assert!(diffs.is_empty(), "{}", diffs[..diffs.len().min(40)].join("\n"));
+    assert!(
+        diffs.is_empty(),
+        "{}",
+        diffs[..diffs.len().min(40)].join("\n")
+    );
 }

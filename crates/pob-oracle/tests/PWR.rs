@@ -146,7 +146,10 @@ fn builds(parity: &Path) -> Vec<PathBuf> {
 }
 
 fn stem(p: &Path) -> String {
-    p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_owned()
+    p.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 // ---- values ------------------------------------------------------------------------------------
@@ -207,13 +210,21 @@ fn flat_json(prefix: &str, j: &J, out: &mut BTreeMap<String, Leaf>) {
     match j {
         J::Object(m) => {
             for (k, v) in m {
-                let p = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
+                let p = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
                 flat_json(&p, v, out);
             }
         }
         J::Array(a) => {
             for (i, v) in a.iter().enumerate() {
-                let p = if prefix.is_empty() { (i + 1).to_string() } else { format!("{prefix}.{}", i + 1) };
+                let p = if prefix.is_empty() {
+                    (i + 1).to_string()
+                } else {
+                    format!("{prefix}.{}", i + 1)
+                };
                 flat_json(&p, v, out);
             }
         }
@@ -233,7 +244,11 @@ fn key_str(k: &Key) -> String {
 fn flat_table(prefix: &str, t: &Table, out: &mut BTreeMap<String, Leaf>) {
     for (k, v) in t.pairs() {
         let ks = key_str(&k);
-        let p = if prefix.is_empty() { ks } else { format!("{prefix}.{ks}") };
+        let p = if prefix.is_empty() {
+            ks
+        } else {
+            format!("{prefix}.{ks}")
+        };
         match v {
             Val::Num(x) => {
                 out.insert(p, Leaf::Num(x));
@@ -332,7 +347,10 @@ mod pob_side {
         })?;
         match serde_json::from_str::<J>(&text).map_err(|e| format!("cached PWR run: {e}"))? {
             J::Array(a) if a.len() == modes.len() => Ok(a),
-            other => Err(format!("cached PWR run: not {} modes: {other:.80}", modes.len())),
+            other => Err(format!(
+                "cached PWR run: not {} modes: {other:.80}",
+                modes.len()
+            )),
         }
     }
 }
@@ -359,7 +377,9 @@ fn norm_modKey(k: &str) -> String {
         out.push_str(&rest[..i]);
         out.push_str("function");
         rest = &rest[i + "function: ".len()..];
-        let end = rest.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| !c.is_ascii_alphanumeric())
+            .unwrap_or(rest.len());
         rest = &rest[end..];
     }
     out.push_str(rest);
@@ -467,12 +487,23 @@ fn install_replay(rep: &Rc<std::cell::RefCell<Replay>>) {
         match hit {
             Some(i) => Some(output_of(&r.calls[i].out)),
             None => {
-                r.misses.push(format!("{} {:?} useFullDPS={ufd}", if remove { "remove" } else { "add" }, nodes));
+                r.misses.push(format!(
+                    "{} {:?} useFullDPS={ufd}",
+                    if remove { "remove" } else { "add" },
+                    nodes
+                ));
                 // the keys the power stats read, all zero
                 let o = Table::new();
-                for k in ["LifeUnreserved", "Life", "Armour", "EnergyShield", "Evasion", "LifeRegenRecovery",
-                    "EnergyShieldRegenRecovery", "CombinedDPS"]
-                {
+                for k in [
+                    "LifeUnreserved",
+                    "Life",
+                    "Armour",
+                    "EnergyShield",
+                    "Evasion",
+                    "LifeRegenRecovery",
+                    "EnergyShieldRegenRecovery",
+                    "CombinedDPS",
+                ] {
                     o.set(Name::from(k), 0.0);
                 }
                 Some(o)
@@ -494,7 +525,10 @@ fn prepare(build: &BuildRef, pob: &J, stat: Option<&str>, depth: Option<f64>) {
     mainEnv.grantedPassives.set(Shared::new(g));
     let (f, _) = power::GetMiscCalculator(build);
     power::set_miscCalculator(build, Some((f, output_of(&pob["base"]))));
-    power::set_powerStat(build, stat.map(|s| power::powerStat_by_stat(s).expect("powerStatList entry")));
+    power::set_powerStat(
+        build,
+        stat.map(|s| power::powerStat_by_stat(s).expect("powerStatList entry")),
+    );
     power::set_nodePowerMaxDepth(build, depth);
 }
 
@@ -596,13 +630,21 @@ fn model_diffs(build: &BuildRef, pob: &J) -> Vec<String> {
                 continue;
             };
             if n["alloc"].as_bool() != Some(node.alloc.get()) {
-                d.push(format!("node {id}: alloc Rust {} PoB {}", node.alloc.get(), n["alloc"]));
+                d.push(format!(
+                    "node {id}: alloc Rust {} PoB {}",
+                    node.alloc.get(),
+                    n["alloc"]
+                ));
             }
             if n["modKey"].as_str().map(norm_modKey) != Some(norm_modKey(&node.modKey.get())) {
                 d.push(format!("node {id}: modKey differs"));
             }
             if json_num(&n["pathDist"]) != node.pathDist.get() {
-                d.push(format!("node {id}: pathDist Rust {:?} PoB {}", node.pathDist.get(), n["pathDist"]));
+                d.push(format!(
+                    "node {id}: pathDist Rust {:?} PoB {}",
+                    node.pathDist.get(),
+                    n["pathDist"]
+                ));
             }
         }
         let rust_n = spec.nodes.with(LjIntMap::pairs).len();
@@ -671,7 +713,10 @@ fn l5_build(bi: usize, xml: &PathBuf, full: &PathBuf) -> L5Out {
         assert_eq!(pob["ok"], J::Bool(true), "PoB {st} {mode}: {}", pob["err"]);
         let model = model_diffs(&build, pob);
         prepare(&build, pob, *stat, *depth);
-        let rep = Rc::new(std::cell::RefCell::new(Replay { calls: calls_of(pob), ..Replay::default() }));
+        let rep = Rc::new(std::cell::RefCell::new(Replay {
+            calls: calls_of(pob),
+            ..Replay::default()
+        }));
         install_replay(&rep);
         let t = std::time::Instant::now();
         let r = catch(|| power::PowerBuilder_run(&build, &PowerOptions::default()));
@@ -707,13 +752,24 @@ fn l5_build(bi: usize, xml: &PathBuf, full: &PathBuf) -> L5Out {
             o.failures.push(format!("{st} {mode}: Rust {e}"));
         }
         if c.exact != c.keys {
-            o.failures.push(format!("{st} {mode}: {} of {} power values differ", c.keys - c.exact, c.keys));
+            o.failures.push(format!(
+                "{st} {mode}: {} of {} power values differ",
+                c.keys - c.exact,
+                c.keys
+            ));
         }
         if !rep.misses.is_empty() {
-            o.failures.push(format!("{st} {mode}: {} calc calls PoB never made", rep.misses.len()));
+            o.failures.push(format!(
+                "{st} {mode}: {} calc calls PoB never made",
+                rep.misses.len()
+            ));
         }
         if rep.made.len() != rep.calls.len() {
-            o.failures.push(format!("{st} {mode}: {} Rust calc calls vs {} PoB", rep.made.len(), rep.calls.len()));
+            o.failures.push(format!(
+                "{st} {mode}: {} Rust calc calls vs {} PoB",
+                rep.made.len(),
+                rep.calls.len()
+            ));
         }
     }
     drop(build);
@@ -723,8 +779,12 @@ fn l5_build(bi: usize, xml: &PathBuf, full: &PathBuf) -> L5Out {
 
 #[test]
 fn pwr_l5_replay() {
-    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(parity) = find_parity_dir() else { return skip(".parity not found") };
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(parity) = find_parity_dir() else {
+        return skip(".parity not found");
+    };
     if find_pob_src().is_none() {
         return skip("PoB checkout (.PathOfBuilding/src) not found");
     }
@@ -818,8 +878,12 @@ fn run_frames(build: &BuildRef, gap: f64) -> usize {
 #[cfg(feature = "luajit")]
 #[test]
 fn pwr_coroutine_steps() {
-    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(parity) = find_parity_dir() else { return skip(".parity not found") };
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(parity) = find_parity_dir() else {
+        return skip(".parity not found");
+    };
     if find_pob_src().is_none() {
         return skip("PoB checkout (.PathOfBuilding/src) not found");
     }
@@ -828,16 +892,24 @@ fn pwr_coroutine_steps() {
     }
     quiet_lua_errors();
     setup_luts();
-    let Some(xml) = builds(&parity).into_iter().nth(1).or_else(|| builds(&parity).into_iter().next()) else {
+    let Some(xml) = builds(&parity)
+        .into_iter()
+        .nth(1)
+        .or_else(|| builds(&parity).into_iter().next())
+    else {
         return skip(".parity/builds: none of the PWR builds found");
     };
     let st = stem(&xml);
     for (mode, stat) in [("offdef", None), ("Life", Some("Life"))] {
-        let pob = pob_side::pob_runs(&xml, &[(mode, stat, None)]).unwrap_or_else(|e| panic!("PoB {st}: {e}"));
+        let pob = pob_side::pob_runs(&xml, &[(mode, stat, None)])
+            .unwrap_or_else(|e| panic!("PoB {st}: {e}"));
         let pob = &pob[0];
         let build = rust_build(&xml).unwrap_or_else(|e| panic!("Rust load {st}: {e}"));
         prepare(&build, pob, stat, None);
-        let rep = Rc::new(std::cell::RefCell::new(Replay { calls: calls_of(pob), ..Replay::default() }));
+        let rep = Rc::new(std::cell::RefCell::new(Replay {
+            calls: calls_of(pob),
+            ..Replay::default()
+        }));
         install_replay(&rep);
         // the direct run
         power::PowerBuilder_run(&build, &PowerOptions::default());
@@ -847,9 +919,15 @@ fn pwr_coroutine_steps() {
         let progress = Rc::new(std::cell::RefCell::new(Vec::<f64>::new()));
         {
             let done = done.clone();
-            power::set_powerBuilderCallback(&build, Some(Rc::new(move || done.set(done.get() + 1))));
+            power::set_powerBuilderCallback(
+                &build,
+                Some(Rc::new(move || done.set(done.get() + 1))),
+            );
             let progress = progress.clone();
-            power::set_powerBuilderProgressCallback(&build, Some(Rc::new(move |p| progress.borrow_mut().push(p))));
+            power::set_powerBuilderProgressCallback(
+                &build,
+                Some(Rc::new(move |p| progress.borrow_mut().push(p))),
+            );
         }
         power::set_GetTime(Some(fast_clock));
         let frames = run_frames(&build, 0.0);
@@ -876,7 +954,11 @@ fn pwr_coroutine_steps() {
             gap_frames, want,
             "about 100 ms of work per resume after a {FRAME_GAP} ms frame gap: {gap_frames} frames, want {want}"
         );
-        assert_eq!(gap_progress.len(), gap_frames - 2, "one progress callback per time yield");
+        assert_eq!(
+            gap_progress.len(),
+            gap_frames - 2,
+            "one progress callback per time yield"
+        );
         assert_eq!(done.get(), 2, "powerBuilderCallback once per run");
         done.set(1);
         power::set_GetTime(None);
@@ -895,9 +977,15 @@ fn pwr_coroutine_steps() {
             eprintln!("    {s}");
         }
         assert_eq!(done.get(), 1, "powerBuilderCallback once");
-        assert!(frames > 100, "the body yields per node with the fast clock ({frames} frames)");
+        assert!(
+            frames > 100,
+            "the body yields per node with the fast clock ({frames} frames)"
+        );
         assert!(p.windows(2).all(|w| w[0] <= w[1]), "progress is monotone");
-        assert!(p.iter().all(|x| (0.0..=100.0).contains(x)), "progress within 0..100");
+        assert!(
+            p.iter().all(|x| (0.0..=100.0).contains(x)),
+            "progress within 0..100"
+        );
         assert_eq!(c.exact, c.keys, "the stepped run equals the direct run");
         // a second BuildPower without a new BuildOutput does nothing
         power::BuildPower(&build);
@@ -916,14 +1004,20 @@ fn pwr_coroutine_steps() {
         power::set_powerBuilderCallback(&build, Some(Rc::new(move || cb.set(cb.get() + 1))));
     }
     power::BuildPower(&build);
-    assert!(!power::powerBuilderRunning(&build), "an error ends the coroutine");
+    assert!(
+        !power::powerBuilderRunning(&build),
+        "an error ends the coroutine"
+    );
     assert_eq!(cb.get(), 1, "and its end calls the callback");
     // dev mode re-raises it
     power::set_launch_devMode(true);
     build.calcsTab.powerBuildFlag.set(true);
     let r = catch(|| power::BuildPower(&build));
     power::set_launch_devMode(false);
-    assert!(r.is_err_and(|e| e.contains("miscCalculator")), "dev mode re-raises the error");
+    assert!(
+        r.is_err_and(|e| e.contains("miscCalculator")),
+        "dev mode re-raises the error"
+    );
     let _ = PowerState::default();
 }
 
@@ -932,8 +1026,12 @@ fn pwr_coroutine_steps() {
 #[cfg(feature = "luajit")]
 #[test]
 fn pwr_l6_report() {
-    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(parity) = find_parity_dir() else { return skip(".parity not found") };
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(parity) = find_parity_dir() else {
+        return skip(".parity not found");
+    };
     if find_pob_src().is_none() {
         return skip("PoB checkout (.PathOfBuilding/src) not found");
     }
@@ -947,8 +1045,11 @@ fn pwr_l6_report() {
     if !xml.is_file() {
         return skip(&format!("{name}.xml not found"));
     }
-    let depth: Option<f64> = std::env::var("PWR_L6_DEPTH").ok().and_then(|s| s.parse().ok());
-    let pob = pob_side::pob_runs(&xml, &[("offdef", None, depth)]).unwrap_or_else(|e| panic!("PoB {name}: {e}"));
+    let depth: Option<f64> = std::env::var("PWR_L6_DEPTH")
+        .ok()
+        .and_then(|s| s.parse().ok());
+    let pob = pob_side::pob_runs(&xml, &[("offdef", None, depth)])
+        .unwrap_or_else(|e| panic!("PoB {name}: {e}"));
     let pob = &pob[0];
     let theirs = pob_powers(pob);
 
@@ -1001,7 +1102,10 @@ fn pwr_l6_report() {
         c.samples
     );
     if name == "upstream_OccVortex" && depth.is_none() {
-        assert_eq!(c.keys, L6_OCCVORTEX_KEYS, "PWR L6 {name}: compared power values");
+        assert_eq!(
+            c.keys, L6_OCCVORTEX_KEYS,
+            "PWR L6 {name}: compared power values"
+        );
     }
 }
 
@@ -1032,13 +1136,19 @@ fn pwr_stat_fns() {
     };
     let stat = |s: &str| power::powerStat_by_stat(s).expect("entry");
     // FullDPS: present, else CombinedDPS + Minion.CombinedDPS
-    let a = o(&[("FullDPS", 10.0), ("CombinedDPS", 3.0)], &[("CombinedDPS", 4.0)]);
+    let a = o(
+        &[("FullDPS", 10.0), ("CombinedDPS", 3.0)],
+        &[("CombinedDPS", 4.0)],
+    );
     let b = o(&[("CombinedDPS", 3.0)], &[("CombinedDPS", 4.0)]);
     assert_eq!(power::GetFromOutput(&a, &stat("FullDPS"), false), 10.0);
     assert_eq!(power::GetFromOutput(&b, &stat("FullDPS"), false), 7.0);
     assert_eq!(power::CalculatePowerStat(&stat("FullDPS"), &a, &b), 3.0);
     // damage stats add the minion's; other stats do not; Minion* reads the minion only
-    let c = o(&[("TotalDPS", 2.0), ("Life", 100.0)], &[("TotalDPS", 5.0), ("Life", 50.0)]);
+    let c = o(
+        &[("TotalDPS", 2.0), ("Life", 100.0)],
+        &[("TotalDPS", 5.0), ("Life", 50.0)],
+    );
     assert_eq!(power::GetFromOutput(&c, &stat("TotalDPS"), false), 7.0);
     assert_eq!(power::GetFromOutput(&c, &stat("AverageDamage"), false), 0.0);
     assert_eq!(power::GetFromOutput(&c, &stat("Life"), false), 100.0);
@@ -1047,10 +1157,18 @@ fn pwr_stat_fns() {
     assert_eq!(power::GetFromOutput(&c, &ml, false), 50.0);
     // transforms: the *TakenHit stats negate (skipped with skipTransform)
     let d = o(&[("PhysicalTakenHit", 40.0)], &[]);
-    assert_eq!(power::GetFromOutput(&d, &stat("PhysicalTakenHit"), false), -40.0);
-    assert_eq!(power::GetFromOutput(&d, &stat("PhysicalTakenHit"), true), 40.0);
     assert_eq!(
-        power::powerStatTransform("data.powerStatList[2].transform", Val::from("The Shaper")).str().as_deref(),
+        power::GetFromOutput(&d, &stat("PhysicalTakenHit"), false),
+        -40.0
+    );
+    assert_eq!(
+        power::GetFromOutput(&d, &stat("PhysicalTakenHit"), true),
+        40.0
+    );
+    assert_eq!(
+        power::powerStatTransform("data.powerStatList[2].transform", Val::from("The Shaper"))
+            .str()
+            .as_deref(),
         Some("Shaper")
     );
     // a nil stat raises (Lua: indexing the nil `stat`)
@@ -1061,41 +1179,89 @@ fn pwr_stat_fns() {
     for e in &pob_gamedata::data().powerStatList.stats {
         if let Some(f) = &e.transform {
             let want = match f.src.as_str() {
-                "Modules/Data.lua:131-131" => "f1374b87c1d4bf47cf8cd4eb9e5c6a0bcbb69320f3f6f0f9a934441142aad86f",
-                "Modules/Data.lua:164-164" => "5dcffd8294ccd179ff647d4fffa4d1659eba00c472a4dd90f33a21f376ce36fd",
-                "Modules/Data.lua:165-165" => "e305ab055e0fabdb18075880f8742df93cb4259f0b2de4e4e32700e3ee56552f",
-                "Modules/Data.lua:166-166" => "464d0be7bfa3c46d5908329383db9d6f327ecd627e87d4e52abb70340fc0140c",
-                "Modules/Data.lua:167-167" => "3eafa4bf54d2f4b8b0d17c19963a42a6be76d42c44b001ee6c16b3b4044f3a40",
-                "Modules/Data.lua:168-168" => "f248ed21f926bc39295c5a8eae247ee39f17fc59b163c797020600de1137bbf6",
+                "Modules/Data.lua:131-131" => {
+                    "f1374b87c1d4bf47cf8cd4eb9e5c6a0bcbb69320f3f6f0f9a934441142aad86f"
+                }
+                "Modules/Data.lua:164-164" => {
+                    "5dcffd8294ccd179ff647d4fffa4d1659eba00c472a4dd90f33a21f376ce36fd"
+                }
+                "Modules/Data.lua:165-165" => {
+                    "e305ab055e0fabdb18075880f8742df93cb4259f0b2de4e4e32700e3ee56552f"
+                }
+                "Modules/Data.lua:166-166" => {
+                    "464d0be7bfa3c46d5908329383db9d6f327ecd627e87d4e52abb70340fc0140c"
+                }
+                "Modules/Data.lua:167-167" => {
+                    "3eafa4bf54d2f4b8b0d17c19963a42a6be76d42c44b001ee6c16b3b4044f3a40"
+                }
+                "Modules/Data.lua:168-168" => {
+                    "f248ed21f926bc39295c5a8eae247ee39f17fc59b163c797020600de1137bbf6"
+                }
                 other => panic!("unknown transform {other}"),
             };
             assert_eq!(f.hash, want, "{}", f.id);
             // `value:gsub` on a number raises in LuaJIT (numbers have no string metatable)
             let r = catch(|| power::powerStatTransform(&f.id, Val::Num(1.0)));
-            assert_eq!(r.is_err(), f.id == "data.powerStatList[2].transform", "{}", f.id);
+            assert_eq!(
+                r.is_err(),
+                f.id == "data.powerStatList[2].transform",
+                "{}",
+                f.id
+            );
             seen += 1;
         }
     }
     assert!(seen >= 6);
     // CalculateCombinedOffDefStat: both results, Lua's float order
     let base = o(
-        &[("LifeUnreserved", 4000.0), ("Life", 4000.0), ("Armour", 2000.0), ("EnergyShield", 100.0),
-          ("Evasion", 500.0), ("LifeRegenRecovery", 50.0), ("EnergyShieldRegenRecovery", 0.0), ("CombinedDPS", 1000.0)],
+        &[
+            ("LifeUnreserved", 4000.0),
+            ("Life", 4000.0),
+            ("Armour", 2000.0),
+            ("EnergyShield", 100.0),
+            ("Evasion", 500.0),
+            ("LifeRegenRecovery", 50.0),
+            ("EnergyShieldRegenRecovery", 0.0),
+            ("CombinedDPS", 1000.0),
+        ],
         &[("CombinedDPS", 500.0)],
     );
     let plus = o(
-        &[("LifeUnreserved", 4200.0), ("Life", 4200.0), ("Armour", 2000.0), ("EnergyShield", 100.0),
-          ("EnergyShieldRecoveryCap", 80.0), ("Evasion", 500.0), ("LifeRegenRecovery", 60.0),
-          ("EnergyShieldRegenRecovery", 0.0), ("CombinedDPS", 1100.0)],
+        &[
+            ("LifeUnreserved", 4200.0),
+            ("Life", 4200.0),
+            ("Armour", 2000.0),
+            ("EnergyShield", 100.0),
+            ("EnergyShieldRecoveryCap", 80.0),
+            ("Evasion", 500.0),
+            ("LifeRegenRecovery", 60.0),
+            ("EnergyShieldRegenRecovery", 0.0),
+            ("CombinedDPS", 1100.0),
+        ],
         &[],
     );
     let (off, def) = power::CalculateCombinedOffDefStat(&plus, &base);
-    let want_def = (4200.0 - 4000.0) / 4000.0_f64.max(3000.0) + (2000.0 - 2000.0) / 10000.0
-        + (80.0 - 100.0) / 3000.0 + (500.0 - 500.0) / 10000.0 + (60.0 - 50.0) / 500.0 + 0.0 / 1000.0;
+    let want_def = (4200.0 - 4000.0) / 4000.0_f64.max(3000.0)
+        + (2000.0 - 2000.0) / 10000.0
+        + (80.0 - 100.0) / 3000.0
+        + (500.0 - 500.0) / 10000.0
+        + (60.0 - 50.0) / 500.0
+        + 0.0 / 1000.0;
     assert_eq!(def, want_def);
     assert_eq!(off, (1100.0 + 0.0 - (1000.0 + 500.0)) / (1000.0 + 500.0));
     // a zero-DPS build: 0/0
-    let z = o(&[("LifeUnreserved", 1.0), ("Life", 1.0), ("Armour", 0.0), ("EnergyShield", 0.0), ("Evasion", 0.0),
-        ("LifeRegenRecovery", 0.0), ("EnergyShieldRegenRecovery", 0.0), ("CombinedDPS", 0.0)], &[]);
+    let z = o(
+        &[
+            ("LifeUnreserved", 1.0),
+            ("Life", 1.0),
+            ("Armour", 0.0),
+            ("EnergyShield", 0.0),
+            ("Evasion", 0.0),
+            ("LifeRegenRecovery", 0.0),
+            ("EnergyShieldRegenRecovery", 0.0),
+            ("CombinedDPS", 0.0),
+        ],
+        &[],
+    );
     assert!(power::CalculateCombinedOffDefStat(&z, &z).0.is_nan());
 }

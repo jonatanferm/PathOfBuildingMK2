@@ -72,7 +72,10 @@ use pob_ui_core::prelude::*;
 use pob_ui_core::widget::PlainControl;
 
 use super::entry::{self, CompareEntry, SkillControls};
-use super::init::{self, ctl, st, st_mut, wrapInfoLine, BuffModeValue, CompareEntryRef, ConfigCtrlInfo, SetTab, LAYOUT};
+use super::init::{
+    self, ctl, st, st_mut, wrapInfoLine, BuffModeValue, CompareEntryRef, ConfigCtrlInfo, SetTab,
+    LAYOUT,
+};
 use super::CompareTab;
 use crate::app::CxApp;
 use crate::model::gamedata::schema::config_defs::ConfigOptionDef;
@@ -174,7 +177,11 @@ thread_local! {
 
 /// The installed passes (a clone).
 pub fn draw_hooks() -> CompareDrawHooks {
-    DRAW_HOOKS.with(|h| h.borrow_mut().get_or_insert_with(default_draw_hooks).clone())
+    DRAW_HOOKS.with(|h| {
+        h.borrow_mut()
+            .get_or_insert_with(default_draw_hooks)
+            .clone()
+    })
 }
 
 /// Replace pass entries (tests, and owners that register at run time).
@@ -230,7 +237,8 @@ fn sel(n: f64) -> usize {
 /// `self.primaryBuild.treeTab.viewer.searchStr or ""` (None: no tree tab).
 fn primary_viewer_search(cx: &Cx) -> Option<String> {
     let id = cx.build().tabs.tree.id();
-    cx.try_w::<TreeTab>(id).map(|t| t.core.viewer.search_str.clone())
+    cx.try_w::<TreeTab>(id)
+        .map(|t| t.core.viewer.search_str.clone())
 }
 
 /// `colY` (L2167): a table indexed by column number.
@@ -263,7 +271,8 @@ fn p_call_match(s: &str, pattern: &str) -> bool {
 /// `ShellHooks::draw_tab` for `BuildTab::Compare`: `self.compareTab:Draw(tabViewPort,
 /// inputEvents)` (Build.lua:1317).
 pub fn draw_tab(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
-    let me = init::tab(cx).unwrap_or_else(|| lua_error!("attempt to index field 'compareTab' (a nil value)"));
+    let me = init::tab(cx)
+        .unwrap_or_else(|| lua_error!("attempt to index field 'compareTab' (a nil value)"));
     CompareTab::Draw(cx, me, vp, ev);
 }
 
@@ -286,9 +295,27 @@ impl CompareTab {
             // L1658
             cx.sg.set_draw_color(0.25, 0.25, 0.25);
             // L1659-1661
-            cx.sg.draw_image(None, viewPort.x + 4.0, viewPort.y + 32.0, viewPort.width - 8.0, 2.0);
-            cx.sg.draw_image(None, viewPort.x + 4.0, viewPort.y + 88.0, viewPort.width - 8.0, 2.0);
-            cx.sg.draw_image(None, viewPort.x + 4.0, viewPort.y + 122.0, viewPort.width - 8.0, 2.0);
+            cx.sg.draw_image(
+                None,
+                viewPort.x + 4.0,
+                viewPort.y + 32.0,
+                viewPort.width - 8.0,
+                2.0,
+            );
+            cx.sg.draw_image(
+                None,
+                viewPort.x + 4.0,
+                viewPort.y + 88.0,
+                viewPort.width - 8.0,
+                2.0,
+            );
+            cx.sg.draw_image(
+                None,
+                viewPort.x + 4.0,
+                viewPort.y + 122.0,
+                viewPort.width - 8.0,
+                2.0,
+            );
         }
 
         // L1664-1666
@@ -360,7 +387,8 @@ impl CompareTab {
             cx.sg.set_draw_color(0.05, 0.05, 0.05);
             // L1706
             let h = lst(cx, me).calcsSkillHeaderHeight;
-            cx.sg.draw_image(None, contentVP.x, contentVP.y, contentVP.width, h);
+            cx.sg
+                .draw_image(None, contentVP.x, contentVP.y, contentVP.width, h);
         }
 
         // Layout shared vertical scrollbar for Summary/Items/Skills/Config.
@@ -412,7 +440,12 @@ impl CompareTab {
             // L1731
             let viewHeight = m_max(contentVP.height - topReserve - bottomReserve, 0.0);
             // L1732-1734
-            set_xy(cx, viewScrollBar, contentVP.x + contentVP.width - 18.0, contentVP.y + topReserve);
+            set_xy(
+                cx,
+                viewScrollBar,
+                contentVP.x + contentVP.width - 18.0,
+                contentVP.y + topReserve,
+            );
             cx.base_mut(viewScrollBar).height = Prop::Val(viewHeight);
             // L1735
             ScrollBarControl::set_content_dimension(cx, viewScrollBar, contentHeight, viewHeight);
@@ -463,13 +496,32 @@ impl CompareTab {
             if let Some(layout) = layout {
                 // L1764-1771
                 cx.sg.set_draw_color(0.05, 0.05, 0.05);
-                cx.sg.draw_image(None, contentVP.x, contentVP.y, contentVP.width, layout.headerHeight);
+                cx.sg.draw_image(
+                    None,
+                    contentVP.x,
+                    contentVP.y,
+                    contentVP.width,
+                    layout.headerHeight,
+                );
                 cx.sg.set_draw_color(0.85, 0.85, 0.85);
-                cx.sg.draw_image(None, contentVP.x, contentVP.y + layout.headerHeight - 2.0, contentVP.width, 2.0);
+                cx.sg.draw_image(
+                    None,
+                    contentVP.x,
+                    contentVP.y + layout.headerHeight - 2.0,
+                    contentVP.width,
+                    2.0,
+                );
                 cx.sg.set_draw_color(0.05, 0.05, 0.05);
-                cx.sg.draw_image(None, contentVP.x, layout.footerY, contentVP.width, layout.footerHeight);
+                cx.sg.draw_image(
+                    None,
+                    contentVP.x,
+                    layout.footerY,
+                    contentVP.width,
+                    layout.footerHeight,
+                );
                 cx.sg.set_draw_color(0.85, 0.85, 0.85);
-                cx.sg.draw_image(None, contentVP.x, layout.footerY, contentVP.width, 2.0);
+                cx.sg
+                    .draw_image(None, contentVP.x, layout.footerY, contentVP.width, 2.0);
             }
             // L1773
             cx.sg.set_draw_color(1.0, 1.0, 1.0);
@@ -477,11 +529,13 @@ impl CompareTab {
             let lx = raw_x(cx, ctl(cx, me, "leftSpecSelect"));
             let short = Self::GetShortBuildName(cx.build().build_name.as_deref());
             let text = format!("{}{short}", cx.main.cc.POSITIVE);
-            cx.sg.draw_string(lx, contentVP.y + 4.0, Align::Left, 18.0, Font::Var, &text);
+            cx.sg
+                .draw_string(lx, contentVP.y + 4.0, Align::Left, 18.0, Font::Var, &text);
             // L1776-1777
             let rx = raw_x(cx, ctl(cx, me, "rightSpecSelect"));
             let text = format!("{}{}", cx.main.cc.WARNING, e.label);
-            cx.sg.draw_string(rx, contentVP.y + 4.0, Align::Left, 18.0, Font::Var, &text);
+            cx.sg
+                .draw_string(rx, contentVP.y + 4.0, Align::Left, 18.0, Font::Var, &text);
         }
 
         // L1780
@@ -489,12 +543,19 @@ impl CompareTab {
             None => {
                 // No comparison build loaded - show instructions
                 // L1782
-                cx.sg.set_viewport(contentVP.x, contentVP.y, contentVP.width, contentVP.height);
+                cx.sg
+                    .set_viewport(contentVP.x, contentVP.y, contentVP.width, contentVP.height);
                 // L1783
                 cx.sg.set_draw_color(1.0, 1.0, 1.0);
                 // L1784-1785
-                cx.sg
-                    .draw_string(0.0, 40.0, Align::Center, 20.0, Font::Var, "^7No comparison build loaded.");
+                cx.sg.draw_string(
+                    0.0,
+                    40.0,
+                    Align::Center,
+                    20.0,
+                    Font::Var,
+                    "^7No comparison build loaded.",
+                );
                 // L1786-1787
                 let pos = cx.main.cc.POSITIVE.clone();
                 cx.sg.draw_string(
@@ -503,7 +564,9 @@ impl CompareTab {
                     Align::Center,
                     16.0,
                     Font::Var,
-                    &format!("^7Click {pos}Import...^7 above to import a build to compare against."),
+                    &format!(
+                        "^7Click {pos}Import...^7 above to import a build to compare against."
+                    ),
                 );
                 // L1788
                 cx.sg.reset_viewport();
@@ -523,7 +586,8 @@ impl CompareTab {
                         m_max(m_floor(contentVP.width / 2.0), LAYOUT::itemsMinColWidth)
                     });
                     // L1797
-                    let itemSetLabelW = cx.sg.draw_string_width(16.0, Font::Var, "^7Item set:") + 4.0;
+                    let itemSetLabelW =
+                        cx.sg.draw_string_width(16.0, Font::Var, "^7Item set:") + 4.0;
                     // L1798
                     let hbar = ctl(cx, me, "itemsHScrollBar");
                     let scrollOffsetX = -cx.w::<ScrollBarControl>(hbar).offset;
@@ -538,24 +602,53 @@ impl CompareTab {
                     let pLabel = ctl(cx, me, "primaryItemSetLabel");
                     let pSelect = ctl(cx, me, "primaryItemSetSelect");
                     set_xy(cx, pLabel, contentVP.x + scrollOffsetX + 10.0, row1Y + 2.0);
-                    set_xy(cx, pSelect, contentVP.x + scrollOffsetX + 10.0 + itemSetLabelW, row1Y);
+                    set_xy(
+                        cx,
+                        pSelect,
+                        contentVP.x + scrollOffsetX + 10.0 + itemSetLabelW,
+                        row1Y,
+                    );
 
                     // Compare build item set dropdown
                     // L1811-1814
                     let cLabel = ctl(cx, me, "compareItemSetLabel2");
                     let cSelect = ctl(cx, me, "compareItemSetSelect2");
-                    set_xy(cx, cLabel, contentVP.x + scrollOffsetX + colWidth + 10.0, row1Y + 2.0);
-                    set_xy(cx, cSelect, contentVP.x + scrollOffsetX + colWidth + 10.0 + itemSetLabelW, row1Y);
+                    set_xy(
+                        cx,
+                        cLabel,
+                        contentVP.x + scrollOffsetX + colWidth + 10.0,
+                        row1Y + 2.0,
+                    );
+                    set_xy(
+                        cx,
+                        cSelect,
+                        contentVP.x + scrollOffsetX + colWidth + 10.0 + itemSetLabelW,
+                        row1Y,
+                    );
 
                     // L1816
                     cx.sg.set_draw_color(1.0, 1.0, 1.0);
                     // L1817-1818
                     let short = Self::GetShortBuildName(cx.build().build_name.as_deref());
                     let text = format!("{}{short}", cx.main.cc.POSITIVE);
-                    cx.sg.draw_string(raw_x(cx, pLabel), buildLabelY, Align::Left, 18.0, Font::Var, &text);
+                    cx.sg.draw_string(
+                        raw_x(cx, pLabel),
+                        buildLabelY,
+                        Align::Left,
+                        18.0,
+                        Font::Var,
+                        &text,
+                    );
                     // L1819-1820
                     let text = format!("{}{}", cx.main.cc.WARNING, compareEntry.label);
-                    cx.sg.draw_string(raw_x(cx, cLabel), buildLabelY, Align::Left, 18.0, Font::Var, &text);
+                    cx.sg.draw_string(
+                        raw_x(cx, cLabel),
+                        buildLabelY,
+                        Align::Left,
+                        18.0,
+                        Font::Var,
+                        &text,
+                    );
                     // L1821
                     cx.sg.set_draw_color(0.5, 0.5, 0.5);
                     // L1822
@@ -574,7 +667,11 @@ impl CompareTab {
 
                     // Populate compare build item set list
                     // L1830-1831
-                    Self::PopulateSetDropdown(cx, SetTab::Items(&compareEntry.model.itemsTab), cSelect);
+                    Self::PopulateSetDropdown(
+                        cx,
+                        SetTab::Items(&compareEntry.model.itemsTab),
+                        cSelect,
+                    );
                 }
 
                 // Dispatch to sub-view (TREE already drawn above)
@@ -648,11 +745,17 @@ impl CompareTab {
     /// Must run before ProcessControlsInput so controls render on top of backgrounds.
     /// @pob Classes/CompareTab.lua:1885-2028 h=e7e6777f
     #[allow(clippy::too_many_lines)]
-    pub fn LayoutTreeView(cx: &mut Cx, me: CtrlId, contentVP: &ViewPort, compareEntry: Option<&CompareEntryRef>) {
+    pub fn LayoutTreeView(
+        cx: &mut Cx,
+        me: CtrlId,
+        contentVP: &ViewPort,
+        compareEntry: Option<&CompareEntryRef>,
+    ) {
         // L1886
         lst_mut(cx, me).treeLayout = None;
         // L1887
-        let Some(compareEntry) = compareEntry.filter(|_| st(cx, me).compareViewMode == "TREE") else {
+        let Some(compareEntry) = compareEntry.filter(|_| st(cx, me).compareViewMode == "TREE")
+        else {
             return;
         };
 
@@ -684,16 +787,30 @@ impl CompareTab {
             // Header background + separator
             // L1905-1908
             cx.sg.set_draw_color(0.05, 0.05, 0.05);
-            cx.sg.draw_image(None, contentVP.x, contentVP.y, contentVP.width, headerHeight);
+            cx.sg.draw_image(
+                None,
+                contentVP.x,
+                contentVP.y,
+                contentVP.width,
+                headerHeight,
+            );
             cx.sg.set_draw_color(0.85, 0.85, 0.85);
-            cx.sg.draw_image(None, contentVP.x, contentVP.y + headerHeight - 2.0, contentVP.width, 2.0);
+            cx.sg.draw_image(
+                None,
+                contentVP.x,
+                contentVP.y + headerHeight - 2.0,
+                contentVP.width,
+                2.0,
+            );
 
             // Footer background
             // L1911-1914
             cx.sg.set_draw_color(0.05, 0.05, 0.05);
-            cx.sg.draw_image(None, contentVP.x, footerY, contentVP.width, footerHeight);
+            cx.sg
+                .draw_image(None, contentVP.x, footerY, contentVP.width, footerHeight);
             cx.sg.set_draw_color(0.85, 0.85, 0.85);
-            cx.sg.draw_image(None, contentVP.x, footerY, contentVP.width, 2.0);
+            cx.sg
+                .draw_image(None, contentVP.x, footerY, contentVP.width, 2.0);
 
             // Position spec/version in header row 1
             // L1917-1919
@@ -708,7 +825,12 @@ impl CompareTab {
 
             // Overlay checkbox in header row 2
             // L1927-1928
-            set_xy(cx, treeOverlayCheck, contentVP.x + LAYOUT::treeOverlayCheckX, contentVP.y + 34.0);
+            set_xy(
+                cx,
+                treeOverlayCheck,
+                contentVP.x + LAYOUT::treeOverlayCheckX,
+                contentVP.y + 34.0,
+            );
 
             // Overlay search in footer (full width)
             // L1931-1933
@@ -737,15 +859,29 @@ impl CompareTab {
             // Header background + separator
             // L1950-1953
             cx.sg.set_draw_color(0.05, 0.05, 0.05);
-            cx.sg.draw_image(None, contentVP.x, contentVP.y, contentVP.width, headerHeight);
+            cx.sg.draw_image(
+                None,
+                contentVP.x,
+                contentVP.y,
+                contentVP.width,
+                headerHeight,
+            );
             cx.sg.set_draw_color(0.85, 0.85, 0.85);
-            cx.sg.draw_image(None, contentVP.x, contentVP.y + headerHeight - 2.0, contentVP.width, 2.0);
+            cx.sg.draw_image(
+                None,
+                contentVP.x,
+                contentVP.y + headerHeight - 2.0,
+                contentVP.width,
+                2.0,
+            );
 
             // Footer backgrounds (two halves)
             // L1956-1961
             cx.sg.set_draw_color(0.05, 0.05, 0.05);
-            cx.sg.draw_image(None, contentVP.x, footerY, halfWidth, footerHeight);
-            cx.sg.draw_image(None, rightAbsX, footerY, halfWidth, footerHeight);
+            cx.sg
+                .draw_image(None, contentVP.x, footerY, halfWidth, footerHeight);
+            cx.sg
+                .draw_image(None, rightAbsX, footerY, halfWidth, footerHeight);
             cx.sg.set_draw_color(0.85, 0.85, 0.85);
             cx.sg.draw_image(None, contentVP.x, footerY, halfWidth, 2.0);
             cx.sg.draw_image(None, rightAbsX, footerY, halfWidth, 2.0);
@@ -766,7 +902,12 @@ impl CompareTab {
 
             // Overlay checkbox in header row 2
             // L1973-1974
-            set_xy(cx, treeOverlayCheck, contentVP.x + LAYOUT::treeOverlayCheckX, contentVP.y + 34.0);
+            set_xy(
+                cx,
+                treeOverlayCheck,
+                contentVP.x + LAYOUT::treeOverlayCheckX,
+                contentVP.y + 34.0,
+            );
 
             // Position footer search fields
             // L1977-1979
@@ -802,7 +943,10 @@ impl CompareTab {
         // L1994 (an entry always has a treeTab)
         {
             // L1995
-            let list: Vec<DropItem> = entry::GetSpecList(compareEntry).into_iter().map(DropItem::str).collect();
+            let list: Vec<DropItem> = entry::GetSpecList(compareEntry)
+                .into_iter()
+                .map(DropItem::str)
+                .collect();
             cx.w_mut::<DropDownControl>(rightSpecSelect).list = list;
             // L1996
             cx.w_mut::<DropDownControl>(rightSpecSelect).sel_index =
@@ -813,7 +957,11 @@ impl CompareTab {
         let versions: Vec<Name> = st(cx, me)
             .treeVersionDropdownList
             .iter()
-            .map(|v| v.get::<init::TreeVersionValue>().copied().unwrap_or_else(|| Name::from("")))
+            .map(|v| {
+                v.get::<init::TreeVersionValue>()
+                    .copied()
+                    .unwrap_or_else(|| Name::from(""))
+            })
             .collect();
         // L2000 (`self.primaryBuild.spec` is always set)
         {
@@ -862,9 +1010,15 @@ impl CompareTab {
     /// Position config controls and build section-grouped display when in CONFIG view.
     /// @pob Classes/CompareTab.lua:2047-2225 h=4be4182a
     #[allow(clippy::too_many_lines)]
-    pub fn LayoutConfigView(cx: &mut Cx, me: CtrlId, contentVP: &ViewPort, compareEntry: Option<&CompareEntryRef>) {
+    pub fn LayoutConfigView(
+        cx: &mut Cx,
+        me: CtrlId,
+        contentVP: &ViewPort,
+        compareEntry: Option<&CompareEntryRef>,
+    ) {
         // L2048
-        let Some(compareEntry) = compareEntry.filter(|_| st(cx, me).compareViewMode == "CONFIG") else {
+        let Some(compareEntry) = compareEntry.filter(|_| st(cx, me).compareViewMode == "CONFIG")
+        else {
             return;
         };
 
@@ -887,8 +1041,11 @@ impl CompareTab {
         let pInput = p.configTab.input.clone();
         let cInput = compareEntry.model.configTab.input.clone();
         // L2060 (ORDER: module notes)
-        let infos: Vec<(Name, Rc<ConfigCtrlInfo>)> =
-            st(cx, me).configControls.iter().map(|(k, v)| (*k, v.clone())).collect();
+        let infos: Vec<(Name, Rc<ConfigCtrlInfo>)> = st(cx, me)
+            .configControls
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
         for (var, ctrlInfo) in infos {
             // L2061
             let varData = ctrlInfo.varData;
@@ -939,7 +1096,8 @@ impl CompareTab {
             // L2090
             if f64::from(*setId) == pConfigTab.activeConfigSetId.get() {
                 // L2091
-                cx.w_mut::<DropDownControl>(configPrimarySetSelect).sel_index = index + 1;
+                cx.w_mut::<DropDownControl>(configPrimarySetSelect)
+                    .sel_index = index + 1;
             }
         }
         // L2094
@@ -973,7 +1131,10 @@ impl CompareTab {
 
         // Search filter: match config labels against search text
         // L2117
-        let buf = cx.w::<EditControl>(configSearchEdit).buf.to_ascii_lowercase();
+        let buf = cx
+            .w::<EditControl>(configSearchEdit)
+            .buf
+            .to_ascii_lowercase();
         let searchStr = pob_lua::gsub(&buf, "[%-%.%+%[%]%$%^%%%?%*]", "%%%0", None).0;
         // L2118
         let hasSearch = pob_lua::pattern::find(&searchStr, "%S", None, false).is_some();
@@ -1003,10 +1164,16 @@ impl CompareTab {
             for ctrlInfo in items {
                 // L2131
                 if searchMatch(ctrlInfo.varData) {
-                    let var = ctrlInfo.varData.var.unwrap_or_else(|| lua_error!("table index is nil"));
+                    let var = ctrlInfo
+                        .varData
+                        .var
+                        .unwrap_or_else(|| lua_error!("table index is nil"));
                     // L2132-2133
-                    let (pVal, cVal) =
-                        Self::NormalizeConfigVals(ctrlInfo.varData, pInput.get(var), cInput.get(var));
+                    let (pVal, cVal) = Self::NormalizeConfigVals(
+                        ctrlInfo.varData,
+                        pInput.get(var),
+                        cInput.get(var),
+                    );
                     // L2134
                     let isDiff = tostring_val(&pVal) != tostring_val(&cVal);
                     // L2135
@@ -1018,10 +1185,14 @@ impl CompareTab {
                         let varData = ctrlInfo.varData;
                         // L2139-2140
                         let relevant = configVisibility::isRelevantForBuild(varData, Some(&p))
-                            || configVisibility::isRelevantForBuild(varData, Some(&compareEntry.model));
+                            || configVisibility::isRelevantForBuild(
+                                varData,
+                                Some(&compareEntry.model),
+                            );
                         // L2141
                         if relevant
-                            || (st(cx, me).configToggle && !configVisibility::isShowAllExcluded(varData))
+                            || (st(cx, me).configToggle
+                                && !configVisibility::isShowAllExcluded(varData))
                         {
                             // L2142
                             commons.push(ctrlInfo);
@@ -1088,7 +1259,8 @@ impl CompareTab {
             // Try preferred column if it fits
             // L2175-2176
             let preferred = sec.col.filter(|&c| {
-                colY.get(c).unwrap_or(0.0) + h + 28.0 <= scrollableH && 10.0 + c * columnStride <= contentVP.width
+                colY.get(c).unwrap_or(0.0) + h + 28.0 <= scrollableH
+                    && 10.0 + c * columnStride <= contentVP.width
             });
             if let Some(c) = preferred {
                 // L2177
@@ -1104,7 +1276,10 @@ impl CompareTab {
                     let v = colY.get(c).unwrap_or(0.0);
                     colY.set(c, v);
                     // L2183
-                    if v < colY.get(best).unwrap_or_else(|| lua_error!("attempt to compare nil with number")) {
+                    if v < colY
+                        .get(best)
+                        .unwrap_or_else(|| lua_error!("attempt to compare nil with number"))
+                    {
                         // L2184
                         best = c;
                     }
@@ -1132,7 +1307,12 @@ impl CompareTab {
         let scrollTopAbs = contentVP.y + fixedHeaderHeight;
         let scrollBottomAbs = contentVP.y + contentVP.height;
         let ctrlH = rowHeight;
-        let mouseClipRect = [contentVP.x, scrollTopAbs, contentVP.width, scrollBottomAbs - scrollTopAbs];
+        let mouseClipRect = [
+            contentVP.x,
+            scrollTopAbs,
+            contentVP.width,
+            scrollBottomAbs - scrollTopAbs,
+        ];
         let scrollY = st(cx, me).scrollY;
         // L2201
         for sec in &sectionLayout {
@@ -1172,8 +1352,10 @@ impl CompareTab {
                 cx.base_mut(ci.primaryControl).shown = Prop::f(shownFn);
                 cx.base_mut(ci.compareControl).shown = Prop::f(shownFn);
                 // L2217-2218
-                cx.base_mut(ci.primaryControl).mouse_clip_rect = Some(Prop::Val(Some(mouseClipRect)));
-                cx.base_mut(ci.compareControl).mouse_clip_rect = Some(Prop::Val(Some(mouseClipRect)));
+                cx.base_mut(ci.primaryControl).mouse_clip_rect =
+                    Some(Prop::Val(Some(mouseClipRect)));
+                cx.base_mut(ci.compareControl).mouse_clip_rect =
+                    Some(Prop::Val(Some(mouseClipRect)));
                 // L2219
                 rowY += rowHeight;
             }
@@ -1195,7 +1377,10 @@ impl CompareTab {
         {
             let id = ctl(cx, me, "compareSpecSelect");
             // L2231
-            let list: Vec<DropItem> = entry::GetSpecList(compareEntry).into_iter().map(DropItem::str).collect();
+            let list: Vec<DropItem> = entry::GetSpecList(compareEntry)
+                .into_iter()
+                .map(DropItem::str)
+                .collect();
             cx.w_mut::<DropDownControl>(id).list = list;
             // L2232
             cx.w_mut::<DropDownControl>(id).sel_index = sel(m.treeTab.activeSpec.get());
@@ -1241,7 +1426,10 @@ impl CompareTab {
             h
         } else {
             let h = cx
-                .add_free(Some(me), New::new(Base::new(Anchor::NONE, rect(0, 0, 0, 0)), ControlMap).host())
+                .add_free(
+                    Some(me),
+                    New::new(Base::new(Anchor::NONE, rect(0, 0, 0, 0)), ControlMap).host(),
+                )
                 .id();
             lst_mut(cx, me).primControlsMap = Some(h);
             h
@@ -1264,7 +1452,11 @@ impl CompareTab {
         let lib = match cx.child(host, "mainSkillMinionLibrary") {
             Some(lib) => lib,
             None => cx
-                .add(host, "mainSkillMinionLibrary", PlainControl::new(Anchor::NONE, rect(0, 0, 0, 0)))
+                .add(
+                    host,
+                    "mainSkillMinionLibrary",
+                    PlainControl::new(Anchor::NONE, rect(0, 0, 0, 0)),
+                )
                 .id(),
         };
         cx.base_mut(lib).shown = Prop::Val(false);
@@ -1287,21 +1479,36 @@ impl CompareTab {
         // L2264-2273
         let primControls = Self::prim_controls_map(cx, me);
         // L2274
-        let skill_number = p.calcsTab.input.get(pob_lua::n!("skill_number")).opt_num().unwrap_or(f64::NAN);
-        crate::build::skill_select::refresh_skill_select_controls(cx, primControls, skill_number, "Calcs");
+        let skill_number = p
+            .calcsTab
+            .input
+            .get(pob_lua::n!("skill_number"))
+            .opt_num()
+            .unwrap_or(f64::NAN);
+        crate::build::skill_select::refresh_skill_select_controls(
+            cx,
+            primControls,
+            skill_number,
+            "Calcs",
+        );
         // L2275-2276
         let id = ctl(cx, me, "primCalcsSocketGroup");
         cx.base_mut(id).shown = Prop::Val(true);
         let mode = ctl(cx, me, "primCalcsMode");
         cx.base_mut(mode).shown = Prop::Val(true);
         // L2277
-        buff_mode_sel(cx, mode, &p.calcsTab.input.get(pob_lua::n!("misc_buffMode")));
+        buff_mode_sel(
+            cx,
+            mode,
+            &p.calcsTab.input.get(pob_lua::n!("misc_buffMode")),
+        );
         // L2278
         let minion_shown = raw_shown_true(cx, ctl(cx, me, "primCalcsMinion"));
         let show_minion = ctl(cx, me, "primCalcsShowMinion");
         cx.base_mut(show_minion).shown = Prop::Val(minion_shown);
         // L2279
-        cx.w_mut::<CheckBoxControl>(show_minion).state = p.calcsTab.input.truthy(pob_lua::n!("showMinion"));
+        cx.w_mut::<CheckBoxControl>(show_minion).state =
+            p.calcsTab.input.truthy(pob_lua::n!("showMinion"));
 
         // L2281-2290
         let cmpControls = SkillControls {
@@ -1327,24 +1534,41 @@ impl CompareTab {
         let mode = ctl(cx, me, "cmpCalcsMode");
         cx.base_mut(mode).shown = Prop::Val(true);
         // L2294
-        buff_mode_sel(cx, mode, &cm.calcsTab.input.get(pob_lua::n!("misc_buffMode")));
+        buff_mode_sel(
+            cx,
+            mode,
+            &cm.calcsTab.input.get(pob_lua::n!("misc_buffMode")),
+        );
         // L2295
         let minion_shown = raw_shown_true(cx, cmpControls.mainSkillMinion);
         let show_minion = ctl(cx, me, "cmpCalcsShowMinion");
         cx.base_mut(show_minion).shown = Prop::Val(minion_shown);
         // L2296
-        cx.w_mut::<CheckBoxControl>(show_minion).state = cm.calcsTab.input.truthy(pob_lua::n!("showMinion"));
+        cx.w_mut::<CheckBoxControl>(show_minion).state =
+            cm.calcsTab.input.truthy(pob_lua::n!("showMinion"));
 
         // Wrap .shown booleans set by RefreshSkillSelectControls with a view-mode gate,
         // so controls auto-hide when not in CALCS mode (matching configShown pattern)
         // L2300-2307
         let calcsControlNames = [
-            "primCalcsSocketGroup", "primCalcsMainSkill", "primCalcsSkillPart",
-            "primCalcsStageCount", "primCalcsMineCount", "primCalcsShowMinion", "primCalcsMinion",
-            "primCalcsMinionSkill", "primCalcsMode",
-            "cmpCalcsSocketGroup", "cmpCalcsMainSkill", "cmpCalcsSkillPart",
-            "cmpCalcsStageCount", "cmpCalcsMineCount", "cmpCalcsShowMinion", "cmpCalcsMinion",
-            "cmpCalcsMinionSkill", "cmpCalcsMode",
+            "primCalcsSocketGroup",
+            "primCalcsMainSkill",
+            "primCalcsSkillPart",
+            "primCalcsStageCount",
+            "primCalcsMineCount",
+            "primCalcsShowMinion",
+            "primCalcsMinion",
+            "primCalcsMinionSkill",
+            "primCalcsMode",
+            "cmpCalcsSocketGroup",
+            "cmpCalcsMainSkill",
+            "cmpCalcsSkillPart",
+            "cmpCalcsStageCount",
+            "cmpCalcsMineCount",
+            "cmpCalcsShowMinion",
+            "cmpCalcsMinion",
+            "cmpCalcsMinionSkill",
+            "cmpCalcsMode",
         ];
         // L2308
         for name in calcsControlNames {
@@ -1358,7 +1582,8 @@ impl CompareTab {
             if baseShown {
                 // L2312-2315 (module notes: the third operand is always truthy)
                 cx.base_mut(ctrl).shown = Prop::f(move |cx, _| {
-                    st(cx, me).compareViewMode == "CALCS" && Self::GetActiveCompare(cx, me).is_some()
+                    st(cx, me).compareViewMode == "CALCS"
+                        && Self::GetActiveCompare(cx, me).is_some()
                 });
             }
         }
@@ -1368,9 +1593,15 @@ impl CompareTab {
     /// Layout calcs skill detail controls into a two-column header area
     /// @pob Classes/CompareTab.lua:2321-2409 h=2d7c0a9d
     #[allow(clippy::too_many_lines)]
-    pub fn LayoutCalcsSkillControls(cx: &mut Cx, me: CtrlId, vp: &ViewPort, compareEntry: Option<&CompareEntryRef>) -> f64 {
+    pub fn LayoutCalcsSkillControls(
+        cx: &mut Cx,
+        me: CtrlId,
+        vp: &ViewPort,
+        compareEntry: Option<&CompareEntryRef>,
+    ) -> f64 {
         // L2322
-        let Some(compareEntry) = compareEntry.filter(|_| st(cx, me).compareViewMode == "CALCS") else {
+        let Some(compareEntry) = compareEntry.filter(|_| st(cx, me).compareViewMode == "CALCS")
+        else {
             return 0.0;
         };
 
@@ -1388,25 +1619,26 @@ impl CompareTab {
 
         // Helper to position a row of label + control
         // L2335-2345
-        let layoutRow = |cx: &mut Cx, control: CtrlId, x: f64, currentY: f64, width: Option<f64>| -> bool {
-            // L2336
-            let hidden = match &cx.base(control).shown {
-                Prop::Val(v) => !*v,
-                Prop::Fn(_) => !cx.is_shown(control),
+        let layoutRow =
+            |cx: &mut Cx, control: CtrlId, x: f64, currentY: f64, width: Option<f64>| -> bool {
+                // L2336
+                let hidden = match &cx.base(control).shown {
+                    Prop::Val(v) => !*v,
+                    Prop::Fn(_) => !cx.is_shown(control),
+                };
+                if hidden {
+                    // L2337
+                    return false;
+                }
+                // L2339-2340
+                set_xy(cx, control, x + labelW, currentY);
+                // L2341 (`control.width` is a number)
+                // L2342
+                let w = cx.base(control).width.raw();
+                set_width(cx, control, m_min(width.unwrap_or(controlW), w));
+                // L2344
+                true
             };
-            if hidden {
-                // L2337
-                return false;
-            }
-            // L2339-2340
-            set_xy(cx, control, x + labelW, currentY);
-            // L2341 (`control.width` is a number)
-            // L2342
-            let w = cx.base(control).width.raw();
-            set_width(cx, control, m_min(width.unwrap_or(controlW), w));
-            // L2344
-            true
-        };
 
         // Track max rows for both columns
         // L2348-2349
@@ -1455,8 +1687,19 @@ impl CompareTab {
         // L2377 padding before text
         let mut textLinesHeight = 2.0;
         // L2378-2381
-        let primaryOutput = cx.build().model.calcsTab.calcsEnv.get().map(|e| e.player.output.get());
-        let compareOutput = compareEntry.model.calcsTab.calcsEnv.get().map(|e| e.player.output.get());
+        let primaryOutput = cx
+            .build()
+            .model
+            .calcsTab
+            .calcsEnv
+            .get()
+            .map(|e| e.player.output.get());
+        let compareOutput = compareEntry
+            .model
+            .calcsTab
+            .calcsEnv
+            .get()
+            .map(|e| e.player.output.get());
         // L2382
         if primaryOutput.is_some() || compareOutput.is_some() {
             // L2383
@@ -1471,8 +1714,12 @@ impl CompareTab {
             // L2390
             for key in infoKeys {
                 // L2391-2392
-                let primaryValue = primaryOutput.as_ref().map_or(Val::Nil, |o| o.get(Name::from(key)));
-                let compareValue = compareOutput.as_ref().map_or(Val::Nil, |o| o.get(Name::from(key)));
+                let primaryValue = primaryOutput
+                    .as_ref()
+                    .map_or(Val::Nil, |o| o.get(Name::from(key)));
+                let compareValue = compareOutput
+                    .as_ref()
+                    .map_or(Val::Nil, |o| o.get(Name::from(key)));
                 let nonEmpty = |v: &Val| v.truthy() && !matches!(v, Val::Str(s) if s.is_empty());
                 // L2393
                 if nonEmpty(&primaryValue) || nonEmpty(&compareValue) {
@@ -1514,7 +1761,12 @@ impl CompareTab {
         cx.w_mut::<CheckBoxControl>(showOnlyDiffCheck).state = state;
         // L2406-2407
         let lw = label_width(cx, showOnlyDiffCheck);
-        set_xy(cx, showOnlyDiffCheck, leftX + lw + 2.0, vp.y + headerHeight + 4.0);
+        set_xy(
+            cx,
+            showOnlyDiffCheck,
+            leftX + lw + 2.0,
+            vp.y + headerHeight + 4.0,
+        );
         // L2408
         headerHeight
     }
@@ -1522,7 +1774,12 @@ impl CompareTab {
     /// lua: CompareTab.lua:2412-2461 `CompareTabClass:HandleScrollInput(contentVP, inputEvents)`
     /// Handle scroll events for scrollable views.
     /// @pob Classes/CompareTab.lua:2412-2461 h=3c35da1d
-    pub fn HandleScrollInput(cx: &mut Cx, me: CtrlId, contentVP: &ViewPort, inputEvents: &mut InputEvents) {
+    pub fn HandleScrollInput(
+        cx: &mut Cx,
+        me: CtrlId,
+        contentVP: &ViewPort,
+        inputEvents: &mut InputEvents,
+    ) {
         // L2413
         let (cursorX, cursorY) = cx.sys.cursor_pos();
         // L2414-2415
@@ -1640,7 +1897,9 @@ impl CompareTab {
     /// lua: CompareTab.lua:2468-2473 `CompareTabClass:GetGemGrantedEffect(gem)`
     /// Resolve the granted effect for a gem instance
     /// @pob Classes/CompareTab.lua:2468-2473 h=d13b9a2c
-    pub fn GetGemGrantedEffect(gem: &model::GemInstance) -> Option<model::gamedata::GrantedEffectRef> {
+    pub fn GetGemGrantedEffect(
+        gem: &model::GemInstance,
+    ) -> Option<model::gamedata::GrantedEffectRef> {
         // L2469
         if let Some(gemData) = gem.gemData.get() {
             // L2470
@@ -1724,7 +1983,11 @@ fn syncControlValue(cx: &mut Cx, ctrl: CtrlId, varData: &ConfigOptionDef, val: &
     // L2034-2035
     } else if matches!(ty, Some("count" | "integer" | "countAllowZero" | "float")) {
         // L2036
-        let text = tostring_val(&if val.truthy() { val.clone() } else { Val::from("") });
+        let text = tostring_val(&if val.truthy() {
+            val.clone()
+        } else {
+            Val::from("")
+        });
         // avoid setting text every time as otherwise this clears user selections on every frame
         // L2038
         if cx.base(ctrl).has_focus != Some(true) && text != cx.w::<EditControl>(ctrl).buf {

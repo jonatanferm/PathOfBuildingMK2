@@ -308,10 +308,16 @@ fn fn_text(s: String) -> String {
     let mut rest = s.as_str();
     while let Some(i) = rest.find(FUNCTION_TEXT_PREFIX) {
         let after = &rest[i + FUNCTION_TEXT_PREFIX.len()..];
-        let hex = after.find(|c: char| !c.is_ascii_hexdigit()).unwrap_or(after.len());
+        let hex = after
+            .find(|c: char| !c.is_ascii_hexdigit())
+            .unwrap_or(after.len());
         out.push_str(&rest[..i]);
         // `%x+` needs at least one digit
-        out.push_str(if hex == 0 { FUNCTION_TEXT_PREFIX } else { "table" });
+        out.push_str(if hex == 0 {
+            FUNCTION_TEXT_PREFIX
+        } else {
+            "table"
+        });
         rest = &after[hex..];
     }
     out.push_str(rest);

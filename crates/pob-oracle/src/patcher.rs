@@ -1480,7 +1480,8 @@ const LEGACY_AGE_FACTOR: u32 = 3;
 /// Mark the copy in `dir` as used now. False when `dir` is gone (pruned meanwhile).
 #[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
 fn touch_use_marker(dir: &Path) -> bool {
-    dir.is_dir() && std::fs::write(dir.join(USE_MARKER), format!("{}\n", std::process::id())).is_ok()
+    dir.is_dir()
+        && std::fs::write(dir.join(USE_MARKER), format!("{}\n", std::process::id())).is_ok()
 }
 
 /// The in-use lock of a published copy (`<root>/<sha>/.in-use.lock`). Every process that is handed
@@ -1642,7 +1643,9 @@ pub fn prune(root: &Path, keep: Option<&str>, max_age: std::time::Duration) -> V
             // in use: a process holds the copy (shared lock). No lock file: no process of this
             // code was ever handed the copy (one that takes it now finds it renamed and
             // republishes it).
-            let lock = std::fs::File::options().read(true).open(path.join(USE_LOCK));
+            let lock = std::fs::File::options()
+                .read(true)
+                .open(path.join(USE_LOCK));
             let _exclusive = match lock {
                 Ok(f) => match try_lock_exclusive(&f) {
                     Ok(true) => Some(f),
@@ -1895,7 +1898,12 @@ pub fn patch(pob_src: &Path, stages_path: Option<&Path>, root: &Path) -> Result<
             prune_roots.push(r);
         }
     }
-    publish(pob_src, stages_path, shared.as_deref().unwrap_or(root), &prune_roots)
+    publish(
+        pob_src,
+        stages_path,
+        shared.as_deref().unwrap_or(root),
+        &prune_roots,
+    )
 }
 
 /// [`patch`] into exactly `root/<sha>`, bypassing the [`shared_root`]: for callers that need a
@@ -2169,7 +2177,10 @@ mod tests {
         let released = copy("00000000000000b2");
         let other_process = copy("00000000000000b3");
         assert!(hold_copy(&held));
-        assert!(hold_copy(&held), "a second hold of the same copy is a no-op");
+        assert!(
+            hold_copy(&held),
+            "a second hold of the same copy is a no-op"
+        );
         // a lock file some earlier process held and released
         drop(std::fs::File::create(released.join(USE_LOCK)).unwrap());
         // another holder: a shared lock through a descriptor of its own (as another process has)

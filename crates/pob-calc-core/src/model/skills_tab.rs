@@ -223,8 +223,7 @@ impl SkillsTab {
         let key = self as *const SkillsTab as usize;
         SKILLS_TAB_UI.with(|m| {
             let mut m = m.borrow_mut();
-            if m
-                .get(&key)
+            if m.get(&key)
                 .is_some_and(|(owner, _)| !owner.ptr_eq(&self.imbuedSupportBySlot))
             {
                 m.remove(&key);

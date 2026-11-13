@@ -44,7 +44,6 @@ use pob_ui_oracle::lua_calc::LuaCalcBridge;
 use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
 
 fn inputs() -> Option<PathBuf> {
@@ -612,11 +611,8 @@ fn calcs_section(xml: &str) -> Result<Vec<String>, String> {
         .iter()
         .filter_map(|c| match c {
             XmlChild::Node(n) => {
-                let mut a: Vec<String> = n
-                    .attrib
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v:?}"))
-                    .collect();
+                let mut a: Vec<String> =
+                    n.attrib.iter().map(|(k, v)| format!("{k}={v:?}")).collect();
                 a.sort();
                 Some(format!("{} {{{}}}", n.elem, a.join(" ")))
             }
@@ -678,9 +674,9 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
         }
     }
     for want in directives(text, "u40-expect-text") {
-        let found = lua.frames.iter().flat_map(|f| &f.calls).any(|c| {
-            matches!(&c.call, ApiCall::DrawString { text, .. } if text.contains(want.as_str()))
-        });
+        let found = lua.frames.iter().flat_map(|f| &f.calls).any(
+            |c| matches!(&c.call, ApiCall::DrawString { text, .. } if text.contains(want.as_str())),
+        );
         if !found {
             errs.push(format!("no Lua frame draws a string containing {want:?}"));
         }
@@ -898,10 +894,16 @@ fn u40_format_helpers() {
         "add(C:FormatVarNameOrList(nil, { 'Foo', 'BarBaz' }))\nadd(C:FormatVarNameOrList('PowerCharge', nil))\n",
     );
     rust.push(B::format_var_name_or_list(&Val::Nil, &Val::Table(list)));
-    rust.push(B::format_var_name_or_list(&Val::from("PowerCharge"), &Val::Nil));
+    rust.push(B::format_var_name_or_list(
+        &Val::from("PowerCharge"),
+        &Val::Nil,
+    ));
     for t in ["BASE", "INC"] {
         for x in nums {
-            lua.push_str(&format!("add(C:FormatModBase({{ type = {t:?} }}, {}))\n", lnum(x)));
+            lua.push_str(&format!(
+                "add(C:FormatModBase({{ type = {t:?} }}, {}))\n",
+                lnum(x)
+            ));
             let m = Table::new();
             m.set(pob_lua::n!("type"), t);
             rust.push(B::format_mod_base(&Val::Table(m), x));
@@ -914,7 +916,10 @@ fn u40_format_helpers() {
         }
     }
     lua.push_str("add(C:FormatModValue(true, 'FLAG'))\nadd(C:FormatModValue(nil, 'FLAG'))\n");
-    rust.push(s(&B::format_mod_value(&Val::Bool(true), &Val::from("FLAG"))));
+    rust.push(s(&B::format_mod_value(
+        &Val::Bool(true),
+        &Val::from("FLAG"),
+    )));
     rust.push(s(&B::format_mod_value(&Val::Nil, &Val::from("FLAG"))));
     lua.push_str(
         "add(C:FormatModValue({ mod = { name = 'FooBar2' } }, 'LIST'))\nadd(C:FormatModValue({ }, 'LIST'))\n",
@@ -924,7 +929,10 @@ fn u40_format_helpers() {
     let lv = Table::new();
     lv.set(pob_lua::n!("mod"), inner);
     rust.push(s(&B::format_mod_value(&Val::Table(lv), &Val::from("LIST"))));
-    rust.push(s(&B::format_mod_value(&Val::Table(Table::new()), &Val::from("LIST"))));
+    rust.push(s(&B::format_mod_value(
+        &Val::Table(Table::new()),
+        &Val::from("LIST"),
+    )));
     for (v, d) in rounds {
         lua.push_str(&format!(
             "add(formatRound({v}, {d}))\nadd(formatPercent({v}, {d}))\nadd(formatSec({v}, {d}))\n",
@@ -942,8 +950,7 @@ fn u40_format_helpers() {
 
     let user = UserDir::new(None).expect("user dir");
     let handles = OracleHandles::default();
-    let mut app =
-        runner::lua_side(&root, &user, &handles, Entry::Launch, false).expect("Lua side");
+    let mut app = runner::lua_side(&root, &user, &handles, Entry::Launch, false).expect("Lua side");
     app.on_init();
     let got: String = app
         .with_vm(|pob| pob.eval::<String>(&lua))

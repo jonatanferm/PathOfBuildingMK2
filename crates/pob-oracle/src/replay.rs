@@ -255,7 +255,10 @@ impl Node {
         let mut rest: Vec<&String> = self
             .nums
             .keys()
-            .filter(|k| !k.parse::<usize>().is_ok_and(|i| (1..=n).contains(&i) && i.to_string() == **k))
+            .filter(|k| {
+                !k.parse::<usize>()
+                    .is_ok_and(|i| (1..=n).contains(&i) && i.to_string() == **k)
+            })
             .collect();
         rest.sort_by(|a, b| num_of(a).total_cmp(&num_of(b)).then_with(|| a.cmp(b)));
         (n, rest)
@@ -284,7 +287,11 @@ impl Node {
 
     /// Path members (what a path step can name; `$keys` entries are not).
     fn path_members(&self) -> Vec<(MK, &V)> {
-        let mut out: Vec<(MK, &V)> = self.strs.iter().map(|(k, v)| (MK::S(k.clone()), v)).collect();
+        let mut out: Vec<(MK, &V)> = self
+            .strs
+            .iter()
+            .map(|(k, v)| (MK::S(k.clone()), v))
+            .collect();
         out.extend(self.nums.iter().map(|(k, v)| (MK::N(k.clone()), v)));
         if let Some(m) = &self.meta {
             out.push((MK::Meta, m));
@@ -576,7 +583,11 @@ impl Enc<'_> {
         }
         for (k, v) in &node.strs {
             let s = next(&mut ord);
-            let key = if k.starts_with('$') { format!("${k}") } else { k.clone() };
+            let key = if k.starts_with('$') {
+                format!("${k}")
+            } else {
+                k.clone()
+            };
             let j = self.val(v, s);
             m.insert(key, j);
         }
@@ -739,7 +750,12 @@ impl Merger<'_> {
                 .zip(&inn.keys)
                 .any(|((ok, ov), (ik, iv))| !self.same(ok, ik) || !self.same(ov, iv));
         let mods_delta = mods_delta(on.mods.as_ref(), inn.mods.as_ref());
-        if sets.is_empty() && removes.is_empty() && !head_changed && !keys_changed && mods_delta.is_none() {
+        if sets.is_empty()
+            && removes.is_empty()
+            && !head_changed
+            && !keys_changed
+            && mods_delta.is_none()
+        {
             return;
         }
         self.applied.changed_tables += 1;
@@ -812,10 +828,8 @@ fn mods_delta(o: Option<&Mods>, i: Option<&Mods>) -> Option<ModsDelta> {
             let mut out = BTreeMap::new();
             let names: BTreeSet<&String> = om.keys().chain(im.keys()).collect();
             for n in names {
-                let (r, a) = multiset_delta(
-                    om.get(n).unwrap_or(&empty),
-                    im.get(n).unwrap_or(&empty),
-                );
+                let (r, a) =
+                    multiset_delta(om.get(n).unwrap_or(&empty), im.get(n).unwrap_or(&empty));
                 if !r.is_empty() || !a.is_empty() {
                     out.insert(n.clone(), (r, a));
                 }

@@ -249,7 +249,8 @@ fn segment_writes(path: &str) -> bool {
             | "showNetRecoup"
             | "PvPTotalTakenHit"
     ) || k.ends_with("RecoupableDamageTaken")
-        || (k.starts_with("Total") && (k.ends_with("RecoupRecovery") || k.ends_with("PseudoRecoup")))
+        || (k.starts_with("Total")
+            && (k.ends_with("RecoupRecovery") || k.ends_with("PseudoRecoup")))
         || k.ends_with("RecoupRecoveryMax")
         || k.ends_with("RecoupRecoveryAvg")
 }
@@ -364,7 +365,8 @@ fn run_corpus(builds: &[PathBuf]) -> Tally {
                     for s in &sites {
                         *t.pending_sites.entry(s).or_insert(0) += 1;
                     }
-                    t.pending.push(format!("{what} ({nmm} mismatches) via {sites:?}"));
+                    t.pending
+                        .push(format!("{what} ({nmm} mismatches) via {sites:?}"));
                 }
             }
         }
@@ -396,10 +398,7 @@ fn gate(t: &Tally, what: &str, min_rate: f64) {
         t.pending.len()
     );
     let judged = t.pass + t.fail.len() + t.errors.len();
-    assert!(
-        judged > 0 || !t.pending.is_empty(),
-        "{what}: no hit judged"
-    );
+    assert!(judged > 0 || !t.pending.is_empty(), "{what}: no hit judged");
     if judged > 0 {
         let rate = t.pass as f64 / judged as f64;
         assert!(
@@ -455,7 +454,10 @@ fn dff_l4_unit() {
         eprintln!("DF-F L4 unit: no corpus/DF-F build selected by DFF_BUILDS");
         return;
     }
-    assert!(!builds.is_empty(), "corpus/DF-F has no builds (run derive.py)");
+    assert!(
+        !builds.is_empty(),
+        "corpus/DF-F has no builds (run derive.py)"
+    );
     let t = run_corpus(&builds);
     t.report("DF-F L4 unit");
     gate(&t, "DF-F L4 unit", 1.0);

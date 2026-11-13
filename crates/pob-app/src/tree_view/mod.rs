@@ -120,8 +120,7 @@ pub struct TreeViewHooks {
     /// `self:AddNodeTooltip(tooltip, node, build)` (U24, PassiveTreeView.lua:1534-1856)
     pub add_node_tooltip: Rc<dyn Fn(&mut Cx, &mut PassiveTreeView, &mut Tooltip, &NodeRef)>,
     /// `self:AddCompareNodeTooltip(tooltip, node, build)` (U24)
-    pub add_compare_node_tooltip:
-        Rc<dyn Fn(&mut Cx, &mut PassiveTreeView, &mut Tooltip, &NodeRef)>,
+    pub add_compare_node_tooltip: Rc<dyn Fn(&mut Cx, &mut PassiveTreeView, &mut Tooltip, &NodeRef)>,
     /// `build.treeTab:OpenMasteryPopup(node, viewPort)` (U25, TreeTab.lua)
     pub open_mastery_popup: Rc<dyn Fn(&mut Cx, &NodeRef, &ViewPort)>,
     /// `build.treeTab:ModifyNodePopup(node, viewPort)` (U25, TreeTab.lua)
@@ -141,7 +140,9 @@ pub fn default_hooks() -> TreeViewHooks {
     TreeViewHooks {
         // CCR-0115 A: U24's ports (tooltip.rs)
         add_node_tooltip: Rc::new(|cx, view, tt, node| view.add_node_tooltip(cx, tt, node, false)),
-        add_compare_node_tooltip: Rc::new(|cx, view, tt, node| view.add_compare_node_tooltip(cx, tt, node)),
+        add_compare_node_tooltip: Rc::new(|cx, view, tt, node| {
+            view.add_compare_node_tooltip(cx, tt, node)
+        }),
         open_mastery_popup: Rc::new(crate::tabs::tree::core::open_mastery_popup_hook),
         modify_node_popup: Rc::new(crate::tabs::tree::core::modify_node_popup_hook),
         build_power: Rc::new(crate::tabs::tree::power::build_power), // U26
@@ -173,7 +174,10 @@ fn socket_right_click(cx: &mut Cx, node_id: f64) {
         // L527
         cx.select_control(tab, Some(slot));
         // L528
-        cx.build().model.viewMode.set(crate::model::Name::from("ITEMS"));
+        cx.build()
+            .model
+            .viewMode
+            .set(crate::model::Name::from("ITEMS"));
     }
 }
 
@@ -216,8 +220,14 @@ impl PassiveTreeView {
         let jewel_shaded_inner_ring = clamp_image(cx, "Assets/ShadedInnerRing.png");
         let jewel_shaded_inner_ring_flipped = clamp_image(cx, "Assets/ShadedInnerRingFlipped.png");
         // L45-68
-        let eternal1 = clamp_image(cx, "TreeData/PassiveSkillScreenEternalEmpireJewelCircle1.png");
-        let eternal2 = clamp_image(cx, "TreeData/PassiveSkillScreenEternalEmpireJewelCircle2.png");
+        let eternal1 = clamp_image(
+            cx,
+            "TreeData/PassiveSkillScreenEternalEmpireJewelCircle1.png",
+        );
+        let eternal2 = clamp_image(
+            cx,
+            "TreeData/PassiveSkillScreenEternalEmpireJewelCircle2.png",
+        );
         let karui1 = clamp_image(cx, "TreeData/PassiveSkillScreenKaruiJewelCircle1.png");
         let karui2 = clamp_image(cx, "TreeData/PassiveSkillScreenKaruiJewelCircle2.png");
         let maraketh1 = clamp_image(cx, "TreeData/PassiveSkillScreenMarakethJewelCircle1.png");
@@ -320,13 +330,21 @@ impl PassiveTreeView {
         let opt = |v: Option<f64>| v.map_or_else(|| "nil".to_owned(), pob_lua::tostring);
         // L107-113 (a string-keyed table: the writer's attribute order is `pairs` order)
         let mut attrib = indexmap::IndexMap::new();
-        attrib.insert("zoomLevel".into(), pob_lua::tostring(self.zoom_level).into());
+        attrib.insert(
+            "zoomLevel".into(),
+            pob_lua::tostring(self.zoom_level).into(),
+        );
         attrib.insert("zoomX".into(), opt(self.zoom_x).into());
         attrib.insert("zoomY".into(), opt(self.zoom_y).into());
         attrib.insert("searchStr".into(), self.search_str.as_str().into());
         attrib.insert(
             "showStatDifferences".into(),
-            if self.show_stat_differences { "true" } else { "false" }.into(),
+            if self.show_stat_differences {
+                "true"
+            } else {
+                "false"
+            }
+            .into(),
         );
         xml.attrib = attrib;
     }
@@ -374,7 +392,9 @@ impl PassiveTreeView {
                 for (_, recipe_name) in recipe.ipairs() {
                     let recipe_name = recipe_name.str().map(|s| s.to_string()).unwrap_or_default();
                     // L1355
-                    let hay = pob_lua::gsub(&recipe_name, "Oil", "", None).0.to_ascii_lowercase();
+                    let hay = pob_lua::gsub(&recipe_name, "Oil", "", None)
+                        .0
+                        .to_ascii_lowercase();
                     if run(&hay, &mut need_matches) {
                         // L1356
                         return Some(false);
@@ -430,7 +450,11 @@ impl PassiveTreeView {
                 for (_, m) in list {
                     let name = match &m {
                         Val::Mod(m) => m.name.to_string(),
-                        other => other.get(n!("name")).str().map(|s| s.to_string()).unwrap_or_default(),
+                        other => other
+                            .get(n!("name"))
+                            .str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_default(),
                     };
                     // L1383
                     if run(&name, &mut need_matches) {
@@ -462,7 +486,8 @@ impl PassiveTreeView {
         // L1400
         if cx.app().launch.dev_mode {
             // L1401
-            let id = match pob_calc::classes::passive_tree::node_id_val(node) { // CCR-0115
+            let id = match pob_calc::classes::passive_tree::node_id_val(node) {
+                // CCR-0115
                 Val::Num(x) => pob_lua::tostring(x),
                 Val::Str(s) => s.to_string(),
                 _ => "nil".to_owned(),

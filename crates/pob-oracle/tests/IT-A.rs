@@ -49,9 +49,9 @@ use pob_calc::classes::item::ItemAffixes;
 use pob_calc::classes::item_parse::{self, replay};
 use pob_calc::classes::Item;
 use pob_calc::prelude::{LuaError, Mod, Name};
-use pob_lua::{lua_format, FmtArg};
 use pob_calc::{Key, LStr, Table, Val};
 use pob_gamedata::schema::affixes::AffixTable;
+use pob_lua::{lua_format, FmtArg};
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up};
@@ -116,7 +116,10 @@ fn xml_unescape(s: &str) -> String {
             "quot" => out.push('"'),
             "apos" => out.push('\''),
             e if e.starts_with("#x") => {
-                if let Some(c) = u32::from_str_radix(&e[2..], 16).ok().and_then(char::from_u32) {
+                if let Some(c) = u32::from_str_radix(&e[2..], 16)
+                    .ok()
+                    .and_then(char::from_u32)
+                {
                     out.push(c);
                 }
             }
@@ -282,7 +285,11 @@ fn fix_json(j: &mut J) {
             let entries: Vec<(String, J)> = std::mem::take(o).into_iter().collect();
             for (k, mut v) in entries {
                 fix_json(&mut v);
-                let k = if k.bytes().any(|b| b >= 0x80) { bytes_str(&k) } else { k };
+                let k = if k.bytes().any(|b| b >= 0x80) {
+                    bytes_str(&k)
+                } else {
+                    k
+                };
                 o.insert(k, v);
             }
         }
@@ -374,7 +381,10 @@ fn ceq(a: &C, b: &C, path: &str, diffs: &mut Vec<String>) {
             } else {
                 for (i, (m, n)) in x.iter().zip(y).enumerate() {
                     if m != n {
-                        diffs.push(format!("{path}[{}]: mod rust={m:?}\n      lua={n:?}", i + 1));
+                        diffs.push(format!(
+                            "{path}[{}]: mod rust={m:?}\n      lua={n:?}",
+                            i + 1
+                        ));
                     }
                 }
                 true
@@ -416,7 +426,10 @@ fn cshow(c: &C) -> String {
         C::Ref(r) => format!("ref {r}"),
     };
     if s.len() > 300 {
-        format!("{}…", &s[..s.char_indices().nth(300).map_or(s.len(), |(i, _)| i)])
+        format!(
+            "{}…",
+            &s[..s.char_indices().nth(300).map_or(s.len(), |(i, _)| i)]
+        )
     } else {
         s
     }
@@ -629,10 +642,23 @@ fn rust_state(item: &Item) -> BTreeMap<String, C> {
     put("raw", C::S(item.raw.get().to_string()));
     put("name", C::S(item.name.get().to_string()));
     put("title", st(item.title.get()));
-    put("baseName", item.baseName.get().map_or(C::Nil, |n| C::S(n.to_string())));
-    put("base", item.base.get().map_or(C::Nil, |b| C::Ref(base_id(&b))));
+    put(
+        "baseName",
+        item.baseName.get().map_or(C::Nil, |n| C::S(n.to_string())),
+    );
+    put(
+        "base",
+        item.base.get().map_or(C::Nil, |b| C::Ref(base_id(&b))),
+    );
     let ty = item.r#type.get();
-    put("type", if ty.is_empty() { C::Nil } else { C::S(ty.to_string()) });
+    put(
+        "type",
+        if ty.is_empty() {
+            C::Nil
+        } else {
+            C::S(ty.to_string())
+        },
+    );
     put("rarity", C::S(item.rarity.get().to_string()));
     put("uniqueID", st(item.uniqueID.get()));
     put("corrupted", flag(item.corrupted.get()));
@@ -657,11 +683,26 @@ fn rust_state(item: &Item) -> BTreeMap<String, C> {
         }
         put("variantList", C::T(m));
     }
-    put("explicitModLines", shared_list(&item.explicitModLines.get(), item));
-    put("implicitModLines", shared_list(&item.implicitModLines.get(), item));
-    put("enchantModLines", shared_list(&item.enchantModLines.get(), item));
-    put("scourgeModLines", shared_list(&item.scourgeModLines.get(), item));
-    put("crucibleModLines", shared_list(&item.crucibleModLines.get(), item));
+    put(
+        "explicitModLines",
+        shared_list(&item.explicitModLines.get(), item),
+    );
+    put(
+        "implicitModLines",
+        shared_list(&item.implicitModLines.get(), item),
+    );
+    put(
+        "enchantModLines",
+        shared_list(&item.enchantModLines.get(), item),
+    );
+    put(
+        "scourgeModLines",
+        shared_list(&item.scourgeModLines.get(), item),
+    );
+    put(
+        "crucibleModLines",
+        shared_list(&item.crucibleModLines.get(), item),
+    );
     put("buffModLines", shared_list(&item.buffModLines.get(), item));
     put(
         "classRequirementModLines",
@@ -678,21 +719,34 @@ fn rust_state(item: &Item) -> BTreeMap<String, C> {
     put(
         "clusterJewel",
         item.clusterJewel.get().map_or(C::Nil, |t| {
-            C::Ref(format!("cluster:{}", t.get(Name::from("size")).str().unwrap_or_default()))
+            C::Ref(format!(
+                "cluster:{}",
+                t.get(Name::from("size")).str().unwrap_or_default()
+            ))
         }),
     );
     put(
         "clusterJewelSkill",
-        item.clusterJewelSkill.get().map_or(C::Nil, |n| C::S(n.to_string())),
+        item.clusterJewelSkill
+            .get()
+            .map_or(C::Nil, |n| C::S(n.to_string())),
     );
-    put("clusterJewelNodeCount", num(item.clusterJewelNodeCount.get()));
+    put(
+        "clusterJewelNodeCount",
+        num(item.clusterJewelNodeCount.get()),
+    );
     put("catalyst", num(item.catalyst.get()));
     put("catalystQuality", num(item.catalystQuality.get()));
     put("talismanTier", num(item.talismanTier.get()));
-    put("requirements", c_from_val(&Val::Table(item.requirements.clone()), None, item));
+    put(
+        "requirements",
+        c_from_val(&Val::Table(item.requirements.clone()), None, item),
+    );
     put(
         "classRestriction",
-        item.classRestriction.get().map_or(C::Nil, |n| C::S(n.to_string())),
+        item.classRestriction
+            .get()
+            .map_or(C::Nil, |n| C::S(n.to_string())),
     );
     put("limit", num(item.limit.get()));
     for (k, v) in item.influences.pairs() {
@@ -826,7 +880,12 @@ fn check_parse(t: &mut Tally, native: &mut NativeStats, src: &str, item: &Item, 
         let snap = snapshot.clone();
         replay::set(replay::Hooks {
             applyRange: Some(Rc::new(move |line, range, vs, bvs| {
-                let key = format!("{line}\u{1}{}\u{1}{}\u{1}{}", repr(range), ropt(vs), ropt(bvs));
+                let key = format!(
+                    "{line}\u{1}{}\u{1}{}\u{1}{}",
+                    repr(range),
+                    ropt(vs),
+                    ropt(bvs)
+                );
                 seq.borrow_mut().push(format!("A {key}"));
                 match apply.get(&key) {
                     Some(r) => r.clone(),
@@ -841,7 +900,9 @@ fn check_parse(t: &mut Tally, native: &mut NativeStats, src: &str, item: &Item, 
                 match parse.get(&(line.to_owned(), isComb)) {
                     Some(r) => r.clone(),
                     None => {
-                        miss2.borrow_mut().push(format!("parseMod {line:?} {isComb}"));
+                        miss2
+                            .borrow_mut()
+                            .push(format!("parseMod {line:?} {isComb}"));
                         (None, Some(line.to_owned()))
                     }
                 }
@@ -906,7 +967,14 @@ fn check_parse(t: &mut Tally, native: &mut NativeStats, src: &str, item: &Item, 
     let same_seq = *rust_seq == lua_seq;
     if !same_seq && std::env::var_os("IT_A_VERBOSE").is_some() {
         eprintln!("== {src}\n-- raw:\n{}", p["raw"].as_str().unwrap_or(""));
-        for (i, (a, b)) in rust_seq.iter().map(Some).chain(std::iter::repeat(None)).zip(lua_seq.iter().map(Some).chain(std::iter::repeat(None))).take(rust_seq.len().max(lua_seq.len())).enumerate() {
+        for (i, (a, b)) in rust_seq
+            .iter()
+            .map(Some)
+            .chain(std::iter::repeat(None))
+            .zip(lua_seq.iter().map(Some).chain(std::iter::repeat(None)))
+            .take(rust_seq.len().max(lua_seq.len()))
+            .enumerate()
+        {
             let mark = if a == b { " " } else { "!" };
             eprintln!("{mark}{:4} rust={a:?}\n      lua ={b:?}", i + 1);
         }
@@ -952,11 +1020,24 @@ fn check_parse(t: &mut Tally, native: &mut NativeStats, src: &str, item: &Item, 
                 );
             }
             t.check("state at BuildModList", diffs.is_empty(), || {
-                format!("{src}: {} differences:\n    {}", diffs.len(), diffs.iter().take(6).cloned().collect::<Vec<_>>().join("\n    "))
+                format!(
+                    "{src}: {} differences:\n    {}",
+                    diffs.len(),
+                    diffs
+                        .iter()
+                        .take(6)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("\n    ")
+                )
             });
         }
         (a, _) => t.check("state at BuildModList", false, || {
-            format!("{src}: rust reached BuildModList: {}, lua: {}", a.is_some(), !p["state"].is_null())
+            format!(
+                "{src}: rust reached BuildModList: {}, lua: {}",
+                a.is_some(),
+                !p["state"].is_null()
+            )
         }),
     }
 
@@ -964,14 +1045,18 @@ fn check_parse(t: &mut Tally, native: &mut NativeStats, src: &str, item: &Item, 
     if r.is_ok() && lua_err.is_none() {
         let after = &p["after"];
         let jri = jnum(&after["jewelRadiusIndex"]);
-        t.check("jewelRadiusIndex after", item.jewelRadiusIndex.get() == jri, || {
-            format!("{src}: rust={:?} lua={jri:?}", item.jewelRadiusIndex.get())
-        });
+        t.check(
+            "jewelRadiusIndex after",
+            item.jewelRadiusIndex.get() == jri,
+            || format!("{src}: rust={:?} lua={jri:?}", item.jewelRadiusIndex.get()),
+        );
         let iu = after["isUnique"].as_bool();
         let ru = item.extra.get(Name::from("isUnique"));
-        t.check("isUnique after", ru.truthy() == (iu == Some(true)) && !ru.is_nil(), || {
-            format!("{src}: rust={ru:?} lua={iu:?}")
-        });
+        t.check(
+            "isUnique after",
+            ru.truthy() == (iu == Some(true)) && !ru.is_nil(),
+            || format!("{src}: rust={ru:?} lua={iu:?}"),
+        );
     }
 }
 
@@ -1087,7 +1172,12 @@ fn parse_raw_vs_pob() {
     t.check(
         "main.defaultItemAffixQuality",
         daq == item_parse::main_defaultItemAffixQuality(),
-        || format!("rust={:?} lua={daq:?}", item_parse::main_defaultItemAffixQuality()),
+        || {
+            format!(
+                "rust={:?} lua={daq:?}",
+                item_parse::main_defaultItemAffixQuality()
+            )
+        },
     );
 
     // items
@@ -1113,7 +1203,9 @@ fn parse_raw_vs_pob() {
                 continue;
             }
         }
-        *kinds.entry(rec["kind"].as_str().unwrap_or("?").to_owned()).or_default() += 1;
+        *kinds
+            .entry(rec["kind"].as_str().unwrap_or("?").to_owned())
+            .or_default() += 1;
         let item = Item::default();
         for p in rec["parses"].as_array().unwrap() {
             check_parse(&mut t, &mut native, &src, &item, p);
@@ -1134,7 +1226,10 @@ fn parse_raw_vs_pob() {
         }
     }
 
-    eprintln!("IT-A: items by kind {kinds:?}; {nparses} ParseRaw calls; Rust side {:?}", t1.elapsed());
+    eprintln!(
+        "IT-A: items by kind {kinds:?}; {nparses} ParseRaw calls; Rust side {:?}",
+        t1.elapsed()
+    );
     eprintln!("{:<48} {:>8} {:>6}", "check", "pass", "fail");
     for (k, (p, f)) in &t.rows {
         eprintln!("{k:<48} {p:>8} {f:>6}");
@@ -1146,11 +1241,19 @@ fn parse_raw_vs_pob() {
     for f in &t.fails {
         eprintln!("FAIL {f}");
     }
-    assert_eq!(t.failed(), 0, "{} IT-A mismatches (first ones above)", t.failed());
+    assert_eq!(
+        t.failed(),
+        0,
+        "{} IT-A mismatches (first ones above)",
+        t.failed()
+    );
     if std::env::var_os("IT_A_ONLY").is_some() {
         return;
     }
-    assert!(kinds.get("unique").copied().unwrap_or(0) > 0, "no uniques checked");
+    assert!(
+        kinds.get("unique").copied().unwrap_or(0) > 0,
+        "no uniques checked"
+    );
     assert_eq!(
         kinds.get("synthetic").copied().unwrap_or(0),
         SYNTH.len(),
@@ -1220,12 +1323,22 @@ fn parse_raw_units() {
             BuildModList: Some(Rc::new(|_| {})),
             CanHaveMod: Some(Rc::new(|_, _, _| false)),
         });
-        let r = catch(|| item.ParseRaw("Rarity: RARE\nSome Name\nNot A Base\nCrafted: true", None, false));
+        let r = catch(|| {
+            item.ParseRaw(
+                "Rarity: RARE\nSome Name\nNot A Base\nCrafted: true",
+                None,
+                false,
+            )
+        });
         replay::clear();
         assert!(r.is_ok(), "{r:?}");
         assert!(item.base.get().is_none());
         assert_eq!(item.extra.get(Name::from("affixLimit")).num(), 6.0);
-        let prefixes = item.extra.get(Name::from("prefixes")).table().expect("prefixes");
+        let prefixes = item
+            .extra
+            .get(Name::from("prefixes"))
+            .table()
+            .expect("prefixes");
         assert_eq!(prefixes.len(), 3);
     }
 }

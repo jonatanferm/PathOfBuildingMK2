@@ -27,9 +27,9 @@
 use std::rc::Rc;
 
 use pob_lua::pattern;
+use pob_lua::string::matchOrPattern;
 use pob_ui_core::controls::list::{ListControl, ListData, ListValue};
 use pob_ui_core::controls::{DropDownControl, DropItem, EditArgs, EditControl};
-use pob_lua::string::matchOrPattern;
 use pob_ui_core::prelude::*;
 
 use super::minion_list::{name_value, value_name, MinionListControl, HOOKS};
@@ -115,7 +115,11 @@ impl MinionSearchListControl {
                 DropDownControl::new(
                     Anchor::new(Left, search_text, Right),
                     rect(2, 0, 60, 18),
-                    vec![DropItem::str("Names"), DropItem::str("Skills"), DropItem::str("Both")],
+                    vec![
+                        DropItem::str("Names"),
+                        DropItem::str("Skills"),
+                        DropItem::str("Both"),
+                    ],
                     Some(Rc::new(move |cx, index, _value| {
                         // L24
                         let st = cx.child_as::<EditControl>(me, "searchText");
@@ -271,11 +275,21 @@ impl Widget for MinionSearchListControl {
 /// `controls.source = new("MinionSearchListControl"):MinionSearchListControl(nil, {139, 60,
 /// 265, 230}, self.data, sourceList, controls.list)` (Build.lua:1537) in the Spectre Library
 /// popup: the `ShellHooks::minion_search_list_control` entry (CCR-0104 §1).
-pub fn spectre_library_source(cx: &mut Cx, popup: CtrlId, source_list: Vec<Name>, list: CtrlId) -> CtrlId {
+pub fn spectre_library_source(
+    cx: &mut Cx,
+    popup: CtrlId,
+    source_list: Vec<Name>,
+    list: CtrlId,
+) -> CtrlId {
     cx.add(
         popup,
         "source",
-        MinionSearchListControl::new(Anchor::NONE, rect(139, 60, 265, 230), source_list, Some(list)),
+        MinionSearchListControl::new(
+            Anchor::NONE,
+            rect(139, 60, 265, 230),
+            source_list,
+            Some(list),
+        ),
     )
     .id()
 }

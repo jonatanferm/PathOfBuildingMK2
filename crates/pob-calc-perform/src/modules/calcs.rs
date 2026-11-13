@@ -173,13 +173,27 @@ pub(crate) fn getActiveSkillCount(activeSkill: &ActiveSkillRef) -> (f64, bool) {
             // L125
             if gd.vaalGem {
                 // L126
-                if gd.grantedEffectList.first().is_some_and(|g| Arc::ptr_eq(&grantedEffect, g)) {
+                if gd
+                    .grantedEffectList
+                    .first()
+                    .is_some_and(|g| Arc::ptr_eq(&grantedEffect, g))
+                {
                     // L127
-                    return (gemData.count.get().unwrap_or(1.0), gemData.enableGlobal1.get());
+                    return (
+                        gemData.count.get().unwrap_or(1.0),
+                        gemData.enableGlobal1.get(),
+                    );
                 // L128
-                } else if gd.grantedEffectList.get(1).is_some_and(|g| Arc::ptr_eq(&grantedEffect, g)) {
+                } else if gd
+                    .grantedEffectList
+                    .get(1)
+                    .is_some_and(|g| Arc::ptr_eq(&grantedEffect, g))
+                {
                     // L129
-                    return (gemData.count.get().unwrap_or(1.0), gemData.enableGlobal2.get());
+                    return (
+                        gemData.count.get().unwrap_or(1.0),
+                        gemData.enableGlobal2.get(),
+                    );
                 }
             } else {
                 // L132
@@ -608,7 +622,11 @@ pub fn calcFullDPS(
     // L308
     if fullDPS.bleedDPS > 0.0 {
         // L309
-        fullDPS.skills.push(total_row("Best Bleed DPS", fullDPS.bleedDPS, Some(&bleedSource)));
+        fullDPS.skills.push(total_row(
+            "Best Bleed DPS",
+            fullDPS.bleedDPS,
+            Some(&bleedSource),
+        ));
         // L310
         fullDPS.TotalDotDPS = fullDPS.TotalDotDPS + fullDPS.bleedDPS;
     }
@@ -626,7 +644,11 @@ pub fn calcFullDPS(
     // L316
     if fullDPS.igniteDPS > 0.0 {
         // L317
-        fullDPS.skills.push(total_row("Best Ignite DPS", fullDPS.igniteDPS, Some(&igniteSource)));
+        fullDPS.skills.push(total_row(
+            "Best Ignite DPS",
+            fullDPS.igniteDPS,
+            Some(&igniteSource),
+        ));
         // L318
         fullDPS.TotalDotDPS = fullDPS.TotalDotDPS + fullDPS.igniteDPS;
     }
@@ -646,7 +668,9 @@ pub fn calcFullDPS(
         // L325
         fullDPS.TotalPoisonDPS = m_min(fullDPS.TotalPoisonDPS, data().misc.DotDpsCap);
         // L326
-        fullDPS.skills.push(total_row("Full Poison DPS", fullDPS.TotalPoisonDPS, None));
+        fullDPS
+            .skills
+            .push(total_row("Full Poison DPS", fullDPS.TotalPoisonDPS, None));
         // L327
         fullDPS.TotalDotDPS = fullDPS.TotalDotDPS + fullDPS.TotalPoisonDPS;
     }
@@ -664,21 +688,27 @@ pub fn calcFullDPS(
     // L333
     if fullDPS.impaleDPS > 0.0 {
         // L334
-        fullDPS.skills.push(total_row("Full Impale DPS", fullDPS.impaleDPS, None));
+        fullDPS
+            .skills
+            .push(total_row("Full Impale DPS", fullDPS.impaleDPS, None));
         // L335
         fullDPS.combinedDPS = fullDPS.combinedDPS + fullDPS.impaleDPS;
     }
     // L337
     if fullDPS.decayDPS > 0.0 {
         // L338
-        fullDPS.skills.push(total_row("Full Decay DPS", fullDPS.decayDPS, None));
+        fullDPS
+            .skills
+            .push(total_row("Full Decay DPS", fullDPS.decayDPS, None));
         // L339
         fullDPS.TotalDotDPS = fullDPS.TotalDotDPS + fullDPS.decayDPS;
     }
     // L341
     if fullDPS.dotDPS > 0.0 {
         // L342
-        fullDPS.skills.push(total_row("Full DoT DPS", fullDPS.dotDPS, None));
+        fullDPS
+            .skills
+            .push(total_row("Full DoT DPS", fullDPS.dotDPS, None));
         // L343
         fullDPS.TotalDotDPS = fullDPS.TotalDotDPS + fullDPS.dotDPS;
     }
@@ -692,7 +722,9 @@ pub fn calcFullDPS(
         let cullingDPS = fullDPS.combinedDPS * (fullDPS.cullingMulti - 1.0);
         fullDPS.extra.set(n!("cullingDPS"), cullingDPS);
         // L349
-        fullDPS.skills.push(total_row("Full Culling DPS", cullingDPS, None));
+        fullDPS
+            .skills
+            .push(total_row("Full Culling DPS", cullingDPS, None));
         // L350
         fullDPS.combinedDPS = fullDPS.combinedDPS + cullingDPS;
     }
@@ -847,11 +879,20 @@ pub fn buildOutput(build: &BuildRef, mode: Mode) -> EnvRef {
 
     // Add Full DPS data to main `env`
     // L395
-    env.player.output.get().set(n!("SkillDPS"), fullDPS.skills.clone());
+    env.player
+        .output
+        .get()
+        .set(n!("SkillDPS"), fullDPS.skills.clone());
     // L396
-    env.player.output.get().set(n!("FullDPS"), fullDPS.combinedDPS);
+    env.player
+        .output
+        .get()
+        .set(n!("FullDPS"), fullDPS.combinedDPS);
     // L397
-    env.player.output.get().set(n!("FullDotDPS"), fullDPS.TotalDotDPS);
+    env.player
+        .output
+        .get()
+        .set(n!("FullDotDPS"), fullDPS.TotalDotDPS);
 
     // L399
     if mode == Mode::MAIN {
@@ -888,7 +929,10 @@ fn push_list(output: &Output, k: Name, v: Val) {
             output.set(k, t.clone());
             t
         }
-        other => lua_error!("bad argument #1 to 'insert' (table expected, got {})", other.lua_type()),
+        other => lua_error!(
+            "bad argument #1 to 'insert' (table expected, got {})",
+            other.lua_type()
+        ),
     };
     list.push(v);
 }
@@ -1022,7 +1066,10 @@ fn addTo(out: &Table, var: Option<Name>, m: &ModRef) {
     // L477
     match out.get(var) {
         Val::Table(t) => t.push(Val::Mod(m.clone())),
-        other => lua_error!("bad argument #1 to 'insert' (table expected, got {})", other.lua_type()),
+        other => lua_error!(
+            "bad argument #1 to 'insert' (table expected, got {})",
+            other.lua_type()
+        ),
     }
 }
 
@@ -1174,24 +1221,41 @@ fn addModTags(env: &EnvRef, u: &Used, actor: Option<&ActorRef>, m: &ModRef) {
 pub fn buildOutput_main(env: &EnvRef, output: &Output) {
     let modDB = env.modDB.get();
     // L437
-    output.set(n!("ExtraPoints"), modDB.Sum(ModType::BASE, None, nm!["ExtraPoints"]));
+    output.set(
+        n!("ExtraPoints"),
+        modDB.Sum(ModType::BASE, None, nm!["ExtraPoints"]),
+    );
 
     // L439
     let specCfg = ModCfg::new();
     specCfg.source.set(Some(n!("Tree")));
     // L442
-    output.set(n!("Spec:LifeInc"), modDB.Sum(ModType::INC, Some(&specCfg), nm!["Life"]));
+    output.set(
+        n!("Spec:LifeInc"),
+        modDB.Sum(ModType::INC, Some(&specCfg), nm!["Life"]),
+    );
     // L443
-    output.set(n!("Spec:ManaInc"), modDB.Sum(ModType::INC, Some(&specCfg), nm!["Mana"]));
+    output.set(
+        n!("Spec:ManaInc"),
+        modDB.Sum(ModType::INC, Some(&specCfg), nm!["Mana"]),
+    );
     // L444
     output.set(
         n!("Spec:ArmourInc"),
-        modDB.Sum(ModType::INC, Some(&specCfg), nm!["Armour", "ArmourAndEvasion"]),
+        modDB.Sum(
+            ModType::INC,
+            Some(&specCfg),
+            nm!["Armour", "ArmourAndEvasion"],
+        ),
     );
     // L445
     output.set(
         n!("Spec:EvasionInc"),
-        modDB.Sum(ModType::INC, Some(&specCfg), nm!["Evasion", "ArmourAndEvasion"]),
+        modDB.Sum(
+            ModType::INC,
+            Some(&specCfg),
+            nm!["Evasion", "ArmourAndEvasion"],
+        ),
     );
     // L446
     output.set(
@@ -1232,10 +1296,13 @@ pub fn buildOutput_main(env: &EnvRef, output: &Output) {
         modsUsed: Table::new(),
     };
     env.conditionsUsed.set(Some(u.conditionsUsed.clone()));
-    env.enemyConditionsUsed.set(Some(u.enemyConditionsUsed.clone()));
-    env.minionConditionsUsed.set(Some(u.minionConditionsUsed.clone()));
+    env.enemyConditionsUsed
+        .set(Some(u.enemyConditionsUsed.clone()));
+    env.minionConditionsUsed
+        .set(Some(u.minionConditionsUsed.clone()));
     env.multipliersUsed.set(Some(u.multipliersUsed.clone()));
-    env.enemyMultipliersUsed.set(Some(u.enemyMultipliersUsed.clone()));
+    env.enemyMultipliersUsed
+        .set(Some(u.enemyMultipliersUsed.clone()));
     env.perStatsUsed.set(Some(u.perStatsUsed.clone()));
     env.enemyPerStatsUsed.set(Some(u.enemyPerStatsUsed.clone()));
     env.tagTypesUsed.set(Some(u.tagTypesUsed.clone()));
@@ -1315,7 +1382,9 @@ pub fn buildOutput_main(env: &EnvRef, output: &Output) {
                         addTo(&u.enemyConditionsUsed, tag.var, &m);
                     }
                 // L583
-                } else if tag.r#type == TagType::Multiplier || tag.r#type == TagType::MultiplierThreshold {
+                } else if tag.r#type == TagType::Multiplier
+                    || tag.r#type == TagType::MultiplierThreshold
+                {
                     // L584
                     if tag.actor.is_none() {
                         // L585
@@ -1348,7 +1417,10 @@ fn mods_of(v: &Val) -> Vec<ModRef> {
             });
             out
         }
-        other => lua_error!("bad argument #1 to 'ipairs' (table expected, got {})", other.lua_type()),
+        other => lua_error!(
+            "bad argument #1 to 'ipairs' (table expected, got {})",
+            other.lua_type()
+        ),
     }
 }
 
@@ -1458,25 +1530,88 @@ pub fn buildOutput_calcs(build: &BuildRef, env: &EnvRef, output: &Output) {
     // L604
     let mut curseList: Vec<String> = Vec::new();
     // L605-634
-    charges(&mut combatList, output, n!("PowerCharges"), "%d Power Charges");
-    charges(&mut combatList, output, n!("AbsorptionCharges"), "%d Absorption Charges");
-    charges(&mut combatList, output, n!("FrenzyCharges"), "%d Frenzy Charges");
-    charges(&mut combatList, output, n!("AfflictionCharges"), "%d Affliction Charges");
-    charges(&mut combatList, output, n!("EnduranceCharges"), "%d Endurance Charges");
-    charges(&mut combatList, output, n!("BrutalCharges"), "%d Brutal Charges");
-    charges(&mut combatList, output, n!("BrineCharges"), "%d Brine Charges");
-    charges(&mut combatList, output, n!("SiphoningCharges"), "%d Siphoning Charges");
-    charges(&mut combatList, output, n!("ChallengerCharges"), "%d Challenger Charges");
-    charges(&mut combatList, output, n!("BlitzCharges"), "%d Blitz Charges");
+    charges(
+        &mut combatList,
+        output,
+        n!("PowerCharges"),
+        "%d Power Charges",
+    );
+    charges(
+        &mut combatList,
+        output,
+        n!("AbsorptionCharges"),
+        "%d Absorption Charges",
+    );
+    charges(
+        &mut combatList,
+        output,
+        n!("FrenzyCharges"),
+        "%d Frenzy Charges",
+    );
+    charges(
+        &mut combatList,
+        output,
+        n!("AfflictionCharges"),
+        "%d Affliction Charges",
+    );
+    charges(
+        &mut combatList,
+        output,
+        n!("EnduranceCharges"),
+        "%d Endurance Charges",
+    );
+    charges(
+        &mut combatList,
+        output,
+        n!("BrutalCharges"),
+        "%d Brutal Charges",
+    );
+    charges(
+        &mut combatList,
+        output,
+        n!("BrineCharges"),
+        "%d Brine Charges",
+    );
+    charges(
+        &mut combatList,
+        output,
+        n!("SiphoningCharges"),
+        "%d Siphoning Charges",
+    );
+    charges(
+        &mut combatList,
+        output,
+        n!("ChallengerCharges"),
+        "%d Challenger Charges",
+    );
+    charges(
+        &mut combatList,
+        output,
+        n!("BlitzCharges"),
+        "%d Blitz Charges",
+    );
     // L635
     if mainEnv_multiplierUsed(build, n!("InspirationCharge")) {
         // L636 (`%d` of a nil raises)
-        combatList.push(lfmt!("%d Inspiration Charges", output.num(n!("InspirationCharges"))));
+        combatList.push(lfmt!(
+            "%d Inspiration Charges",
+            output.num(n!("InspirationCharges"))
+        ));
     }
     // L638
-    charges(&mut combatList, output, n!("GhostShrouds"), "%d Ghost Shrouds");
+    charges(
+        &mut combatList,
+        output,
+        n!("GhostShrouds"),
+        "%d Ghost Shrouds",
+    );
     // L641
-    charges(&mut combatList, output, n!("CrabBarriers"), "%d Crab Barriers");
+    charges(
+        &mut combatList,
+        output,
+        n!("CrabBarriers"),
+        "%d Crab Barriers",
+    );
     // L644
     if mainEnv_multiplierUsed(build, n!("BloodCharge")) {
         // L645
@@ -1490,7 +1625,10 @@ pub fn buildOutput_calcs(build: &BuildRef, env: &EnvRef, output: &Output) {
     // L650
     if mainEnv_multiplierUsed(build, n!("SpiritInfusion")) {
         // L651
-        combatList.push(lfmt!("%d Spirit Infusions", output.num(n!("SpiritInfusions"))));
+        combatList.push(lfmt!(
+            "%d Spirit Infusions",
+            output.num(n!("SpiritInfusions"))
+        ));
     }
     // L653
     let mainSkill = env
@@ -1503,7 +1641,10 @@ pub fn buildOutput_calcs(build: &BuildRef, env: &EnvRef, output: &Output) {
         combatList.push("Cruelty".to_owned());
     }
     // L656-753
-    for (flag, label) in PLAYER_COMBAT_FLAGS.iter().chain(PLAYER_COMBAT_FLAGS_2.iter()) {
+    for (flag, label) in PLAYER_COMBAT_FLAGS
+        .iter()
+        .chain(PLAYER_COMBAT_FLAGS_2.iter())
+    {
         if modDB.Flag(None, &[Name::from(*flag)]) {
             combatList.push((*label).to_owned());
         }
@@ -1635,9 +1776,24 @@ pub fn buildOutput_calcs(build: &BuildRef, env: &EnvRef, output: &Output) {
         // L813
         let mut combatList: Vec<String> = Vec::new();
         // L814-822
-        charges(&mut combatList, &minionOutput, n!("PowerCharges"), "%d Power Charges");
-        charges(&mut combatList, &minionOutput, n!("FrenzyCharges"), "%d Frenzy Charges");
-        charges(&mut combatList, &minionOutput, n!("EnduranceCharges"), "%d Endurance Charges");
+        charges(
+            &mut combatList,
+            &minionOutput,
+            n!("PowerCharges"),
+            "%d Power Charges",
+        );
+        charges(
+            &mut combatList,
+            &minionOutput,
+            n!("FrenzyCharges"),
+            "%d Frenzy Charges",
+        );
+        charges(
+            &mut combatList,
+            &minionOutput,
+            n!("EnduranceCharges"),
+            "%d Endurance Charges",
+        );
         // L823-843
         for (flag, label) in MINION_COMBAT_FLAGS {
             if minionModDB.Flag(None, &[Name::from(flag)]) {

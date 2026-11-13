@@ -595,9 +595,21 @@ fn first_str(pob: &mut JitPob, code: &str) -> String {
 /// loading that build), from the shared oracle query cache (`testkit::oracle_query`) or a fresh
 /// LuaJIT PoB under the oracle lock. The key holds the probe, the empty build, the calls and the
 /// build's name and XML.
-fn pob_texts(src: &Path, before: &[&str], build: Option<(&str, &str)>, after: &[&str]) -> Vec<String> {
+fn pob_texts(
+    src: &Path,
+    before: &[&str],
+    build: Option<(&str, &str)>,
+    after: &[&str],
+) -> Vec<String> {
     let (name, xml) = build.unwrap_or(("", ""));
-    let mut key = vec!["CO-C pob_texts 1", QUIET_PRELUDE, EMPTY_XML, PROBE, name, "--before"];
+    let mut key = vec![
+        "CO-C pob_texts 1",
+        QUIET_PRELUDE,
+        EMPTY_XML,
+        PROBE,
+        name,
+        "--before",
+    ];
     key.extend_from_slice(before);
     key.push("--after");
     key.extend_from_slice(after);
@@ -682,9 +694,13 @@ fn corpus_build_mod_list_matches_oracle() {
         let (build, vars, _) = model.as_ref().unwrap();
         check_case(build, vars, &base, &case, &mut t);
     };
-    pob_oracle::testkit::par_for_each(&builds, |_, b| pob_side(b), |_, _, (base, case)| {
-        each(base, case);
-    });
+    pob_oracle::testkit::par_for_each(
+        &builds,
+        |_, b| pob_side(b),
+        |_, _, (base, case)| {
+            each(base, case);
+        },
+    );
     drop(each);
     eprintln!(
         "CO-C corpus: {} builds ({} with custom modifier text)",

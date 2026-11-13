@@ -89,7 +89,10 @@ mod tests {
             "-9223372036854775808"
         );
         // lib_base.c tonumber(s, base ~= 10): "-0" is -0 single-number, int32 +0 dual-number.
-        assert_eq!(crate::tonumber_base("-0", 2).map(|x| x.to_bits()), Some((-0.0f64).to_bits()));
+        assert_eq!(
+            crate::tonumber_base("-0", 2).map(|x| x.to_bits()),
+            Some((-0.0f64).to_bits())
+        );
     }
 
     #[cfg(feature = "oracle-dualnum")]

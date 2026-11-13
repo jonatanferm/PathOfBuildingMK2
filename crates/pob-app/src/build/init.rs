@@ -130,39 +130,72 @@ pub struct Act {
 /// @pob Modules/Build.lua:729-764 h=b47f4c47
 pub const ACTS: [Act; 11] = [
     // https://www.poewiki.net/wiki/Passive_skill
-    Act { level: 1.0, questPoints: 0.0 },
+    Act {
+        level: 1.0,
+        questPoints: 0.0,
+    },
     // Act 1   : The Dweller of the Deep
     // Act 1   : The Marooned Mariner
-    Act { level: 12.0, questPoints: 2.0 },
+    Act {
+        level: 12.0,
+        questPoints: 2.0,
+    },
     // Act 1,2 : The Way Forward (Reward after reaching Act 2)
     // Act 2   : Through Sacred Ground (Fellshrine Reward 3.25)
-    Act { level: 22.0, questPoints: 4.0 },
+    Act {
+        level: 22.0,
+        questPoints: 4.0,
+    },
     // Act 3   : Victario's Secrets
     // Act 3   : Piety's Pets
-    Act { level: 32.0, questPoints: 6.0 },
+    Act {
+        level: 32.0,
+        questPoints: 6.0,
+    },
     // Act 4   : An Indomitable Spirit
-    Act { level: 40.0, questPoints: 7.0 },
+    Act {
+        level: 40.0,
+        questPoints: 7.0,
+    },
     // Act 5   : In Service to Science
     // Act 5   : Kitava's Torments
-    Act { level: 44.0, questPoints: 9.0 },
+    Act {
+        level: 44.0,
+        questPoints: 9.0,
+    },
     // Act 6   : The Father of War
     // Act 6   : The Puppet Mistress
     // Act 6   : The Cloven One
-    Act { level: 50.0, questPoints: 12.0 },
+    Act {
+        level: 50.0,
+        questPoints: 12.0,
+    },
     // Act 7   : The Master of a Million Faces
     // Act 7   : Queen of Despair
     // Act 7   : Kishara's Star
-    Act { level: 54.0, questPoints: 15.0 },
+    Act {
+        level: 54.0,
+        questPoints: 15.0,
+    },
     // Act 8   : Love is Dead
     // Act 8   : Reflection of Terror
     // Act 8   : The Gemling Legion
-    Act { level: 60.0, questPoints: 18.0 },
+    Act {
+        level: 60.0,
+        questPoints: 18.0,
+    },
     // Act 9   : Queen of the Sands
     // Act 9   : The Ruler of Highgate
-    Act { level: 64.0, questPoints: 20.0 },
+    Act {
+        level: 64.0,
+        questPoints: 20.0,
+    },
     // Act 10  : Vilenta's Vengeance
     // Act 10  : An End to Hunger (+2)
-    Act { level: 67.0, questPoints: 23.0 },
+    Act {
+        level: 67.0,
+        questPoints: 23.0,
+    },
 ];
 
 /// lua: Build.lua:766-769 `local function actExtra(act, extra)`
@@ -338,8 +371,7 @@ pub struct BuildHooks {
     /// `self.skillsTab:SetActiveSkillSet(skillSetId)` (model half + UI tail)
     pub skills_set_active_skill_set: Rc<dyn Fn(&mut Cx, f64)>,
     /// `self.skillsTab:AddSocketGroupTooltip(tooltip, socketGroup)`
-    pub skills_add_socket_group_tooltip:
-        Rc<dyn Fn(&mut Cx, &mut Tooltip, &model::SocketGroupRef)>,
+    pub skills_add_socket_group_tooltip: Rc<dyn Fn(&mut Cx, &mut Tooltip, &model::SocketGroupRef)>,
     // U42 (ConfigTab UI)
     /// `self.configTab:SetActiveConfigSet(configSetId)` (model half + UI tail)
     pub config_set_active_config_set: Rc<dyn Fn(&mut Cx, f64)>,
@@ -414,9 +446,15 @@ pub fn default_hooks() -> BuildHooks {
         items_equip_item_in_set: Rc::new(crate::tabs::items::core::EquipItemInSet),
         items_add_item_set_tooltip: Rc::new(crate::tabs::items::craft_b::AddItemSetTooltip),
         skills_set_active_skill_set: Rc::new(crate::tabs::skills::core::set_active_skill_set_hook),
-        skills_add_socket_group_tooltip: Rc::new(crate::tabs::skills::core::add_socket_group_tooltip_hook),
-        config_set_active_config_set: Rc::new(crate::tabs::config::core::set_active_config_set_hook),
-        import_try_fetch_character_list: Rc::new(crate::tabs::import::core::try_fetch_character_list_hook),
+        skills_add_socket_group_tooltip: Rc::new(
+            crate::tabs::skills::core::add_socket_group_tooltip_hook,
+        ),
+        config_set_active_config_set: Rc::new(
+            crate::tabs::config::core::set_active_config_set_hook,
+        ),
+        import_try_fetch_character_list: Rc::new(
+            crate::tabs::import::core::try_fetch_character_list_hook,
+        ),
         // one arm per UI-only saver (U22 Notes; TreeView U25-U28, Import U43); calc:BM-A keeps
         // the other sections and writes them back (CCR-0080 §8)
         load_ui_section: Rc::new(|cx, elem, node, db| match elem {
@@ -501,18 +539,17 @@ pub fn flush_window_titles(cx: &mut Cx) {
             .and_then(|b| b.build_name.clone())
             // LuaJIT's `%s` formats nil as "nil"
             .unwrap_or_else(|| "nil".to_owned());
-        main_mode::folders::set_window_title_subtext(
-            cx,
-            Some(&format!("{name} ({class_text})")),
-        );
+        main_mode::folders::set_window_title_subtext(cx, Some(&format!("{name} ({class_text})")));
     }
 }
 
 fn install_title_hook() {
     // CCR-0098 §4: model.rs (U15) does not re-export the hook
-    pob_calc::classes::passive_spec_cluster::set_window_title_subtext_hook(Some(Box::new(|s: &str| {
-        TITLES.with(|t| t.borrow_mut().push(s.to_owned()));
-    })));
+    pob_calc::classes::passive_spec_cluster::set_window_title_subtext_hook(Some(Box::new(
+        |s: &str| {
+            TITLES.with(|t| t.borrow_mut().push(s.to_owned()));
+        },
+    )));
 }
 
 // ---- small accessors -------------------------------------------------------------------------
@@ -684,7 +721,8 @@ fn find_named_set_id(
 #[track_caller]
 fn link_match_value(value: Option<&str>) -> Option<String> {
     link_match(
-        value.unwrap_or_else(|| lua_error!("bad argument #1 to 'match' (string expected, got nil)")),
+        value
+            .unwrap_or_else(|| lua_error!("bad argument #1 to 'match' (string expected, got nil)")),
     )
 }
 
@@ -764,7 +802,11 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
     }
     let node: Ctrl<BuildMode> = cx.add_free(
         None,
-        New::new(Base::new(Anchor::NONE, rect(0, 0, 0, 0)), BuildMode::default()).host(),
+        New::new(
+            Base::new(Anchor::NONE, rect(0, 0, 0, 0)),
+            BuildMode::default(),
+        )
+        .host(),
     );
     let me = node.id();
     let model_ref = model::Build::new(model::data());
@@ -865,8 +907,7 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
             .any(|n| &*n.elem == "Build");
         if !has_build_section {
             model_ref.characterLevel.set(m_min(m_max(dcl, 1.0), 100.0));
-            build_xml::build_extra(&model_ref)
-                .set(n!("characterLevelAutoMode"), dcl == 1.0);
+            build_xml::build_extra(&model_ref).set(n!("characterLevelAutoMode"), dcl == 1.0);
             model_ref.configTab.BuildModList(&model_ref);
         }
     }
@@ -985,11 +1026,7 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
 /// (TreeTab.lua:37, at L613), whose spec is a fresh `PassiveSpec` of class 0 with no
 /// ascendancy (PassiveSpec.lua:2391: the class name). Called before the TreeTab UI ctor hook:
 /// in PoB it runs inside the ctor, after the viewer and before `SetCompareSpec` (:35-38).
-fn tree_tab_ctor_set_active_spec_ui_tail(
-    cx: &mut Cx,
-    h: &BuildHooks,
-    model_ref: &model::BuildRef,
-) {
+fn tree_tab_ctor_set_active_spec_ui_tail(cx: &mut Cx, h: &BuildHooks, model_ref: &model::BuildRef) {
     let class0 = model_ref.latestTree.get().and_then(|tree| {
         tree.classes
             .get(0.0)
@@ -1021,7 +1058,12 @@ fn tree_tab_load_set_active_spec_ui_tails(
         .iter()
         .filter(|n| &*n.elem == "Tree")
         // TreeTab.lua:526 tonumber(xml.attrib.activeSpec) or 1
-        .map(|n| n.attrib.get("activeSpec").and_then(|v| tonumber(v)).unwrap_or(1.0))
+        .map(|n| {
+            n.attrib
+                .get("activeSpec")
+                .and_then(|v| tonumber(v))
+                .unwrap_or(1.0)
+        })
         .collect();
     for spec_id in tree_loads {
         set_window_title_with_build_class(cx);
@@ -1148,15 +1190,13 @@ fn init_controls(
                 - cx.size(ctl(cx, me, "saveAs")).0
         };
         // L153
-        let bnw = cx
-            .sg
-            .draw_string_width(
-                16.0,
-                Font::Var,
-                cx.build().build_name.as_deref().unwrap_or_else(|| {
-                    lua_error!("DrawStringWidth() argument 3: expected string, got nil")
-                }),
-            );
+        let bnw = cx.sg.draw_string_width(
+            16.0,
+            Font::Var,
+            cx.build().build_name.as_deref().unwrap_or_else(|| {
+                lua_error!("DrawStringWidth() argument 3: expected string, got nil")
+            }),
+        );
         let s = st(cx, me);
         // L154
         s.str_width.set(m_min(bnw, limit));
@@ -1180,14 +1220,16 @@ fn init_controls(
             // L163
             cx.sg.set_draw_color(0.0, 0.0, 0.0);
             // L164
-            cx.sg.draw_image(None, x + 92.0, y + 1.0, str_width + 4.0, 18.0);
+            cx.sg
+                .draw_image(None, x + 92.0, y + 1.0, str_width + 4.0, 18.0);
             // L165
             cx.sg.set_draw_color(1.0, 1.0, 1.0);
             // L166
             cx.sg.set_viewport(x, y + 2.0, str_width + 94.0, 16.0);
             // L167
             let text = format!("Current build:  {}", build_name_concat(cx));
-            cx.sg.draw_string(0.0, 0.0, Align::Left, 16.0, Font::Var, &text);
+            cx.sg
+                .draw_string(0.0, 0.0, Align::Left, 16.0, Font::Var, &text);
             // L168
             cx.sg.reset_viewport();
             // L169
@@ -1271,9 +1313,13 @@ fn init_controls(
     // L195-197
     cx.base_mut(point_display).width = Prop::f(|cx, control| {
         // L196
-        let s = cx.w::<InfoControl>(control).str_.clone().unwrap_or_else(|| {
-            lua_error!("bad argument #3 to 'DrawStringWidth' (string expected, got nil)")
-        });
+        let s = cx
+            .w::<InfoControl>(control)
+            .str_
+            .clone()
+            .unwrap_or_else(|| {
+                lua_error!("bad argument #3 to 'DrawStringWidth' (string expected, got nil)")
+            });
         cx.sg.draw_string_width(16.0, Font::Fixed, &s) + 8.0
     });
     // L198-214
@@ -1290,11 +1336,16 @@ fn init_controls(
             // L203
             cx.sg.set_draw_color(0.0, 0.0, 0.0);
             // L204
-            cx.sg.draw_image(None, x + 1.0, y + 1.0, width, height - 2.0);
+            cx.sg
+                .draw_image(None, x + 1.0, y + 1.0, width, height - 2.0);
             // L205
             cx.sg.set_draw_color(1.0, 1.0, 1.0);
             // L206
-            let s = cx.w::<InfoControl>(control).str_.clone().unwrap_or_default();
+            let s = cx
+                .w::<InfoControl>(control)
+                .str_
+                .clone()
+                .unwrap_or_default();
             cx.sg
                 .draw_string(x + 4.0, y + 2.0, Align::Left, 16.0, Font::Fixed, &s);
             // L207
@@ -1443,8 +1494,8 @@ fn init_controls(
         }));
     // L259-282
     let class_sel: SelFunc = Rc::new(move |cx, _index, value| {
-        let value = value
-            .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
+        let value =
+            value.unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
         let class_id = value
             .get::<ClassListValue>()
             .map_or(f64::NAN, |v| v.class_id);
@@ -1498,8 +1549,8 @@ fn init_controls(
         .id();
     // L283-288
     let ascend_sel: SelFunc = Rc::new(move |cx, _index, value| {
-        let value = value
-            .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
+        let value =
+            value.unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
         let id = value
             .get::<AscendListValue>()
             .map_or(f64::NAN, |v| v.ascend_class_id);
@@ -1931,22 +1982,27 @@ fn init_controls(
                 Anchor::new(TopLeft, main_skill_label, BottomLeft),
                 rect(0, 2, 300, 18),
                 Vec::new(),
-                Some(Rc::new(|cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                    // L482
-                    cx.build().model.mainSocketGroup.set(index as f64);
-                    // L483-484
-                    set_mod_and_build_flag(cx);
-                })),
+                Some(Rc::new(
+                    |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                        // L482
+                        cx.build().model.mainSocketGroup.set(index as f64);
+                        // L483-484
+                        set_mod_and_build_flag(cx);
+                    },
+                )),
                 None,
                 false,
             ),
         )
         .id();
     // L486
-    cx.w_mut::<DropDownControl>(main_socket_group).max_dropped_width = 500.0;
+    cx.w_mut::<DropDownControl>(main_socket_group)
+        .max_dropped_width = 500.0;
     // L487-492
     let hk = h.clone();
-    cx.w_mut::<DropDownControl>(main_socket_group).tt.tooltip_func = Some(Rc::new(
+    cx.w_mut::<DropDownControl>(main_socket_group)
+        .tt
+        .tooltip_func = Some(Rc::new(
         move |cx: &mut Cx, tooltip: &mut Tooltip, (_mode, index, _value): DropTipArgs| {
             // L488
             let socket_group = index.and_then(|i| socket_group(cx, i as f64));
@@ -1970,17 +2026,19 @@ fn init_controls(
                 Anchor::new(TopLeft, main_socket_group, BottomLeft),
                 rect(0, 2, 300, 18),
                 Vec::new(),
-                Some(Rc::new(|cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                    // L494
-                    let msg = cx.build().model.mainSocketGroup.get();
-                    let group = socket_group(cx, msg).unwrap_or_else(|| {
-                        lua_error!("attempt to index local 'mainSocketGroup' (a nil value)")
-                    });
-                    // L495
-                    group.mainActiveSkill.set(index as f64);
-                    // L496-497
-                    set_mod_and_build_flag(cx);
-                })),
+                Some(Rc::new(
+                    |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                        // L494
+                        let msg = cx.build().model.mainSocketGroup.get();
+                        let group = socket_group(cx, msg).unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'mainSocketGroup' (a nil value)")
+                        });
+                        // L495
+                        group.mainActiveSkill.set(index as f64);
+                        // L496-497
+                        set_mod_and_build_flag(cx);
+                    },
+                )),
                 None,
                 false,
             ),
@@ -1995,14 +2053,16 @@ fn init_controls(
                 Anchor::new(TopLeft, main_skill, BottomLeft).collapse(),
                 rect(0, 2, 300, 18),
                 Vec::new(),
-                Some(Rc::new(|cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                    // L500-501
-                    let src_instance = main_src_instance(cx);
-                    // L502
-                    src_instance.skillPart.set(Some(index as f64));
-                    // L503-504
-                    set_mod_and_build_flag(cx);
-                })),
+                Some(Rc::new(
+                    |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                        // L500-501
+                        let src_instance = main_src_instance(cx);
+                        // L502
+                        src_instance.skillPart.set(Some(index as f64));
+                        // L503-504
+                        set_mod_and_build_flag(cx);
+                    },
+                )),
                 None,
                 false,
             ),
@@ -2091,26 +2151,26 @@ fn init_controls(
                 Anchor::new(TopLeft, main_skill_mine_count_label, BottomLeft).collapse(),
                 rect(0, 3, 178, 18),
                 Vec::new(),
-                Some(Rc::new(|cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                    // L531-532
-                    let src_instance = main_src_instance(cx);
-                    let value = value.unwrap_or_else(|| {
-                        lua_error!("attempt to index local 'value' (a nil value)")
-                    });
-                    let v = value.get::<MinionListValue>();
-                    // L533
-                    if let Some(item_set_id) = v.and_then(|v| v.item_set_id) {
-                        // L534
-                        src_instance.skillMinionItemSet.set(Some(item_set_id));
-                    } else {
-                        // L536
-                        src_instance
-                            .skillMinion
-                            .set(v.and_then(|v| v.minion_id));
-                    }
-                    // L538-539
-                    set_mod_and_build_flag(cx);
-                })),
+                Some(Rc::new(
+                    |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                        // L531-532
+                        let src_instance = main_src_instance(cx);
+                        let value = value.unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'value' (a nil value)")
+                        });
+                        let v = value.get::<MinionListValue>();
+                        // L533
+                        if let Some(item_set_id) = v.and_then(|v| v.item_set_id) {
+                            // L534
+                            src_instance.skillMinionItemSet.set(Some(item_set_id));
+                        } else {
+                            // L536
+                            src_instance.skillMinion.set(v.and_then(|v| v.minion_id));
+                        }
+                        // L538-539
+                        set_mod_and_build_flag(cx);
+                    },
+                )),
                 None,
                 false,
             ),
@@ -2157,17 +2217,16 @@ fn init_controls(
     });
     // L551-558
     let hk = h.clone();
-    cx.w_mut::<DropDownControl>(main_skill_minion).tt.tooltip_func = Some(Rc::new(
+    cx.w_mut::<DropDownControl>(main_skill_minion)
+        .tt
+        .tooltip_func = Some(Rc::new(
         move |cx: &mut Cx, tooltip: &mut Tooltip, (_mode, _index, value): DropTipArgs| {
             // L552
             tooltip.clear(false);
-            let value = value
-                .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
+            let value =
+                value.unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
             // L553
-            if let Some(item_set_id) = value
-                .get::<MinionListValue>()
-                .and_then(|v| v.item_set_id)
-            {
+            if let Some(item_set_id) = value.get::<MinionListValue>().and_then(|v| v.item_set_id) {
                 // L554
                 let model = cx.build().model.clone();
                 let set = model
@@ -2211,14 +2270,16 @@ fn init_controls(
                 Anchor::new(TopLeft, main_skill_minion, BottomLeft).collapse(),
                 rect(0, 2, 200, 16),
                 Vec::new(),
-                Some(Rc::new(|cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                    // L563-564
-                    let src_instance = main_src_instance(cx);
-                    // L565
-                    src_instance.skillMinionSkill.set(Some(index as f64));
-                    // L566-567
-                    set_mod_and_build_flag(cx);
-                })),
+                Some(Rc::new(
+                    |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                        // L563-564
+                        let src_instance = main_src_instance(cx);
+                        // L565
+                        src_instance.skillMinionSkill.set(Some(index as f64));
+                        // L566-567
+                        set_mod_and_build_flag(cx);
+                    },
+                )),
                 None,
                 false,
             ),
@@ -2264,7 +2325,10 @@ fn init_controls(
         let (_x, y) = cx.pos(control);
         // L573
         let warn_height = if cx.app().main.show_warnings
-            && !cx.w::<WarningsControl>(ctl(cx, me, "warnings")).lines.is_empty()
+            && !cx
+                .w::<WarningsControl>(ctl(cx, me, "warnings"))
+                .lines
+                .is_empty()
         {
             18.0
         } else {
@@ -2275,11 +2339,12 @@ fn init_controls(
     });
     // L576-578
     let hk = h.clone();
-    cx.w_mut::<TextListControl>(stat_box).on_click =
-        Some(Rc::new(move |cx: &mut Cx, hovered_line: Option<HoveredLine>| {
+    cx.w_mut::<TextListControl>(stat_box).on_click = Some(Rc::new(
+        move |cx: &mut Cx, hovered_line: Option<HoveredLine>| {
             // L577
             (hk.set_display_stat)(cx, hovered_line, true);
-        }));
+        },
+    ));
     // L579
     let warnings = cx
         .add(
@@ -2333,8 +2398,7 @@ fn init_controls(
                 if cx.is_mouse_in_bounds(control) {
                     // L593
                     cx.sg.set_draw_layer(None, Some(10));
-                    let mut tt =
-                        std::mem::take(&mut cx.w_mut::<BuildMode>(me).init.misc_tooltip);
+                    let mut tt = std::mem::take(&mut cx.w_mut::<BuildMode>(me).init.misc_tooltip);
                     // L594
                     tt.clear(false);
                     // L595 ORDER: a sequence, ascending
@@ -2374,7 +2438,11 @@ fn open_new_loadout_popup(cx: &mut Cx, h: &BuildHooks) {
             cx.add(
                 p,
                 "label",
-                LabelControl::new(Anchor::NONE, rect(0, 20, 0, 16), "^7Enter name for this loadout:"),
+                LabelControl::new(
+                    Anchor::NONE,
+                    rect(0, 20, 0, 16),
+                    "^7Enter name for this loadout:",
+                ),
             );
             // L323-325
             cx.add(
@@ -2417,31 +2485,51 @@ fn open_new_loadout_popup(cx: &mut Cx, h: &BuildHooks) {
                         false,
                     );
                     // L330
-                    new_spec.title.set(Some(model::LStr::from(loadout.as_str())));
+                    new_spec
+                        .title
+                        .set(Some(model::LStr::from(loadout.as_str())));
                     // L331
                     model.treeTab.specList.push(new_spec);
 
                     // L333
-                    let n_items = model.itemsTab.itemSets.with(|s| id_table_len(s.keys().copied()));
+                    let n_items = model
+                        .itemsTab
+                        .itemSets
+                        .with(|s| id_table_len(s.keys().copied()));
                     let item_set = model.itemsTab.NewItemSet(Some(n_items + 1.0));
                     // L334
-                    model.itemsTab.itemSetOrderList.push(item_set.num(n!("id")) as u32);
+                    model
+                        .itemsTab
+                        .itemSetOrderList
+                        .push(item_set.num(n!("id")) as u32);
                     // L335
                     item_set.set(n!("title"), loadout.as_str());
 
                     // L337
-                    let n_skills = model.skillsTab.skillSets.with(|s| id_table_len(s.keys().copied()));
+                    let n_skills = model
+                        .skillsTab
+                        .skillSets
+                        .with(|s| id_table_len(s.keys().copied()));
                     let skill_set = model.skillsTab.NewSkillSet(Some(n_skills + 1.0));
                     // L338
-                    model.skillsTab.skillSetOrderList.push(skill_set.num(n!("id")) as u32);
+                    model
+                        .skillsTab
+                        .skillSetOrderList
+                        .push(skill_set.num(n!("id")) as u32);
                     // L339
                     skill_set.set(n!("title"), loadout.as_str());
 
                     // L341
-                    let n_configs = model.configTab.configSets.with(|s| id_table_len(s.keys().copied()));
+                    let n_configs = model
+                        .configTab
+                        .configSets
+                        .with(|s| id_table_len(s.keys().copied()));
                     let config_set = model.configTab.NewConfigSet(Some(n_configs + 1.0), None);
                     // L342
-                    model.configTab.configSetOrderList.push(config_set.num(n!("id")) as u32);
+                    model
+                        .configTab
+                        .configSetOrderList
+                        .push(config_set.num(n!("id")) as u32);
                     // L343
                     config_set.set(n!("title"), loadout.as_str());
 
@@ -2505,8 +2593,20 @@ mod tests {
     fn acts_and_act_extra() {
         // Build.lua:729-769
         assert_eq!(ACTS.len(), 11);
-        assert_eq!(ACTS[0], Act { level: 1.0, questPoints: 0.0 });
-        assert_eq!(ACTS[10], Act { level: 67.0, questPoints: 23.0 });
+        assert_eq!(
+            ACTS[0],
+            Act {
+                level: 1.0,
+                questPoints: 0.0
+            }
+        );
+        assert_eq!(
+            ACTS[10],
+            Act {
+                level: 67.0,
+                questPoints: 23.0
+            }
+        );
         assert_eq!(act_extra(2.0, 1.0), 0.0);
         assert_eq!(act_extra(3.0, 1.0), 1.0);
     }

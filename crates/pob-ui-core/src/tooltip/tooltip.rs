@@ -39,7 +39,11 @@
 
 // Lua-shaped arithmetic (`x = x + w`, `(titleSize - titleSize)/2` at Tooltip.lua:259) and Lua's
 // local names are kept line for line.
-#![allow(clippy::assign_op_pattern, clippy::eq_op, clippy::many_single_char_names)]
+#![allow(
+    clippy::assign_op_pattern,
+    clippy::eq_op,
+    clippy::many_single_char_names
+)]
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -661,7 +665,7 @@ impl Tooltip {
             {
                 // L146
                 let h = ImageHandle::default(); // NewImageHandle()
-                // L147 CCR-0073 A: loaded by the next draw
+                                                // L147 CCR-0073 A: loaded by the next draw
                 PENDING_LOADS.with(|q| q.borrow_mut().push((h.clone(), separator_path.to_owned())));
                 self.separator_image = Some(h);
                 // L148
@@ -698,16 +702,17 @@ impl Tooltip {
             let prev = i0.checked_sub(1).and_then(|p| self.lines.get(p));
             let next = self.lines.get(i0 + 1);
             // L166
-            if data.text.is_some()
-                || (prev.is_some() && next.is_some_and(|n| n.text.is_some()))
-            {
+            if data.text.is_some() || (prev.is_some() && next.is_some_and(|n| n.text.is_some())) {
                 // L167
                 tt_h = tt_h + data.size + 2.0;
             }
             // L169
             if let Some(text) = &data.text {
                 // L170
-                tt_w = m_max(tt_w, cx.sg.draw_string_width(data.size, line_font(data), text));
+                tt_w = m_max(
+                    tt_w,
+                    cx.sg.draw_string_width(data.size, line_font(data), text),
+                );
             }
         }
 
@@ -720,8 +725,10 @@ impl Tooltip {
                 Font::Var
             };
             // L178
-            let mut image_x =
-                cx.sg.draw_string_width(title.size, font, title_text(title, 3)) + title.size;
+            let mut image_x = cx
+                .sg
+                .draw_string_width(title.size, font, title_text(title, 3))
+                + title.size;
             // L179
             let recipe_text_size = (title.size * 3.0) / 4.0;
             // L180
@@ -731,8 +738,7 @@ impl Tooltip {
                 let recipe_name_short = trim_oil(recipe_name);
                 // L186
                 image_x = image_x
-                    + cx
-                        .sg
+                    + cx.sg
                         .draw_string_width(recipe_text_size, font, &recipe_name_short)
                     + title.size * 1.25;
             }
@@ -849,7 +855,8 @@ impl Tooltip {
                     background: None,
                 });
                 // L260
-                cur_x = cur_x + cx.sg.draw_string_width(title_size, font, title_text) + (H_PAD / 2.0);
+                cur_x =
+                    cur_x + cx.sg.draw_string_width(title_size, font, title_text) + (H_PAD / 2.0);
 
                 // L263 Draw oils
                 let max_oil_height = 0.0;
@@ -982,12 +989,7 @@ impl Tooltip {
                 });
                 // L324
                 y = y + sep_size + 2.0;
-            } else if i0 > 0
-                && self
-                    .lines
-                    .get(i0 + 1)
-                    .is_some_and(|n| n.text.is_some())
-            {
+            } else if i0 > 0 && self.lines.get(i0 + 1).is_some_and(|n| n.text.is_some()) {
                 // L326 (self.lines[i - 1] exists exactly when i > 1)
                 // L327
                 draw_stack.push(TtDrawEntry::Image {
@@ -1123,8 +1125,7 @@ impl Tooltip {
         }
         // L394-426 headerInfluence, headerConfigs: HEADER_INFLUENCE, HEADER_CONFIGS
         // L428
-        if let (Some(header), true, Some(_)) =
-            (&self.tooltip_header, flavour, &self.lines[0].text)
+        if let (Some(header), true, Some(_)) = (&self.tooltip_header, flavour, &self.lines[0].text)
         {
             // L429
             let rarity = pob_lua::string::upper(header);
@@ -1230,8 +1231,7 @@ impl Tooltip {
                     let mut skip = false;
                     // L581
                     if let TtDrawImg::Handle {
-                        is_separator: true,
-                        ..
+                        is_separator: true, ..
                     } = img
                     {
                         // L582 Only skip first separator for items and skill gems
@@ -1754,10 +1754,7 @@ mod tests {
         assert_eq!(trim_oil("Oil"), "Oil");
         assert_eq!(trim_oil("Soil"), "Soil");
         assert_eq!(trim_oil("XOil"), "X");
-        assert_eq!(
-            header_config("FOO").left,
-            "Assets/itemsheaderwhiteleft.png"
-        );
+        assert_eq!(header_config("FOO").left, "Assets/itemsheaderwhiteleft.png");
         assert_eq!(header_config("GEM").side_width, 33.0);
     }
 }

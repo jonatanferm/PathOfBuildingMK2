@@ -72,8 +72,9 @@ static HOOKS: ListHooks = ListHooks {
 
 /// The result entry of a row.
 fn entry_of(v: &ListValue) -> Rc<PowerResult> {
-    v.rc::<PowerResult>()
-        .unwrap_or_else(|| lua_error!("ComparePowerReportListControl: a row that is not a result entry"))
+    v.rc::<PowerResult>().unwrap_or_else(|| {
+        lua_error!("ComparePowerReportListControl: a row that is not a result entry")
+    })
 }
 
 impl ComparePowerReportListControl {
@@ -100,7 +101,9 @@ impl ComparePowerReportListControl {
         .init(|cx, me| ListControl::init(cx, me.0))
         .init(move |cx, me| {
             let l = cx.w_mut::<ListControl>(me.0);
-            let col = |w: f64, label: &str, sortable: bool| ListColumn::new(Some(Prop::Val(w)), Some(label), sortable);
+            let col = |w: f64, label: &str, sortable: bool| {
+                ListColumn::new(Some(Prop::Val(w)), Some(label), sortable)
+            };
             // L17-24
             l.col_list = vec![
                 col(width * 0.10, "Category", true),
@@ -120,13 +123,19 @@ impl ComparePowerReportListControl {
 
     /// `self.impactColumn.label = label`
     pub fn set_impact_label(cx: &mut Cx, me: CtrlId, label: &str) {
-        cx.w_mut::<ListControl>(me).col_list[IMPACT_COLUMN - 1].label = Some(Prop::Val(label.to_owned()));
+        cx.w_mut::<ListControl>(me).col_list[IMPACT_COLUMN - 1].label =
+            Some(Prop::Val(label.to_owned()));
     }
 
     /// lua: ComparePowerReportListControl.lua:31-47 `ComparePowerReportListClass:SetReport(stat,
     /// report)`; `stat` is a `data.powerStatList` entry
     /// @pob Classes/ComparePowerReportListControl.lua:31-47 h=3cd701b6
-    pub fn SetReport(cx: &mut Cx, me: CtrlId, stat: Option<&PowerStat>, report: Option<Rc<Vec<Rc<PowerResult>>>>) {
+    pub fn SetReport(
+        cx: &mut Cx,
+        me: CtrlId,
+        stat: Option<&PowerStat>,
+        report: Option<Rc<Vec<Rc<PowerResult>>>>,
+    ) {
         // L32 (`stat.label` is always set)
         Self::set_impact_label(cx, me, stat.map_or("", |s| &*s.label));
         // L33
@@ -162,7 +171,10 @@ impl ComparePowerReportListControl {
         // L50
         if progress < 100.0 {
             // L51
-            cx.w_mut::<Self>(me).status_text = Some(format!("Calculating... {}%", pob_lua::tostring_num(progress)));
+            cx.w_mut::<Self>(me).status_text = Some(format!(
+                "Calculating... {}%",
+                pob_lua::tostring_num(progress)
+            ));
             // L52
             cx.w_mut::<ListControl>(me).list = ListData::Local(Vec::new());
         }
@@ -193,11 +205,13 @@ impl ComparePowerReportListControl {
             let (width, height) = cx.size(me);
             // Column headers are 18px tall, plus 2px border = start at y+20
             // L67
-            cx.sg.set_viewport(x + 2.0, y + 20.0, width - 20.0, height - 22.0);
+            cx.sg
+                .set_viewport(x + 2.0, y + 20.0, width - 20.0, height - 22.0);
             // L68
             cx.sg.set_draw_color(1.0, 1.0, 1.0);
             // L69
-            cx.sg.draw_string(4.0, 4.0, Align::Left, 14.0, Font::Var, &status);
+            cx.sg
+                .draw_string(4.0, 4.0, Align::Left, 14.0, Font::Var, &status);
             // L70
             cx.sg.reset_viewport();
         }
@@ -285,7 +299,13 @@ impl ComparePowerReportListControl {
     /// lua: ComparePowerReportListControl.lua:116-147 `ComparePowerReportListClass:
     /// AddValueTooltip(tooltip, index, entry)`
     /// @pob Classes/ComparePowerReportListControl.lua:116-147 h=39e83a36
-    fn AddValueTooltip(cx: &mut Cx, me: CtrlId, tooltip: &mut Tooltip, _index: usize, v: &ListValue) {
+    fn AddValueTooltip(
+        cx: &mut Cx,
+        me: CtrlId,
+        tooltip: &mut Tooltip,
+        _index: usize,
+        v: &ListValue,
+    ) {
         // L117
         if !cx.main.popups.is_empty() {
             // L118
@@ -315,7 +335,8 @@ impl ComparePowerReportListControl {
             if let Some(node) = node {
                 // L131
                 let obj: Rc<dyn std::any::Any> = node.clone();
-                if tooltip.check_for_update(cx, &[TtKey::Obj(TtObj(obj)), shift, dev_mode_alt, rev]) {
+                if tooltip.check_for_update(cx, &[TtKey::Obj(TtObj(obj)), shift, dev_mode_alt, rev])
+                {
                     // L132-135 (`build.treeTab.viewer`)
                     if let Some(tree_tab) = crate::tabs::tree::core::tab(cx) {
                         let f = crate::tree_view::hooks().add_node_tooltip;
@@ -360,7 +381,9 @@ impl ComparePowerReportListControl {
             // L155 (`combinedImpactStr` is always set)
             3 => entry.combinedImpactStr.clone(),
             // L157-160
-            4 => entry.pathDist.map_or_else(String::new, pob_lua::tostring_num),
+            4 => entry
+                .pathDist
+                .map_or_else(String::new, pob_lua::tostring_num),
             // L162
             5 => entry.perPointStr.clone().unwrap_or_default(),
             // L164

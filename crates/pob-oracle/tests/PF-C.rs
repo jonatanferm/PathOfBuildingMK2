@@ -218,7 +218,9 @@ fn merge_buff_standin(src: &Table, destTable: &Table, destKey: Name) {
         destTable.set(destKey, Table::new());
     }
     // L49
-    let dest = destTable.table(destKey).expect("destTable[destKey] is a table");
+    let dest = destTable
+        .table(destKey)
+        .expect("destTable[destKey] is a table");
     // L50
     for (_, m) in src.ipairs() {
         let Val::Mod(m) = m else {
@@ -344,7 +346,8 @@ fn buff_mod_lists(
         let mut mods = Vec::new();
         for e in &elems {
             let e = deref(root, e);
-            let (m, _) = pob_oracle::mod_json::decode_mod(e).map_err(|x| format!("{}: {x}", d.hit))?;
+            let (m, _) =
+                pob_oracle::mod_json::decode_mod(e).map_err(|x| format!("{}: {x}", d.hit))?;
             mods.push(m);
         }
         out.insert(id as i64, mods);
@@ -427,7 +430,10 @@ struct Outcome {
 fn check_upvalues(probe: &str, dump: &StateDump, fields: &[(&str, Val)], out: &mut Vec<String>) {
     let locals = dump.locals().and_then(J::as_object);
     for (name, ours) in fields {
-        let pob = locals.and_then(|l| l.get(*name)).cloned().unwrap_or(J::Null);
+        let pob = locals
+            .and_then(|l| l.get(*name))
+            .cloned()
+            .unwrap_or(J::Null);
         let same = match (ours, &pob) {
             (Val::Num(a), J::Number(b)) => b.as_f64() == Some(*a),
             (Val::Num(a), J::Object(_)) => pob_oracle::schema::decode_num(&pob) == Some(*a),
@@ -483,7 +489,9 @@ fn restore_flask_order(env: &EnvRef, order: &[i64]) {
 /// `partyTab.actor`.
 fn party_alias_ok(env: &EnvRef) -> bool {
     let party = &env.build.partyTab.actor;
-    env.partyMembers.get().is_some_and(|p| Rc::ptr_eq(&p, party))
+    env.partyMembers
+        .get()
+        .is_some_and(|p| Rc::ptr_eq(&p, party))
         && env
             .player
             .partyMembers
@@ -496,7 +504,12 @@ fn party_alias_ok(env: &EnvRef) -> bool {
 /// skill lists and main skills recursively), each once.
 fn reachable_skills(env: &EnvRef) -> Vec<ActiveSkillRef> {
     use pob_calc::probe::rc_ptr;
-    fn actor(a: &ActorRef, seen: &mut Vec<usize>, out: &mut Vec<ActiveSkillRef>, actors: &mut Vec<usize>) {
+    fn actor(
+        a: &ActorRef,
+        seen: &mut Vec<usize>,
+        out: &mut Vec<ActiveSkillRef>,
+        actors: &mut Vec<usize>,
+    ) {
         if actors.contains(&rc_ptr(a)) {
             return;
         }
@@ -509,7 +522,12 @@ fn reachable_skills(env: &EnvRef) -> Vec<ActiveSkillRef> {
             actor(&m, seen, out, actors);
         }
     }
-    fn skill(s: &ActiveSkillRef, seen: &mut Vec<usize>, out: &mut Vec<ActiveSkillRef>, actors: &mut Vec<usize>) {
+    fn skill(
+        s: &ActiveSkillRef,
+        seen: &mut Vec<usize>,
+        out: &mut Vec<ActiveSkillRef>,
+        actors: &mut Vec<usize>,
+    ) {
         if seen.contains(&rc_ptr(s)) {
             return;
         }
@@ -544,7 +562,10 @@ fn reachable_skills(env: &EnvRef) -> Vec<ActiveSkillRef> {
 fn mark_fresh_skill_defaults(env: &EnvRef, before: &[ActiveSkillRef]) {
     use pob_calc::probe::{mark_absent, rc_ptr};
     let old_skills: Vec<usize> = before.iter().map(rc_ptr).collect();
-    let old_effects: Vec<usize> = before.iter().map(|s| rc_ptr(&s.activeEffect.get())).collect();
+    let old_effects: Vec<usize> = before
+        .iter()
+        .map(|s| rc_ptr(&s.activeEffect.get()))
+        .collect();
     for s in reachable_skills(env) {
         let p = rc_ptr(&s);
         if old_skills.contains(&p) {
@@ -587,7 +608,9 @@ fn unrun_mismatches(stem: &str, b: &BuildDumps) -> usize {
     let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
     testkit::diff_against(&b.dout, inj.env.as_ref(), &locals, stem)
         .into_iter()
-        .filter(|m| m.kind != MismatchKind::LuaOrder && !MODEL_ONLY.iter().any(|p| m.path.starts_with(p)))
+        .filter(|m| {
+            m.kind != MismatchKind::LuaOrder && !MODEL_ONLY.iter().any(|p| m.path.starts_with(p))
+        })
         .count()
 }
 
@@ -636,15 +659,22 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
                     args.get(1).and_then(Val::table),
                     args.get(2).and_then(Val::str),
                 ) else {
-                    log.borrow_mut().1.push("mergeBuff: bad arguments".to_owned());
+                    log.borrow_mut()
+                        .1
+                        .push("mergeBuff: bad arguments".to_owned());
                     return;
                 };
                 merge_buff_standin(&src, &dest, Name::from(&*key));
                 return;
             }
-            let hit = queues.borrow_mut().get_mut(name).and_then(VecDeque::pop_front);
+            let hit = queues
+                .borrow_mut()
+                .get_mut(name)
+                .and_then(VecDeque::pop_front);
             let Some(hit) = hit else {
-                log.borrow_mut().1.push(format!("{name}: no recorded call left"));
+                log.borrow_mut()
+                    .1
+                    .push(format!("{name}: no recorded call left"));
                 return;
             };
             let r = replays[name].0.apply_report(&hit, &env);
@@ -692,7 +722,8 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
     let local = |k: &str| after.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
     if let (Some(d), Some(up)) = (
         &b.up1691,
-        local("mergeFlasks").and_then(|v| v.obj::<pob_calc::modules::calc_perform::setup_flasks::FlaskUpvalues>()),
+        local("mergeFlasks")
+            .and_then(|v| v.obj::<pob_calc::modules::calc_perform::setup_flasks::FlaskUpvalues>()),
     ) {
         out.upvalues_checked += 1;
         check_upvalues(
@@ -701,11 +732,20 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
             &[
                 ("effectInc", Val::Num(up.effectInc)),
                 ("effectIncMagic", Val::Num(up.effectIncMagic)),
-                ("effectIncMagicNoAdjacent", Val::Num(up.effectIncMagicNoAdjacent)),
+                (
+                    "effectIncMagicNoAdjacent",
+                    Val::Num(up.effectIncMagicNoAdjacent),
+                ),
                 ("effectIncNonPlayer", Val::Num(up.effectIncNonPlayer)),
-                ("effectIncMagicNonPlayer", Val::Num(up.effectIncMagicNonPlayer)),
+                (
+                    "effectIncMagicNonPlayer",
+                    Val::Num(up.effectIncMagicNonPlayer),
+                ),
                 ("flasksApplyToMinion", Val::Bool(up.flasksApplyToMinion)),
-                ("quickSilverAppliesToAllies", Val::Bool(up.quickSilverAppliesToAllies)),
+                (
+                    "quickSilverAppliesToAllies",
+                    Val::Bool(up.quickSilverAppliesToAllies),
+                ),
                 ("flaskTotalRateInc", Val::Num(up.flaskTotalRateInc)),
                 ("flaskDurInc", Val::Num(up.flaskDurInc)),
             ],
@@ -714,7 +754,9 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
     }
     if let (Some(d), Some(up)) = (
         &b.up1862,
-        local("mergeTinctures").and_then(|v| v.obj::<pob_calc::modules::calc_perform::setup_flasks::TinctureUpvalues>()),
+        local("mergeTinctures").and_then(|v| {
+            v.obj::<pob_calc::modules::calc_perform::setup_flasks::TinctureUpvalues>()
+        }),
     ) {
         out.upvalues_checked += 1;
         check_upvalues(
@@ -731,8 +773,10 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
     if b.up1691.is_some() != (local("mergeFlasks").is_some_and(|v| !v.is_nil()))
         || b.up1862.is_some() != (local("mergeTinctures").is_some_and(|v| !v.is_nil()))
     {
-        out.upvalue_mismatches
-            .push("a closure PoB created (perform:1691 / 1862 hit) is not in the ctx, or the reverse".to_owned());
+        out.upvalue_mismatches.push(
+            "a closure PoB created (perform:1691 / 1862 hit) is not in the ctx, or the reverse"
+                .to_owned(),
+        );
     }
     out.party_alias_ok = party_alias_ok(&env);
     mark_fresh_skill_defaults(&env, &injected_skills);
@@ -821,9 +865,14 @@ fn pfc_l4_perform_1289_1943() {
             continue;
         }
         if !o.party_alias_ok {
-            failed.push(format!("{stem} (env.partyMembers is not env.build.partyTab.actor)"));
+            failed.push(format!(
+                "{stem} (env.partyMembers is not env.build.partyTab.actor)"
+            ));
         } else if !o.upvalue_mismatches.is_empty() {
-            failed.push(format!("{stem} (closure upvalues: {})", o.upvalue_mismatches.join("; ")));
+            failed.push(format!(
+                "{stem} (closure upvalues: {})",
+                o.upvalue_mismatches.join("; ")
+            ));
         } else if o.mismatches.is_empty() && o.replay_notes.is_empty() {
             clean += 1;
         } else {
@@ -841,8 +890,12 @@ fn pfc_l4_perform_1289_1943() {
                     e.1 = format!(
                         "{stem} {}: pob={} ours={}",
                         m.path,
-                        m.pob.as_ref().map_or("-".to_owned(), |v| clip(&v.to_string())),
-                        m.ours.as_ref().map_or("-".to_owned(), |v| clip(&v.to_string()))
+                        m.pob
+                            .as_ref()
+                            .map_or("-".to_owned(), |v| clip(&v.to_string())),
+                        m.ours
+                            .as_ref()
+                            .map_or("-".to_owned(), |v| clip(&v.to_string()))
                     );
                 }
             }
@@ -868,10 +921,15 @@ fn pfc_l4_perform_1289_1943() {
     for (c, (n, ex)) in cls.iter().take(40) {
         eprintln!("  {n:5} {c}\n        e.g. {ex}");
     }
-    eprintln!("  non-vacuity: {unrun} mismatches between the unrun perform:1289 state and perform:1943");
+    eprintln!(
+        "  non-vacuity: {unrun} mismatches between the unrun perform:1289 state and perform:1943"
+    );
     eprintln!("  closure upvalues (CCR-0079 §1) compared with perform:1691 / perform:1862: {upvalues_checked} closures");
     assert!(total > 0, "no build ran");
-    assert!(unrun >= total, "the segment's effect is not visible in the diff");
+    assert!(
+        unrun >= total,
+        "the segment's effect is not visible in the diff"
+    );
     // calc doc §9.4 L4: ≥ 98 % of the all57 hits (the remainder documented)
     assert!(
         clean * 100 >= total * 98,

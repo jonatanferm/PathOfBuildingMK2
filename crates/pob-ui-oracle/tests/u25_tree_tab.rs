@@ -158,10 +158,12 @@ fn rust_stubs() {
         let all_tabs = h.draw_tab.clone();
         h.draw_tab = Rc::new(move |cx, tab, vp, ev| {
             if tab == of::BuildTab::Items {
-                let sel = pob_app::tabs::tree::core::items_spec_select(cx).expect("U33's specSelect");
+                let sel =
+                    pob_app::tabs::tree::core::items_spec_select(cx).expect("U33's specSelect");
                 let line = format!(
                     "^7specSelect: {}",
-                    cx.w::<pob_ui_core::controls::DropDownControl>(sel).sel_index
+                    cx.w::<pob_ui_core::controls::DropDownControl>(sel)
+                        .sel_index
                 );
                 cx.sg.draw_string(
                     vp.x + 4.0,
@@ -188,7 +190,11 @@ fn rust_stubs() {
                 14.0,
                 &format!(
                     "^7{} {}",
-                    if node.alloc.get() { "allocated" } else { "unallocated" },
+                    if node.alloc.get() {
+                        "allocated"
+                    } else {
+                        "unallocated"
+                    },
                     node.r#type.get()
                 ),
             );
@@ -199,7 +205,8 @@ fn rust_stubs() {
         });
         h.build_power = Rc::new(|cx| {
             let m = cx.build().model.clone();
-            let ct = pob_calc::model::build_xml::build_extra(&m).get_or_new_table(pob_lua::n!("calcsTab"));
+            let ct = pob_calc::model::build_xml::build_extra(&m)
+                .get_or_new_table(pob_lua::n!("calcsTab"));
             let pm = pob_calc::lua_table::Table::new();
             pm.set(pob_lua::n!("offence"), 6.0);
             pm.set(pob_lua::n!("defence"), 4.0);
@@ -511,7 +518,9 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
             }
             // a Spec's URL lists the nodes in the same allocNodes order: compared in compare_t4
             // where the `nodes` attributes match byte for byte (module notes)
-            XmlChild::Text(_) if &*node.elem == "URL" => kids.push("<URL: allocNodes order>".to_owned()),
+            XmlChild::Text(_) if &*node.elem == "URL" => {
+                kids.push("<URL: allocNodes order>".to_owned())
+            }
             XmlChild::Text(t) => kids.push(format!("{t:?}")),
         }
     }
@@ -568,8 +577,16 @@ fn spec_urls(root: &XmlNode) -> Vec<(String, String)> {
         .flat_map(|t| nodes(&t))
         .filter(|n| &*n.elem == "Spec")
         .map(|spec| {
-            let ids = spec.attrib.get("nodes").map(|v| v.to_string()).unwrap_or_default();
-            let url = nodes(&spec).iter().filter(|n| &*n.elem == "URL").map(text).collect();
+            let ids = spec
+                .attrib
+                .get("nodes")
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            let url = nodes(&spec)
+                .iter()
+                .filter(|n| &*n.elem == "URL")
+                .map(text)
+                .collect();
             (ids, url)
         })
         .collect()
@@ -582,7 +599,10 @@ fn compare_t4(what: &str, lua: &str, rust: &str, notes: &mut T4Notes) -> Result<
     // the same allocNodes order on both sides: EncodeURL's text must match too (module notes)
     for (i, ((ln, lu), (rn, ru))) in spec_urls(&lr).iter().zip(&spec_urls(&rr)).enumerate() {
         if ln == rn && lu != ru {
-            return Err(format!("{what}: Spec {} URL differs: lua {lu:?} | rust {ru:?}", i + 1));
+            return Err(format!(
+                "{what}: Spec {} URL differs: lua {lu:?} | rust {ru:?}",
+                i + 1
+            ));
         }
     }
     let mut local = T4Notes::default();
@@ -625,7 +645,9 @@ fn tree_image_loads(frames: &[FrameTrace]) -> Vec<String> {
         .flat_map(|f| &f.effects)
         .filter_map(|e| match e {
             SideEffect::ImageLoad(img)
-                if img.path.contains("TreeData/") || img.path.contains("ring.png") || img.path.contains("Ring") =>
+                if img.path.contains("TreeData/")
+                    || img.path.contains("ring.png")
+                    || img.path.contains("Ring") =>
             {
                 Some(format!("{} {:?}", img.path, img.flags))
             }
@@ -750,7 +772,9 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
         .filter(|c| {
             matches!(
                 c.call,
-                ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
             )
         })
         .count()
@@ -807,7 +831,12 @@ fn op_key(op: &DrawOp) -> String {
             height,
             font,
             text,
-        } => format!("S {} {} {align:?} {} {font:?} {text}", r(*x), r(*y), r(*height)),
+        } => format!(
+            "S {} {} {align:?} {} {font:?} {text}",
+            r(*x),
+            r(*y),
+            r(*height)
+        ),
         other => format!("{other:?}"),
     };
     format!("{:?} {} {call}", op.color, rs(&op.viewport))
@@ -881,7 +910,11 @@ fn describe(d: &Divergence) -> String {
             idx,
             lua,
             rust,
-        } => format!("changed {bucket:?}#{idx}: lua {} | rust {}", op(lua), op(rust)),
+        } => format!(
+            "changed {bucket:?}#{idx}: lua {} | rust {}",
+            op(lua),
+            op(rust)
+        ),
         Divergence::Effect { lua, rust } => format!("effect: lua {lua:?} rust {rust:?}"),
     }
 }
@@ -965,7 +998,12 @@ fn u25_scenarios() {
             } else {
                 format!("u25_{stem}@{w}x{h}@{s}")
             };
-            let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s)) {
+            let (lua, rust) = match run_sides(
+                &root,
+                &script,
+                fx.user_dir.as_deref(),
+                runner::screen(w, h, s),
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     out.failures.push(format!("{tag}: {e:#}"));
@@ -992,7 +1030,8 @@ fn u25_scenarios() {
             let first = divs.first().map(|(fi, d)| {
                 format!(
                     "frame {fi}: {}",
-                    d.first().map_or_else(|| "frame missing".to_owned(), describe)
+                    d.first()
+                        .map_or_else(|| "frame missing".to_owned(), describe)
                 )
             });
             let ops = draw_ops(&run.lua);
@@ -1071,16 +1110,24 @@ fn u25_scenarios() {
 #[ignore = "authoring aid"]
 fn u25_probe() {
     let Some(root) = inputs() else { return };
-    let Ok(build) = std::env::var("U25_PROBE") else { return };
+    let Ok(build) = std::env::var("U25_PROBE") else {
+        return;
+    };
     let scr = std::env::var("U25_SCREEN").unwrap_or_else(|_| "1280x800@1".to_owned());
     let (wh, s) = scr.split_once('@').unwrap();
     let (w, h) = wh.split_once('x').unwrap();
     let (w, h, s): (i32, i32, f32) = (w.parse().unwrap(), h.parse().unwrap(), s.parse().unwrap());
-    let max_dist: f64 = std::env::var("U25_PROBE_DIST").ok().and_then(|v| v.parse().ok()).unwrap_or(4.0);
-    let steps = std::env::var("U25_PROBE_STEPS").unwrap_or_default().replace(';', "\n");
-    let script =
-        runner::parse_script(&format!("frames 2\nload-build \"{build}\"\nframes 2\n{steps}\nframes 1\n"))
-            .unwrap();
+    let max_dist: f64 = std::env::var("U25_PROBE_DIST")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4.0);
+    let steps = std::env::var("U25_PROBE_STEPS")
+        .unwrap_or_default()
+        .replace(';', "\n");
+    let script = runner::parse_script(&format!(
+        "frames 2\nload-build \"{build}\"\nframes 2\n{steps}\nframes 1\n"
+    ))
+    .unwrap();
     let user = UserDir::new(Some(&test_dir().join("user"))).unwrap();
     let handles = OracleHandles::default();
     let (sg, sys) = boot::oracle_parts(&root, &user.path, &handles).unwrap();
@@ -1094,23 +1141,51 @@ fn u25_probe() {
     let tab = pob_app::tabs::tree::core::tab(cx).expect("treeTab");
     let ctl = |k: &'static str| pob_app::tabs::tree::core::ctl(cx, tab, k);
     for k in [
-        "specSelect", "compareCheck", "compareSelect", "reset", "versionText", "versionSelect", "treeSearch",
-        "findTimelessJewel", "treeHeatMap", "nodePowerMaxDepthSelect", "treeHeatMapStatSelect", "powerReport",
-        "specConvertText", "specConvert", "specConvertAll",
+        "specSelect",
+        "compareCheck",
+        "compareSelect",
+        "reset",
+        "versionText",
+        "versionSelect",
+        "treeSearch",
+        "findTimelessJewel",
+        "treeHeatMap",
+        "nodePowerMaxDepthSelect",
+        "treeHeatMapStatSelect",
+        "powerReport",
+        "specConvertText",
+        "specConvert",
+        "specConvertAll",
     ] {
         let id = ctl(k);
         let (x, y) = cx.pos(id);
         let (cw, ch) = cx.size(id);
-        println!("control {k}: shown={} x={x} y={y} w={cw} h={ch}", cx.is_shown(id));
+        println!(
+            "control {k}: shown={} x={x} y={y} w={cw} h={ch}",
+            cx.is_shown(id)
+        );
     }
     for spec in cx.build().model.treeTab.specList.snapshot() {
-        println!("spec {:?} {}", spec.title.get().map(|t| t.to_string()), spec.treeVersion.get());
+        println!(
+            "spec {:?} {}",
+            spec.title.get().map(|t| t.to_string()),
+            spec.treeVersion.get()
+        );
     }
     println!("popups {}", cx.main.popups.len());
     let lines_height = -cx.base(ctl("specSelect")).y.raw();
     let m = cx.build().model.clone();
-    let convert = if m.treeTab.showConvert(&m) { 64.0 } else { 32.0 };
-    let vp = ViewPort { x: 312.0, y: 32.0, width: sw - 312.0, height: sh - 32.0 - convert - lines_height };
+    let convert = if m.treeTab.showConvert(&m) {
+        64.0
+    } else {
+        32.0
+    };
+    let vp = ViewPort {
+        x: 312.0,
+        y: 32.0,
+        width: sw - 312.0,
+        height: sh - 32.0 - convert - lines_height,
+    };
     let spec = m.spec.get();
     let tree = spec.tree.get();
     let v = &cx.w::<pob_app::tabs::tree::TreeTab>(tab).core.viewer;

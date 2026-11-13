@@ -45,7 +45,9 @@ use super::gem_slots::add_undo_state;
 use crate::app::CxApp;
 use crate::build::init;
 use crate::build::on_frame::{shell_hooks, TabFlag};
-use crate::model::{self, GemInstance, GemInstanceRef, Shared, SocketGroup, SocketGroupRef, Table, Val};
+use crate::model::{
+    self, GemInstance, GemInstanceRef, Shared, SocketGroup, SocketGroupRef, Table, Val,
+};
 use crate::tabs::items::item_list::{id_value, value_id, IdListSource};
 
 // @pob-skip Classes/SkillSetListControl.lua:1-16 reason="header comment, the table/math/string locals, newClass and the constructor's annotations (the struct and Widget impl below)"
@@ -53,18 +55,24 @@ use crate::tabs::items::item_list::{id_value, value_id, IdListSource};
 /// `skillsTab.skillSets[id]`
 fn skill_set(cx: &Cx, id: f64) -> Option<Table> {
     let k = model::items_tab::id_key(id)?;
-    cx.build().model.skillsTab.skillSets.with(|s| s.get(&k).cloned())
+    cx.build()
+        .model
+        .skillsTab
+        .skillSets
+        .with(|s| s.get(&k).cloned())
 }
 
 /// `skillsTab.skillSets[id]` that the Lua then indexes.
 #[track_caller]
 fn skill_set_or_raise(cx: &Cx, id: f64) -> Table {
-    skill_set(cx, id).unwrap_or_else(|| lua_error!("attempt to index local 'skillSet' (a nil value)"))
+    skill_set(cx, id)
+        .unwrap_or_else(|| lua_error!("attempt to index local 'skillSet' (a nil value)"))
 }
 
 /// `skillSet.title or "Default"`
 fn set_title(set: &Table) -> String {
-    set.str(n!("title")).map_or_else(|| "Default".to_owned(), |s| s.to_string())
+    set.str(n!("title"))
+        .map_or_else(|| "Default".to_owned(), |s| s.to_string())
 }
 
 /// `self.skillsTab.modFlag = true`
@@ -196,46 +204,57 @@ impl SkillSetListControl {
             let copy = cx.add(
                 me,
                 "copy",
-                ButtonControl::new(Anchor::new(BottomLeft, me, Top), rect(2, -4, 60, 18), "Copy", move |cx| {
-                    let m = cx.build().model.clone();
-                    // L21
-                    let skillSet = sel_value(cx)
-                        .and_then(|id| skill_set(cx, f64::from(id)))
-                        .unwrap_or_else(|| lua_error!("bad argument #1 to 'pairs' (table expected, got nil)"));
-                    // L22
-                    let newSkillSet = skillSet.copyTable(true);
-                    // L23
-                    let newList: Shared<Vec<SocketGroupRef>> = Shared::new(Vec::new());
-                    newSkillSet.set(n!("socketGroupList"), Val::Obj(Rc::new(newList.clone())));
-                    // L24 (ORDER: module notes)
-                    for socketGroup in model::skills_tab::skillSet_socketGroupList(&skillSet).snapshot() {
-                        // L25
-                        let newGroup = copy_socket_group(&socketGroup);
-                        // L26
-                        let gemList: Shared<Vec<GemInstanceRef>> = Shared::new(Vec::new());
-                        newGroup.gemList.set(gemList.clone());
-                        // L27
-                        for gem in socketGroup.gemList.get().snapshot() {
-                            // L28
-                            gemList.push(Rc::new(copy_gem_instance(&gem)));
+                ButtonControl::new(
+                    Anchor::new(BottomLeft, me, Top),
+                    rect(2, -4, 60, 18),
+                    "Copy",
+                    move |cx| {
+                        let m = cx.build().model.clone();
+                        // L21
+                        let skillSet = sel_value(cx)
+                            .and_then(|id| skill_set(cx, f64::from(id)))
+                            .unwrap_or_else(|| {
+                                lua_error!("bad argument #1 to 'pairs' (table expected, got nil)")
+                            });
+                        // L22
+                        let newSkillSet = skillSet.copyTable(true);
+                        // L23
+                        let newList: Shared<Vec<SocketGroupRef>> = Shared::new(Vec::new());
+                        newSkillSet.set(n!("socketGroupList"), Val::Obj(Rc::new(newList.clone())));
+                        // L24 (ORDER: module notes)
+                        for socketGroup in
+                            model::skills_tab::skillSet_socketGroupList(&skillSet).snapshot()
+                        {
+                            // L25
+                            let newGroup = copy_socket_group(&socketGroup);
+                            // L26
+                            let gemList: Shared<Vec<GemInstanceRef>> = Shared::new(Vec::new());
+                            newGroup.gemList.set(gemList.clone());
+                            // L27
+                            for gem in socketGroup.gemList.get().snapshot() {
+                                // L28
+                                gemList.push(Rc::new(copy_gem_instance(&gem)));
+                            }
+                            // L30
+                            newList.push(Rc::new(newGroup));
                         }
-                        // L30
-                        newList.push(Rc::new(newGroup));
-                    }
-                    // L32
-                    let mut id = 1.0;
-                    // L33
-                    while skill_set(cx, id).is_some() {
-                        // L34
-                        id += 1.0;
-                    }
-                    newSkillSet.set(n!("id"), id);
-                    // L36
-                    let k = model::items_tab::id_key(id).expect("an integer id");
-                    m.skillsTab.skillSets.with_mut(|s| s.insert(k, newSkillSet.clone()));
-                    // L37
-                    Self::RenameSet(cx, me, &newSkillSet, true);
-                }),
+                        // L32
+                        let mut id = 1.0;
+                        // L33
+                        while skill_set(cx, id).is_some() {
+                            // L34
+                            id += 1.0;
+                        }
+                        newSkillSet.set(n!("id"), id);
+                        // L36
+                        let k = model::items_tab::id_key(id).expect("an integer id");
+                        m.skillsTab
+                            .skillSets
+                            .with_mut(|s| s.insert(k, newSkillSet.clone()));
+                        // L37
+                        Self::RenameSet(cx, me, &newSkillSet, true);
+                    },
+                ),
             );
             // L39-41
             cx.base_mut(copy).enabled = Prop::f(move |cx, _| {
@@ -246,15 +265,22 @@ impl SkillSetListControl {
             let delete = cx.add(
                 me,
                 "delete",
-                ButtonControl::new(Anchor::new(Left, copy, Right), rect(4, 0, 60, 18), "Delete", move |cx| {
-                    // L43
-                    let (index, value) = {
-                        let w = cx.w::<ListControl>(me);
-                        (w.sel_index, w.sel_value.clone())
-                    };
-                    let value = value.unwrap_or_else(|| lua_error!("attempt to index local 'skillSet' (a nil value)"));
-                    Self::OnSelDelete(cx, me, index.unwrap_or(0), &value);
-                }),
+                ButtonControl::new(
+                    Anchor::new(Left, copy, Right),
+                    rect(4, 0, 60, 18),
+                    "Delete",
+                    move |cx| {
+                        // L43
+                        let (index, value) = {
+                            let w = cx.w::<ListControl>(me);
+                            (w.sel_index, w.sel_value.clone())
+                        };
+                        let value = value.unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'skillSet' (a nil value)")
+                        });
+                        Self::OnSelDelete(cx, me, index.unwrap_or(0), &value);
+                    },
+                ),
             );
             // L45-47
             cx.base_mut(delete).enabled = Prop::f(move |cx, _| {
@@ -265,13 +291,20 @@ impl SkillSetListControl {
             let rename = cx.add(
                 me,
                 "rename",
-                ButtonControl::new(Anchor::new(BottomRight, me, Top), rect(-2, -4, 60, 18), "Rename", move |cx| {
-                    // L49
-                    let set = sel_value(cx)
-                        .and_then(|id| skill_set(cx, f64::from(id)))
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'skillSet' (a nil value)"));
-                    Self::RenameSet(cx, me, &set, false);
-                }),
+                ButtonControl::new(
+                    Anchor::new(BottomRight, me, Top),
+                    rect(-2, -4, 60, 18),
+                    "Rename",
+                    move |cx| {
+                        // L49
+                        let set = sel_value(cx)
+                            .and_then(|id| skill_set(cx, f64::from(id)))
+                            .unwrap_or_else(|| {
+                                lua_error!("attempt to index local 'skillSet' (a nil value)")
+                            });
+                        Self::RenameSet(cx, me, &set, false);
+                    },
+                ),
             );
             // L51-53
             cx.base_mut(rename).enabled = Prop::f(move |cx, _| {
@@ -282,11 +315,16 @@ impl SkillSetListControl {
             cx.add(
                 me,
                 "new",
-                ButtonControl::new(Anchor::new(Right, rename, Left), rect(-4, 0, 60, 18), "New", move |cx| {
-                    // L55
-                    let set = cx.build().model.skillsTab.NewSkillSet(None);
-                    Self::RenameSet(cx, me, &set, true);
-                }),
+                ButtonControl::new(
+                    Anchor::new(Right, rename, Left),
+                    rect(-4, 0, 60, 18),
+                    "New",
+                    move |cx| {
+                        // L55
+                        let set = cx.build().model.skillsTab.NewSkillSet(None);
+                        Self::RenameSet(cx, me, &set, true);
+                    },
+                ),
             );
             // L57 return self
         })
@@ -297,7 +335,11 @@ impl SkillSetListControl {
     pub fn RenameSet(cx: &mut Cx, me: CtrlId, skillSet: &Table, addOnName: bool) {
         let title = skillSet.str(n!("title")).map(|s| s.to_string());
         // L85 (the title argument; evaluated after the constructors, which draw nothing)
-        let popup_title = if title.is_some() { "Rename" } else { "Set Name" };
+        let popup_title = if title.is_some() {
+            "Rename"
+        } else {
+            "Set Name"
+        };
         let set = skillSet.clone();
         popups::open_popup(
             cx,
@@ -311,7 +353,11 @@ impl SkillSetListControl {
                 cx.add(
                     p,
                     "label",
-                    LabelControl::new(Anchor::NONE, rect(0, 20, 0, 16), "^7Enter name for this skill set:"),
+                    LabelControl::new(
+                        Anchor::NONE,
+                        rect(0, 20, 0, 16),
+                        "^7Enter name for this skill set:",
+                    ),
                 );
                 // L63-65
                 cx.add(
@@ -380,7 +426,11 @@ impl SkillSetListControl {
                             // L81
                             let id = set_c.num(n!("id"));
                             if let Some(k) = model::items_tab::id_key(id) {
-                                cx.build().model.skillsTab.skillSets.with_mut(|s| s.shift_remove(&k));
+                                cx.build()
+                                    .model
+                                    .skillsTab
+                                    .skillSets
+                                    .with_mut(|s| s.shift_remove(&k));
                             }
                         }
                         // L83
@@ -407,7 +457,8 @@ impl SkillSetListControl {
         let skillSet = skill_set(cx, id);
         // L90
         if column == 1 {
-            let skillSet = skillSet.unwrap_or_else(|| lua_error!("attempt to index local 'skillSet' (a nil value)"));
+            let skillSet = skillSet
+                .unwrap_or_else(|| lua_error!("attempt to index local 'skillSet' (a nil value)"));
             // L91
             let current = if id == cx.build().model.skillsTab.activeSkillSetId.get() {
                 "  ^9(Current)"
@@ -429,7 +480,13 @@ impl SkillSetListControl {
     /// lua: SkillSetListControl.lua:99-104 `SkillSetListClass:OnSelClick(index, skillSetId,
     /// doubleClick)`
     /// @pob Classes/SkillSetListControl.lua:99-104 h=3b616389
-    fn OnSelClick(cx: &mut Cx, me: CtrlId, _index: usize, v: &ListValue, doubleClick: bool) -> Option<bool> {
+    fn OnSelClick(
+        cx: &mut Cx,
+        me: CtrlId,
+        _index: usize,
+        v: &ListValue,
+        doubleClick: bool,
+    ) -> Option<bool> {
         let skills_tab = cx.w::<SkillSetListControl>(me).skills_tab;
         let id = f64::from(value_id(v));
         // L100
@@ -451,18 +508,26 @@ impl SkillSetListControl {
         let skillSet = skill_set(cx, f64::from(id));
         // L108
         if ListControl::list_len(cx, me) > 1 {
-            let skillSet = skillSet.unwrap_or_else(|| lua_error!("attempt to index local 'skillSet' (a nil value)"));
+            let skillSet = skillSet
+                .unwrap_or_else(|| lua_error!("attempt to index local 'skillSet' (a nil value)"));
             // L109-119
             popups::open_confirm_popup(
                 cx,
                 "Delete Item Set",
-                &format!("Are you sure you want to delete '{}'?", set_title(&skillSet)),
+                &format!(
+                    "Are you sure you want to delete '{}'?",
+                    set_title(&skillSet)
+                ),
                 "Delete",
                 move |cx| {
                     // L110
                     ListControl::list_remove(cx, me, index);
                     // L111
-                    cx.build().model.skillsTab.skillSets.with_mut(|s| s.shift_remove(&id));
+                    cx.build()
+                        .model
+                        .skillsTab
+                        .skillSets
+                        .with_mut(|s| s.shift_remove(&id));
                     {
                         let w = cx.w_mut::<ListControl>(me);
                         // L112
@@ -474,7 +539,8 @@ impl SkillSetListControl {
                     if f64::from(id) == cx.build().model.skillsTab.activeSkillSetId.get() {
                         // L115 (module notes)
                         let i = m_max(1.0, index as f64 - 1.0) as usize;
-                        let next = ListControl::list_get(cx, me, i).map_or(f64::NAN, |v| f64::from(value_id(&v)));
+                        let next = ListControl::list_get(cx, me, i)
+                            .map_or(f64::NAN, |v| f64::from(value_id(&v)));
                         set_active_skill_set(cx, next);
                     }
                     // L117
@@ -526,7 +592,18 @@ impl Widget for SkillSetListControl {
 /// `new("SkillSetListControl"):SkillSetListControl(nil, rect, self)` stored in `popup` under
 /// `key` (SkillsTab.lua:1444, the skill set manager's first control): the shape of U30's
 /// `SkillsHooks::skill_set_list_ctor` seam. Returns the control.
-pub fn skill_set_list_ctor(cx: &mut Cx, popup: CtrlId, key: CtrlKey, r: [Prop<f64>; 4], tab: CtrlId) -> CtrlId {
+pub fn skill_set_list_ctor(
+    cx: &mut Cx,
+    popup: CtrlId,
+    key: CtrlKey,
+    r: [Prop<f64>; 4],
+    tab: CtrlId,
+) -> CtrlId {
     let order = cx.build().model.skillsTab.skillSetOrderList.clone();
-    cx.add(popup, key, SkillSetListControl::new(Anchor::NONE, r, tab, order)).id()
+    cx.add(
+        popup,
+        key,
+        SkillSetListControl::new(Anchor::NONE, r, tab, order),
+    )
+    .id()
 }

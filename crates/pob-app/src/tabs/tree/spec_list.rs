@@ -22,7 +22,9 @@ use std::rc::Rc;
 use pob_lua::math::m_max;
 use pob_lua::pattern;
 use pob_ui_core::controls::list::{ListControl, ListData, ListHooks, ListSource, ListValue};
-use pob_ui_core::controls::{ButtonControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl};
+use pob_ui_core::controls::{
+    ButtonControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl,
+};
 use pob_ui_core::popups::{self, PopupOpts};
 use pob_ui_core::prelude::*;
 
@@ -126,7 +128,8 @@ impl PassiveSpecListControl {
         .host()
         .init(|cx, me| {
             let spec_list = cx.build().model.treeTab.specList.clone();
-            cx.w_mut::<ListControl>(me.0).list = ListData::Source(Rc::new(SpecListSource(spec_list)));
+            cx.w_mut::<ListControl>(me.0).list =
+                ListData::Source(Rc::new(SpecListSource(spec_list)));
             ListControl::init(cx, me.0);
         })
         .init(|cx, me| {
@@ -135,26 +138,32 @@ impl PassiveSpecListControl {
             let copy = cx.add(
                 me,
                 "copy",
-                ButtonControl::new(Anchor::new(BottomLeft, me, Top), rect(2, -4, 60, 18), "Copy", move |cx| {
-                    let m = cx.build().model.clone();
-                    let sel = sel_value(cx, me)
-                        .unwrap_or_else(|| lua_error!("attempt to index field 'selValue' (a nil value)"));
-                    // L17
-                    let new_spec = new_PassiveSpec(&m, sel.treeVersion.get(), false);
-                    // L18
-                    new_spec.title.set(sel.title.get());
-                    // L19
-                    let jewels = sel.jewels.with(Clone::clone);
-                    new_spec.jewels.with_mut(|j| *j = jewels);
-                    // L20
-                    let state = sel.CreateUndoState();
-                    new_spec.RestoreUndoState(&state, None);
-                    flush_window_titles(cx);
-                    // L21
-                    new_spec.BuildClusterJewelGraphs();
-                    // L22
-                    Self::RenameSpec(cx, me, &new_spec, "Copy Tree", true);
-                }),
+                ButtonControl::new(
+                    Anchor::new(BottomLeft, me, Top),
+                    rect(2, -4, 60, 18),
+                    "Copy",
+                    move |cx| {
+                        let m = cx.build().model.clone();
+                        let sel = sel_value(cx, me).unwrap_or_else(|| {
+                            lua_error!("attempt to index field 'selValue' (a nil value)")
+                        });
+                        // L17
+                        let new_spec = new_PassiveSpec(&m, sel.treeVersion.get(), false);
+                        // L18
+                        new_spec.title.set(sel.title.get());
+                        // L19
+                        let jewels = sel.jewels.with(Clone::clone);
+                        new_spec.jewels.with_mut(|j| *j = jewels);
+                        // L20
+                        let state = sel.CreateUndoState();
+                        new_spec.RestoreUndoState(&state, None);
+                        flush_window_titles(cx);
+                        // L21
+                        new_spec.BuildClusterJewelGraphs();
+                        // L22
+                        Self::RenameSpec(cx, me, &new_spec, "Copy Tree", true);
+                    },
+                ),
             );
             // L24-26
             cx.base_mut(copy).enabled = Prop::f(move |cx, _| {
@@ -165,16 +174,22 @@ impl PassiveSpecListControl {
             let delete = cx.add(
                 me,
                 "delete",
-                ButtonControl::new(Anchor::new(Left, copy, Right), rect(4, 0, 60, 18), "Delete", move |cx| {
-                    // L28
-                    let (index, value) = {
-                        let w = cx.w::<ListControl>(me);
-                        (w.sel_index, w.sel_value.clone())
-                    };
-                    let value = value
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'spec' (a nil value)"));
-                    Self::OnSelDelete(cx, me, index.unwrap_or(0), &value);
-                }),
+                ButtonControl::new(
+                    Anchor::new(Left, copy, Right),
+                    rect(4, 0, 60, 18),
+                    "Delete",
+                    move |cx| {
+                        // L28
+                        let (index, value) = {
+                            let w = cx.w::<ListControl>(me);
+                            (w.sel_index, w.sel_value.clone())
+                        };
+                        let value = value.unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'spec' (a nil value)")
+                        });
+                        Self::OnSelDelete(cx, me, index.unwrap_or(0), &value);
+                    },
+                ),
             );
             // L30-32
             cx.base_mut(delete).enabled = Prop::f(move |cx, _| {
@@ -185,12 +200,18 @@ impl PassiveSpecListControl {
             let rename = cx.add(
                 me,
                 "rename",
-                ButtonControl::new(Anchor::new(BottomRight, me, Top), rect(-2, -4, 60, 18), "Rename", move |cx| {
-                    // L34
-                    let sel = sel_value(cx, me)
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'spec' (a nil value)"));
-                    Self::RenameSpec(cx, me, &sel, "Rename Tree", false);
-                }),
+                ButtonControl::new(
+                    Anchor::new(BottomRight, me, Top),
+                    rect(-2, -4, 60, 18),
+                    "Rename",
+                    move |cx| {
+                        // L34
+                        let sel = sel_value(cx, me).unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'spec' (a nil value)")
+                        });
+                        Self::RenameSpec(cx, me, &sel, "Rename Tree", false);
+                    },
+                ),
             );
             // L36-38
             cx.base_mut(rename).enabled = Prop::f(move |cx, _| {
@@ -201,20 +222,30 @@ impl PassiveSpecListControl {
             cx.add(
                 me,
                 "new",
-                ButtonControl::new(Anchor::new(Right, rename, Left), rect(-4, 0, 60, 18), "New", move |cx| {
-                    let m = cx.build().model.clone();
-                    let build_spec = m.spec.get();
-                    // L40
-                    let new_spec = new_PassiveSpec(&m, model::data().gameVersions.latestTreeVersion, false);
-                    // L41
-                    new_spec.SelectClass(build_spec.curClassId.get());
-                    // L42
-                    new_spec.SelectAscendClass(build_spec.curAscendClassId.get());
-                    // L43
-                    new_spec.SelectSecondaryAscendClass(build_spec.curSecondaryAscendClassId.get());
-                    // L44
-                    Self::RenameSpec(cx, me, &new_spec, "New Tree", true);
-                }),
+                ButtonControl::new(
+                    Anchor::new(Right, rename, Left),
+                    rect(-4, 0, 60, 18),
+                    "New",
+                    move |cx| {
+                        let m = cx.build().model.clone();
+                        let build_spec = m.spec.get();
+                        // L40
+                        let new_spec = new_PassiveSpec(
+                            &m,
+                            model::data().gameVersions.latestTreeVersion,
+                            false,
+                        );
+                        // L41
+                        new_spec.SelectClass(build_spec.curClassId.get());
+                        // L42
+                        new_spec.SelectAscendClass(build_spec.curAscendClassId.get());
+                        // L43
+                        new_spec
+                            .SelectSecondaryAscendClass(build_spec.curSecondaryAscendClassId.get());
+                        // L44
+                        Self::RenameSpec(cx, me, &new_spec, "New Tree", true);
+                    },
+                ),
             );
             // L46
             Self::UpdateItemsTabPassiveTreeDropdown(cx, me);
@@ -225,7 +256,13 @@ impl PassiveSpecListControl {
     /// lua: PassiveSpecListControl.lua:50-74 `PassiveSpecListClass:RenameSpec(spec, title,
     /// addOnName)`
     /// @pob Classes/PassiveSpecListControl.lua:50-74 h=0b772a22
-    pub fn RenameSpec(cx: &mut Cx, me: CtrlId, spec: &PassiveSpecRef, title: &str, add_on_name: bool) {
+    pub fn RenameSpec(
+        cx: &mut Cx,
+        me: CtrlId,
+        spec: &PassiveSpecRef,
+        title: &str,
+        add_on_name: bool,
+    ) {
         let spec_title = spec.title.get().map(|s| s.to_string());
         let spec = spec.clone();
         // L72 -- main:OpenPopup(370, 100, spec.title and "Rename" or "Set Name", controls, "save", "edit")
@@ -242,7 +279,11 @@ impl PassiveSpecListControl {
                 cx.add(
                     p,
                     "label",
-                    LabelControl::new(Anchor::NONE, rect(0, 20, 0, 16), "^7Enter name for this passive tree:"),
+                    LabelControl::new(
+                        Anchor::NONE,
+                        rect(0, 20, 0, 16),
+                        "^7Enter name for this passive tree:",
+                    ),
                 );
                 // L53-55
                 cx.add(
@@ -339,7 +380,10 @@ impl PassiveSpecListControl {
                 String::new()
             };
             // L80
-            let title = spec.title.get().map_or_else(|| "Default".to_owned(), |s| s.to_string());
+            let title = spec
+                .title
+                .get()
+                .map_or_else(|| "Default".to_owned(), |s| s.to_string());
             // L81
             let ascend = spec.curAscendClassName.get();
             let class = match ascend {
@@ -348,7 +392,9 @@ impl PassiveSpecListControl {
                     .curClassName
                     .get()
                     .map(|c| c.to_string())
-                    .unwrap_or_else(|| lua_error!("attempt to concatenate field 'curClassName' (a nil value)")),
+                    .unwrap_or_else(|| {
+                        lua_error!("attempt to concatenate field 'curClassName' (a nil value)")
+                    }),
             };
             // L82
             let current = if index as f64 == cx.build().model.treeTab.activeSpec.get() {
@@ -356,7 +402,10 @@ impl PassiveSpecListControl {
             } else {
                 ""
             };
-            return format!("{prefix}{title} ({class}, {} points){current}", pob_lua::tostring_num(used));
+            return format!(
+                "{prefix}{title} ({class}, {} points){current}",
+                pob_lua::tostring_num(used)
+            );
         }
         String::new()
     }
@@ -380,7 +429,13 @@ impl PassiveSpecListControl {
     /// lua: PassiveSpecListControl.lua:93-97 `PassiveSpecListClass:OnSelClick(index, spec,
     /// doubleClick)`
     /// @pob Classes/PassiveSpecListControl.lua:93-97 h=13a087b8
-    fn OnSelClick(cx: &mut Cx, me: CtrlId, index: usize, _v: &ListValue, double_click: bool) -> Option<bool> {
+    fn OnSelClick(
+        cx: &mut Cx,
+        me: CtrlId,
+        index: usize,
+        _v: &ListValue,
+        double_click: bool,
+    ) -> Option<bool> {
         // L94
         if double_click && index as f64 != cx.build().model.treeTab.activeSpec.get() {
             // L95
@@ -396,7 +451,10 @@ impl PassiveSpecListControl {
         let spec = spec_of(v);
         // L100
         if ListControl::list_len(cx, me) > 1 {
-            let title = spec.title.get().map_or_else(|| "Default".to_owned(), |s| s.to_string());
+            let title = spec
+                .title
+                .get()
+                .map_or_else(|| "Default".to_owned(), |s| s.to_string());
             // L101-113
             popups::open_confirm_popup(
                 cx,
@@ -462,7 +520,13 @@ impl PassiveSpecListControl {
             .specList
             .snapshot()
             .iter()
-            .map(|s| DropItem::str(s.title.get().map_or_else(|| "Default".to_owned(), |t| t.to_string())))
+            .map(|s| {
+                DropItem::str(
+                    s.title
+                        .get()
+                        .map_or_else(|| "Default".to_owned(), |t| t.to_string()),
+                )
+            })
             .collect();
         // L130
         DropDownControl::set_list(cx, secondary_spec_list, new_spec_list);

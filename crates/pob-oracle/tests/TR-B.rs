@@ -208,7 +208,12 @@ fn probe_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
         max_dumps: 200,
         provenance: false,
     };
-    testkit::probe_selection(Path::new(env!("CARGO_BIN_EXE_pob_oracle")), xml, None, &opts)
+    testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        None,
+        &opts,
+    )
 }
 
 /// A file of the probe run whose dumps are `state` (`hits.json`, a `hits.json` entry's
@@ -401,7 +406,10 @@ fn restore_mod_sources(env: &EnvRef) {
         actors.push(m);
     }
     for a in actors {
-        for item in a.itemList().with(|l| l.values().cloned().collect::<Vec<_>>()) {
+        for item in a
+            .itemList()
+            .with(|l| l.values().cloned().collect::<Vec<_>>())
+        {
             if item.modSource.get().is_none() {
                 let id = item.id.get().unwrap_or(-1.0);
                 let s = format!("Item:{}:{}", tostring_num(id), item.name.get());

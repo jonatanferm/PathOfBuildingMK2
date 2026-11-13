@@ -99,7 +99,7 @@ use pob_lua::{lfmt, n, Name};
 use pob_sg::{Font, Key as SgKey};
 use pob_ui_core::luastr;
 use pob_ui_core::prelude::*;
-use pob_ui_core::tooltip::tooltip::{ModLineRef, TtBackground, TtColor, TtModLine, Tooltip};
+use pob_ui_core::tooltip::tooltip::{ModLineRef, Tooltip, TtBackground, TtColor, TtModLine};
 use pob_ui_core::undo::{UndoOps, UndoStack};
 
 use super::ctor;
@@ -261,9 +261,11 @@ impl ItemsTabSelf {
             ItemsTabSelf::Open(_) => {
                 build_stats::add_stat_compares_to_tooltip(cx, tooltip, base, output, header, None)
             }
-            ItemsTabSelf::Entry(e) => crate::tabs::compare::entry::CompareEntry::AddStatComparesToTooltip(
-                cx, e, tooltip, base, output, header, None,
-            ),
+            ItemsTabSelf::Entry(e) => {
+                crate::tabs::compare::entry::CompareEntry::AddStatComparesToTooltip(
+                    cx, e, tooltip, base, output, header, None,
+                )
+            }
         }
     }
 
@@ -286,9 +288,11 @@ impl ItemsTabSelf {
             ItemsTabSelf::Open(_) => build_stats::add_requirements_to_tooltip(
                 cx, tooltip, level, str, dex, int, strBase, dexBase, intBase,
             ),
-            ItemsTabSelf::Entry(e) => crate::tabs::compare::entry::CompareEntry::AddRequirementsToTooltip(
-                cx, e, tooltip, level, str, dex, int, strBase, dexBase, intBase,
-            ),
+            ItemsTabSelf::Entry(e) => {
+                crate::tabs::compare::entry::CompareEntry::AddRequirementsToTooltip(
+                    cx, e, tooltip, level, str, dex, int, strBase, dexBase, intBase,
+                )
+            }
         }
     }
 }
@@ -460,8 +464,8 @@ pub fn copy_item(src: &model::Item) -> model::Item {
 /// entries with the same name and id, which the data does not have (the later one would win in
 /// PoB's random order; here the dump's order).
 /// @pob Classes/ItemsTab.lua:62-69 h=fff7175d
-pub fn flavour_lookup() -> &'static indexmap::IndexMap<String, indexmap::IndexMap<String, Vec<String>>>
-{
+pub fn flavour_lookup(
+) -> &'static indexmap::IndexMap<String, indexmap::IndexMap<String, Vec<String>>> {
     type Lookup = indexmap::IndexMap<String, indexmap::IndexMap<String, Vec<String>>>;
     static LOOKUP: OnceLock<Lookup> = OnceLock::new();
     LOOKUP.get_or_init(|| {
@@ -612,13 +616,29 @@ pub fn SetTooltipHeaderInfluence(tooltip: &mut Tooltip, item: &model::Item) {
 pub fn FormatItemSource(cx: &Cx, text: &str) -> String {
     let cc = &cx.main.cc;
     // L4065
-    let text = luastr::gsub(text, "unique{([^}]+)}", &format!("{}%1{}", cc.UNIQUE, cc.SOURCE));
+    let text = luastr::gsub(
+        text,
+        "unique{([^}]+)}",
+        &format!("{}%1{}", cc.UNIQUE, cc.SOURCE),
+    );
     // L4066
-    let text = luastr::gsub(&text, "normal{([^}]+)}", &format!("{}%1{}", cc.NORMAL, cc.SOURCE));
+    let text = luastr::gsub(
+        &text,
+        "normal{([^}]+)}",
+        &format!("{}%1{}", cc.NORMAL, cc.SOURCE),
+    );
     // L4067
-    let text = luastr::gsub(&text, "currency{([^}]+)}", &format!("{}%1{}", cc.CURRENCY, cc.SOURCE));
+    let text = luastr::gsub(
+        &text,
+        "currency{([^}]+)}",
+        &format!("{}%1{}", cc.CURRENCY, cc.SOURCE),
+    );
     // L4068
-    luastr::gsub(&text, "prophecy{([^}]+)}", &format!("{}%1{}", cc.PROPHECY, cc.SOURCE))
+    luastr::gsub(
+        &text,
+        "prophecy{([^}]+)}",
+        &format!("{}%1{}", cc.PROPHECY, cc.SOURCE),
+    )
 }
 
 // ---- the jewel comparison spec ---------------------------------------------------------------
@@ -784,10 +804,7 @@ impl Drop for TempItemGuard {
         // L4177
         if let Some(id) = self.id {
             // L4178
-            self.build
-                .itemsTab
-                .items
-                .with_mut(|m| m.shift_remove(&id));
+            self.build.itemsTab.items.with_mut(|m| m.shift_remove(&id));
         }
     }
 }
@@ -814,12 +831,16 @@ fn buildSpecForJewelComparison(
     // L4159
     if let Some(replacementItem) = replacementItem {
         // L4160
-        let live = replacementItem.id.get().and_then(model::items_tab::id_key).filter(|k| {
-            build
-                .itemsTab
-                .items
-                .with(|m| m.get(k).is_some_and(|l| Rc::ptr_eq(l, replacementItem)))
-        });
+        let live = replacementItem
+            .id
+            .get()
+            .and_then(model::items_tab::id_key)
+            .filter(|k| {
+                build
+                    .itemsTab
+                    .items
+                    .with(|m| m.get(k).is_some_and(|l| Rc::ptr_eq(l, replacementItem)))
+            });
         if let Some(k) = live {
             // L4161
             spec.jewels.with_mut(|m| m.set(nodeKey, Some(f64::from(k))));
@@ -838,7 +859,8 @@ fn buildSpecForJewelComparison(
                 .with_mut(|m| m.insert(id, replacementItem.clone()));
             tempItemId = Some(id);
             // L4168
-            spec.jewels.with_mut(|m| m.set(nodeKey, Some(f64::from(id))));
+            spec.jewels
+                .with_mut(|m| m.set(nodeKey, Some(f64::from(id))));
         }
     } else {
         // L4171
@@ -962,9 +984,9 @@ fn AddItemTooltip_as(
     let rarity = item.rarity.get();
     let rarityCode: Option<String> = cc.get(&rarity).cloned();
     let rc = || {
-        rarityCode
-            .clone()
-            .unwrap_or_else(|| lua_error!("attempt to concatenate local 'rarityCode' (a nil value)"))
+        rarityCode.clone().unwrap_or_else(|| {
+            lua_error!("attempt to concatenate local 'rarityCode' (a nil value)")
+        })
     };
     // L4219 Cap very long lines. Can use a narrower width for small viewports
     tooltip.max_width = Some(m_min(maxWidth.unwrap_or(600.0), 600.0));
@@ -986,14 +1008,24 @@ fn AddItemTooltip_as(
             .map(|t| t.to_string())
             .or_else(|| Some(item.name.get().to_string()))
             .unwrap_or_else(|| "Unknown Item".to_owned());
-        tooltip.add_line_ex(cx, fontSizeTitle, &format!("{}{title}", rc()), fs, None, None);
+        tooltip.add_line_ex(
+            cx,
+            fontSizeTitle,
+            &format!("{}{title}", rc()),
+            fs,
+            None,
+            None,
+        );
         // L4227
         tooltip.add_separator(cx, Some(30.0));
         // L4228
         tooltip.add_line_ex(
             cx,
             fontSizeTitle,
-            &format!("{}Item base is not supported by the current version.", cc.NEGATIVE),
+            &format!(
+                "{}Item base is not supported by the current version.",
+                cc.NEGATIVE
+            ),
             fs,
             None,
             None,
@@ -1008,7 +1040,14 @@ fn AddItemTooltip_as(
     // L4233
     if let Some(title) = item.title.get() {
         // L4234
-        tooltip.add_line_ex(cx, fontSizeTitle, &format!("{}{title}", rc()), fs, None, None);
+        tooltip.add_line_ex(
+            cx,
+            fontSizeTitle,
+            &format!("{}{title}", rc()),
+            fs,
+            None,
+            None,
+        );
         // L4235
         let bn = luastr::gsub(&baseName, " %(.+%)", "");
         tooltip.add_line_ex(cx, fontSizeTitle, &format!("{}{bn}", rc()), fs, None, None);
@@ -1028,7 +1067,11 @@ fn AddItemTooltip_as(
         // L4240
         if item.influences.truthy(Name::from(curInfluenceInfo.key)) && !showFlavourText {
             // L4241
-            let text = format!("{}{} Item", curInfluenceInfo.color(), curInfluenceInfo.display);
+            let text = format!(
+                "{}{} Item",
+                curInfluenceInfo.color(),
+                curInfluenceInfo.display
+            );
             tooltip.add_line_ex(cx, fontSizeBig, &text, fs, None, None);
         }
     }
@@ -1056,7 +1099,10 @@ fn AddItemTooltip_as(
             if versionList.truthy() && selectedVersion.truthy() {
                 // L4256
                 let Val::Table(vl) = &versionList else {
-                    lua_error!("attempt to index field 'versionList' (a {} value)", versionList.lua_type())
+                    lua_error!(
+                        "attempt to index field 'versionList' (a {} value)",
+                        versionList.lua_type()
+                    )
                 };
                 let text = format!("^xFFFF30Version: {}", cs(&tget(vl, &selectedVersion)));
                 tooltip.add_line_ex(cx, fontSizeBig, &text, fs, None, None);
@@ -1105,7 +1151,10 @@ fn AddItemTooltip_as(
                 // L4270
                 let text = format!(
                     "^xFFFF30Variant: {}",
-                    variantList.get(1).map(|s| s.to_string()).unwrap_or_default()
+                    variantList
+                        .get(1)
+                        .map(|s| s.to_string())
+                        .unwrap_or_default()
                 );
                 tooltip.add_line_ex(cx, fontSizeBig, &text, fs, None, None);
             } else {
@@ -1114,7 +1163,9 @@ fn AddItemTooltip_as(
                     .variant
                     .get()
                     .and_then(|v| variant_at(item, v))
-                    .unwrap_or_else(|| lua_error!("attempt to concatenate field '?' (a nil value)"));
+                    .unwrap_or_else(|| {
+                        lua_error!("attempt to concatenate field '?' (a nil value)")
+                    });
                 let text = format!("^xFFFF30Variant: {v} ({} variants)", variantList.len());
                 tooltip.add_line_ex(cx, fontSizeBig, &text, fs, None, None);
             }
@@ -1136,7 +1187,11 @@ fn AddItemTooltip_as(
         let source = ex(item, n!("source"));
         if source.truthy() {
             // L4282
-            let text = format!("{}Source: {}", cc.SOURCE, FormatItemSource(cx, &cs(&source)));
+            let text = format!(
+                "{}Source: {}",
+                cc.SOURCE,
+                FormatItemSource(cx, &cs(&source))
+            );
             tooltip.add_line_ex(cx, fontSizeBig, &text, fs, None, None);
         }
         // L4284
@@ -1149,7 +1204,10 @@ fn AddItemTooltip_as(
                 tooltip.add_line_ex(cx, fontSizeBig, &text, fs, None, None);
             }
         } else if upgradePaths.truthy() {
-            lua_error!("bad argument #1 to 'ipairs' (table expected, got {})", upgradePaths.lua_type());
+            lua_error!(
+                "bad argument #1 to 'ipairs' (table expected, got {})",
+                upgradePaths.lua_type()
+            );
         }
         // L4289
         tooltip.add_separator(cx, Some(10.0));
@@ -1160,7 +1218,11 @@ fn AddItemTooltip_as(
     // L4293
     let slotNum: Val = if slot.truthy() {
         lor_val(slot_get(slot, n!("slotNum")), || {
-            Val::Num(if cx.sys.is_key_down(SgKey::Shift) { 2.0 } else { 1.0 })
+            Val::Num(if cx.sys.is_key_down(SgKey::Shift) {
+                2.0
+            } else {
+                1.0
+            })
         })
     } else if cx.sys.is_key_down(SgKey::Shift) {
         Val::Num(2.0)
@@ -1193,7 +1255,10 @@ fn AddItemTooltip_as(
             .unwrap_or_else(|| lua_error!("attempt to index field 'weaponData' (a nil value)"));
         let weaponData = match tget(&weaponData, &slotNum) {
             Val::Table(t) => t,
-            other => lua_error!("attempt to index local 'weaponData' (a {} value)", other.lua_type()),
+            other => lua_error!(
+                "attempt to index local 'weaponData' (a {} value)",
+                other.lua_type()
+            ),
         };
         // L4298
         let info = cx
@@ -1201,10 +1266,7 @@ fn AddItemTooltip_as(
             .weaponTypeInfo
             .get(&base.r#type)
             .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
-        let label = info
-            .label
-            .or(base.subType)
-            .unwrap_or(base.r#type);
+        let label = info.label.or(base.subType).unwrap_or(base.r#type);
         tooltip.add_line_ex(cx, fontSizeBig, &lfmt!("^x7F7F7F%s", label), fs, None, None);
         // L4299
         if qualityGt0("quality") {
@@ -1270,7 +1332,10 @@ fn AddItemTooltip_as(
         // L4319
         if weaponData.truthy(n!("ChaosDPS")) {
             // L4320
-            let f = format!("^x7F7F7FChaos Damage: {}%d-%d {}(%.1f DPS)", cc.CHAOS, cc.MAGIC);
+            let f = format!(
+                "^x7F7F7FChaos Damage: {}%d-%d {}(%.1f DPS)",
+                cc.CHAOS, cc.MAGIC
+            );
             let text = lfmt!(
                 &f,
                 tnum(&weaponData, "ChaosMin"),
@@ -1374,8 +1439,20 @@ fn AddItemTooltip_as(
         }
         // L4359-4382 (life, then mana: the same statements)
         for (total, gradual, instant, base_amount, what) in [
-            ("lifeTotal", "lifeGradual", "lifeInstant", flask.life, "Life"),
-            ("manaTotal", "manaGradual", "manaInstant", flask.mana, "Mana"),
+            (
+                "lifeTotal",
+                "lifeGradual",
+                "lifeInstant",
+                flask.life,
+                "Life",
+            ),
+            (
+                "manaTotal",
+                "manaGradual",
+                "manaInstant",
+                flask.mana,
+                "Mana",
+            ),
         ] {
             // L4359 / L4371
             if flaskData.truthy(Name::from(total)) {
@@ -1527,11 +1604,10 @@ fn AddItemTooltip_as(
     }
     // L4444
     let catalystQualityFormat = ctor::catalystQualityFormat(cx);
-    if let (Some(catalyst), Some(catalystQuality)) = (item.catalyst.get(), item.catalystQuality.get())
+    if let (Some(catalyst), Some(catalystQuality)) =
+        (item.catalyst.get(), item.catalystQuality.get())
     {
-        if catalyst > 0.0
-            && catalyst <= catalystQualityFormat.len() as f64
-            && catalystQuality > 0.0
+        if catalyst > 0.0 && catalyst <= catalystQualityFormat.len() as f64 && catalystQuality > 0.0
         {
             // L4445
             let fmt = if catalyst.fract() == 0.0 {
@@ -1551,7 +1627,14 @@ fn AddItemTooltip_as(
         // L4450
         let line = GetSocketDescriptionLine(cx, item);
         // L4451
-        tooltip.add_line_ex(cx, fontSizeBig, &format!("^x7F7F7FSockets: {line}"), fs, None, None);
+        tooltip.add_line_ex(
+            cx,
+            fontSizeBig,
+            &format!("^x7F7F7FSockets: {line}"),
+            fs,
+            None,
+            None,
+        );
     }
 
     // L4454
@@ -1573,7 +1656,11 @@ fn AddItemTooltip_as(
             tooltip.add_line(cx, 5.0, "");
         }
         // L4460
-        let text = format!("{}{}", cc.MEMORY, lfmt!("Memory Strands: ^7%d", memoryStrands.num()));
+        let text = format!(
+            "{}{}",
+            cc.MEMORY,
+            lfmt!("Memory Strands: ^7%d", memoryStrands.num())
+        );
         tooltip.add_line_ex(
             cx,
             fontSizeBig,
@@ -1744,7 +1831,14 @@ fn AddItemTooltip_as(
         // L4521
         if item.split.get() {
             // L4522
-            tooltip.add_line_ex(cx, fontSizeBig, &format!("{}Split", cc.NEGATIVE), fs, None, None);
+            tooltip.add_line_ex(
+                cx,
+                fontSizeBig,
+                &format!("{}Split", cc.NEGATIVE),
+                fs,
+                None,
+                None,
+            );
         }
         // L4524
         if item.mirrored.get() {
@@ -2110,7 +2204,9 @@ pub fn AddItemStatDifferences(
 ) {
     let me: ItemsTabSelf = me.into();
     // `self.build` is the entry for an entry's ItemsTab (FUP6)
-    me.clone().run(cx, |cx| AddItemStatDifferences_as(cx, &me, tooltip, item, base, slot));
+    me.clone().run(cx, |cx| {
+        AddItemStatDifferences_as(cx, &me, tooltip, item, base, slot)
+    });
 }
 
 /// [`AddItemStatDifferences`]'s body, run with `self.build` as `cx.build()`.
@@ -2216,7 +2312,8 @@ fn AddItemStatDifferences_as(
                     * (1.0 + effectInc / 100.0)
                     * lowLifeMulti;
                 // L4696
-                let base = lifeBase * (1.0 - instantPerc / 100.0)
+                let base = lifeBase
+                    * (1.0 - instantPerc / 100.0)
                     * (1.0 + lifeInc / 100.0)
                     * lifeMore
                     * (1.0 + effectInc / 100.0)
@@ -2308,7 +2405,11 @@ fn AddItemStatDifferences_as(
                             stats.push(lfmt!("^8Life recovered: ^7%d ^8instantly", inst));
                         } else if grad > 0.0 {
                             // L4730
-                            stats.push(lfmt!("^8Life recovered: ^7%d ^8over ^7%.2fs", grad, lifeDur));
+                            stats.push(lfmt!(
+                                "^8Life recovered: ^7%d ^8over ^7%.2fs",
+                                grad,
+                                lifeDur
+                            ));
                         }
                     }
                 }
@@ -2352,7 +2453,8 @@ fn AddItemStatDifferences_as(
                     * (1.0 + manaInc / 100.0)
                     * (1.0 + effectInc / 100.0);
                 // L4749
-                let base = manaBase * (1.0 - instantPerc / 100.0)
+                let base = manaBase
+                    * (1.0 - instantPerc / 100.0)
                     * (1.0 + manaInc / 100.0)
                     * (1.0 + effectInc / 100.0)
                     * (1.0 + durInc / 100.0);
@@ -2386,7 +2488,11 @@ fn AddItemStatDifferences_as(
                         stats.push(lfmt!("^8Mana recovered: ^7%d ^8instantly", inst));
                     } else if grad > 0.0 {
                         // L4761
-                        stats.push(lfmt!("^8Mana recovered: ^7%d ^8over ^7%.2fs", grad, manaDur));
+                        stats.push(lfmt!(
+                            "^8Mana recovered: ^7%d ^8over ^7%.2fs",
+                            grad,
+                            manaDur
+                        ));
                     }
                 }
                 // L4764
@@ -2394,7 +2500,11 @@ fn AddItemStatDifferences_as(
                     // L4765
                     if lifeGrad > 0.0 {
                         // L4766
-                        stats.push(lfmt!("^8Life recovered: ^7%d ^8over ^7%.2fs", lifeGrad, manaDur));
+                        stats.push(lfmt!(
+                            "^8Life recovered: ^7%d ^8over ^7%.2fs",
+                            lifeGrad,
+                            manaDur
+                        ));
                     }
                 }
             }
@@ -2413,7 +2523,10 @@ fn AddItemStatDifferences_as(
         // L4776
         if effectMod != 1.0 {
             // L4777
-            stats.push(lfmt!("^8Flask effect modifier: ^7%+d%%", effectMod * 100.0 - 100.0));
+            stats.push(lfmt!(
+                "^8Flask effect modifier: ^7%+d%%",
+                effectMod * 100.0 - 100.0
+            ));
         }
         // L4779
         let usedInc = sum(INC, None, "FlaskChargesUsed");
@@ -2435,7 +2548,10 @@ fn AddItemStatDifferences_as(
         // L4785
         if gainMod != 1.0 {
             // L4786
-            stats.push(lfmt!("^8Charge gain modifier: ^7%+d%%", gainMod * 100.0 - 100.0));
+            stats.push(lfmt!(
+                "^8Charge gain modifier: ^7%+d%%",
+                gainMod * 100.0 - 100.0
+            ));
         }
 
         // charge generation
@@ -2473,7 +2589,8 @@ fn AddItemStatDifferences_as(
         for (slotName, slot, _) in &slots {
             // L4808
             let sel = slot.get(n!("selItemId"));
-            if pob_lua::find(slotName, "^Flask", None, false).is_some() && sel.raw_eq(&Val::Num(0.0))
+            if pob_lua::find(slotName, "^Flask", None, false).is_some()
+                && sel.raw_eq(&Val::Num(0.0))
             {
                 // L4809
                 emptyFlaskSlots += 1.0;
@@ -2508,7 +2625,8 @@ fn AddItemStatDifferences_as(
         }
 
         // L4825
-        let chanceToNotConsumeCharges = m_min(sum(BASE, None, "FlaskChanceNotConsumeCharges"), 100.0);
+        let chanceToNotConsumeCharges =
+            m_min(sum(BASE, None, "FlaskChanceNotConsumeCharges"), 100.0);
         // L4826
         if chanceToNotConsumeCharges != 0.0 {
             // L4827
@@ -2555,7 +2673,8 @@ fn AddItemStatDifferences_as(
                 let minimumChargesGenerated =
                     per3Duration * chargesGenerated + per5Duration * chargesGeneratedPerFlask;
                 // L4848
-                let percentageMin = m_min(minimumChargesGenerated / flaskChargesUsed * 100.0, 100.0);
+                let percentageMin =
+                    m_min(minimumChargesGenerated / flaskChargesUsed * 100.0, 100.0);
                 // L4849
                 if percentageMin < 100.0 && chanceToNotConsumeCharges < 100.0 {
                     // L4850
@@ -2650,7 +2769,8 @@ fn AddItemStatDifferences_as(
                 / (1.0 + sum(MORE, Some(&player), "TinctureManaBurnRate") / 100.0))
         ));
         // L4890
-        let TincturesNotInflictManaBurn = m_min(sum(BASE, None, "TincturesNotInflictManaBurn"), 100.0);
+        let TincturesNotInflictManaBurn =
+            m_min(sum(BASE, None, "TincturesNotInflictManaBurn"), 100.0);
         // L4891
         if TincturesNotInflictManaBurn != 0.0 {
             // L4892
@@ -2726,33 +2846,34 @@ fn AddItemStatDifferences_as(
         }
 
         // L4920-4928
-        let getReplacedItemAndOutput =
-            |cx: &mut Cx, compareSlot: &Table| -> Option<(Option<model::ItemRef>, Output)> {
-                // L4921
-                let selItem = item_by_id(cx, &compareSlot.get(n!("selItemId")));
-                // L4922
-                let ov = model::Override::default();
-                ov.repSlotName
-                    .set(compareSlot.str(n!("slotName")).map(|s| Name::from(&s)));
-                let repItem = (!selItem.as_ref().is_some_and(|s| Rc::ptr_eq(s, item)))
-                    .then(|| item.clone());
-                ov.repItem.set(repItem.clone());
-                // L4923
-                if compareSlot.truthy(n!("nodeId"))
-                    && (itemChangesPassiveTree(selItem.as_ref()) || itemChangesPassiveTree(Some(item)))
-                {
-                    // L4924
-                    ov.spec.set(Some(buildSpecForJewelComparison(
-                        cx,
-                        compareSlot,
-                        repItem.as_ref(),
-                    )));
-                }
-                // L4926
-                let output = call_calc(&calcFunc, ov)?;
-                // L4927
-                Some((selItem, output))
-            };
+        let getReplacedItemAndOutput = |cx: &mut Cx,
+                                        compareSlot: &Table|
+         -> Option<(Option<model::ItemRef>, Output)> {
+            // L4921
+            let selItem = item_by_id(cx, &compareSlot.get(n!("selItemId")));
+            // L4922
+            let ov = model::Override::default();
+            ov.repSlotName
+                .set(compareSlot.str(n!("slotName")).map(|s| Name::from(&s)));
+            let repItem =
+                (!selItem.as_ref().is_some_and(|s| Rc::ptr_eq(s, item))).then(|| item.clone());
+            ov.repItem.set(repItem.clone());
+            // L4923
+            if compareSlot.truthy(n!("nodeId"))
+                && (itemChangesPassiveTree(selItem.as_ref()) || itemChangesPassiveTree(Some(item)))
+            {
+                // L4924
+                ov.spec.set(Some(buildSpecForJewelComparison(
+                    cx,
+                    compareSlot,
+                    repItem.as_ref(),
+                )));
+            }
+            // L4926
+            let output = call_calc(&calcFunc, ov)?;
+            // L4927
+            Some((selItem, output))
+        };
         // L4929-4941
         let addCompareForSlot = |cx: &mut Cx,
                                  tooltip: &mut Tooltip,
@@ -2778,12 +2899,10 @@ fn AddItemStatDifferences_as(
                 });
                 let replacing = match &selItem {
                     Some(s) => {
-                        let rc = cx
-                            .main
-                            .cc
-                            .get(&s.rarity.get())
-                            .cloned()
-                            .unwrap_or_else(|| lua_error!("attempt to concatenate a nil value"));
+                        let rc =
+                            cx.main.cc.get(&s.rarity.get()).cloned().unwrap_or_else(|| {
+                                lua_error!("attempt to concatenate a nil value")
+                            });
                         format!("\n(replacing {rc}{}^7)", s.name.get())
                     }
                     None => String::new(),
@@ -2881,17 +3000,14 @@ fn AddItemStatDifferences_as(
 
             // L4982-4985
             let cr = compareItem.rarity.get();
-            let sameBaseType = !isUnique
-                && &*cr != "UNIQUE"
-                && &*cr != "RELIC"
-                && {
-                    let a = item_base();
-                    let b = compareItem
-                        .base
-                        .get()
-                        .unwrap_or_else(|| lua_error!("attempt to index field 'base' (a nil value)"));
-                    a.r#type == b.r#type && a.subType == b.subType
-                };
+            let sameBaseType = !isUnique && &*cr != "UNIQUE" && &*cr != "RELIC" && {
+                let a = item_base();
+                let b = compareItem
+                    .base
+                    .get()
+                    .unwrap_or_else(|| lua_error!("attempt to index field 'base' (a nil value)"));
+                a.r#type == b.r#type && a.subType == b.subType
+            };
             // L4986
             if sameBaseType || sameUnique {
                 // L4987
@@ -2908,11 +3024,13 @@ fn AddItemStatDifferences_as(
         // 4. EHP
         let params = |e: &SlotEntry| -> [Param; 7] {
             [
-                Param::Num(if e.compareSlot.get(n!("selItemId")).raw_eq(&Val::Num(0.0)) {
-                    1.0
-                } else {
-                    0.0
-                }),
+                Param::Num(
+                    if e.compareSlot.get(n!("selItemId")).raw_eq(&Val::Num(0.0)) {
+                        1.0
+                    } else {
+                        0.0
+                    },
+                ),
                 Param::Num(similar(e.selItem.as_ref(), e.isSameUnique)),
                 Param::of(e.output.get(n!("FullDPS"))),
                 Param::of(e.output.get(n!("CombinedDPS"))),
@@ -2976,7 +3094,10 @@ pub fn CreateUndoState(cx: &mut Cx, me: CtrlId) -> UndoState {
     // L5024
     let mut items = indexmap::IndexMap::new();
     // L5025 ORDER: (c)
-    for (k, v) in tab.items.with(|i| i.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>()) {
+    for (k, v) in tab
+        .items
+        .with(|i| i.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>())
+    {
         // L5026
         items.insert(k, Rc::new(copy_item(&v)));
     }
@@ -3001,7 +3122,10 @@ pub fn CreateUndoState(cx: &mut Cx, me: CtrlId) -> UndoState {
     // map to one copy across the sets)
     let wrapper = Table::new();
     let ids: Vec<u32> = tab.itemSets.with(|s| s.keys().copied().collect());
-    for (id, set) in tab.itemSets.with(|s| s.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>()) {
+    for (id, set) in tab
+        .itemSets
+        .with(|s| s.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>())
+    {
         wrapper.set(f64::from(id), set);
     }
     let copy = copyTableSafe(&wrapper, false, false);
@@ -3047,7 +3171,8 @@ pub fn RestoreUndoState(cx: &mut Cx, me: CtrlId, state: UndoState) {
     // L5047
     tab.itemSets.with_mut(|s| *s = state.itemSets);
     // L5048-5051
-    tab.itemSetOrderList.with_mut(|l| *l = state.itemSetOrderList);
+    tab.itemSetOrderList
+        .with_mut(|l| *l = state.itemSetOrderList);
     // L5052
     tab.activeItemSetId.set(state.activeItemSetId);
     // L5053
@@ -3159,7 +3284,10 @@ mod tests {
         for k in [3.0, 1.0, 2.0, 10.0] {
             t.set(k, true);
         }
-        let keys: Vec<f64> = pairs_sort_by_key(&t).into_iter().filter_map(Key::as_num).collect();
+        let keys: Vec<f64> = pairs_sort_by_key(&t)
+            .into_iter()
+            .filter_map(Key::as_num)
+            .collect();
         assert_eq!(keys, vec![1.0, 2.0, 3.0, 10.0]);
     }
 }

@@ -854,7 +854,10 @@ pub fn query_cache_summary() -> String {
     );
     if mode == "verify" {
         let (same, diff, none) = verify_stats();
-        let _ = write!(s, "; verified {same} identical, {diff} differing, {none} without an entry");
+        let _ = write!(
+            s,
+            "; verified {same} identical, {diff} differing, {none} without an entry"
+        );
     }
     s
 }

@@ -98,12 +98,14 @@ impl Dumps {
 /// `env.auxSkillList[].baseSkillModList`, `env.buffs.*`, buff mod lists, …: state the segment
 /// never touches); on dumps of one run per build every hit passes.
 fn build_dumps(build: &Path) -> Result<Dumps, String> {
-    let root = std::env::var_os("DFE_PROBE_DIR").map(PathBuf::from).unwrap_or_else(|| {
-        std::env::var_os("CARGO_TARGET_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"))
-            .join("dfe-probe")
-    });
+    let root = std::env::var_os("DFE_PROBE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"))
+                .join("dfe-probe")
+        });
     let private = root.join(stem(build)).join("state");
     if private.is_dir() {
         // a stale private dir silently brings back the mixed-run failure (FOLLOWUPS FUP1 2)
@@ -171,7 +173,10 @@ fn seg_mismatches(build: &Path, dir: &Path, n: u64) -> Result<(Vec<Mismatch>, St
     let r = testkit::run_dump(&model, &din)?;
     // FUP1: with the shared LUA-ORDER normalisation (order-only buff mod lists, see
     // `is_buff_list_order`)
-    Ok((testkit::diff_against_normalised(&dout, r.env.as_ref(), &r.after, s), din))
+    Ok((
+        testkit::diff_against_normalised(&dout, r.env.as_ref(), &r.after, s),
+        din,
+    ))
 }
 
 /// LUA-ORDER (calc doc §3.4/§9.5), FUP1: a `…buffList[i].modList` whose mods are PoB's in
@@ -180,7 +185,8 @@ fn seg_mismatches(build: &Path, dir: &Path, n: u64) -> Result<(Vec<Mismatch>, St
 /// process; `testkit::normalise_lua_order` reduces such a list to one `LuaOrder` mismatch at
 /// the list's path (the same check PF-C applies).
 fn is_buff_list_order(m: &Mismatch) -> bool {
-    m.kind == MismatchKind::LuaOrder && testkit::buff_mod_list_path(&m.path) == Some(m.path.as_str())
+    m.kind == MismatchKind::LuaOrder
+        && testkit::buff_mod_list_path(&m.path) == Some(m.path.as_str())
 }
 
 fn key(m: &Mismatch) -> String {
@@ -206,7 +212,10 @@ fn is_int_cast_artefact(m: &Mismatch) -> bool {
     const X64_MIN: &str = "-9223372036854775808";
     // the keys of known_diffs.toml `DF-E-1`
     const KEYS: &[&str] = &["locals.breakdown.FrostShieldLife[5]"];
-    if !cfg!(target_arch = "aarch64") || m.kind != MismatchKind::Value || !KEYS.contains(&m.path.as_str()) {
+    if !cfg!(target_arch = "aarch64")
+        || m.kind != MismatchKind::Value
+        || !KEYS.contains(&m.path.as_str())
+    {
         return false;
     }
     let (Some(J::String(pob)), Some(J::String(ours))) = (&m.pob, &m.ours) else {
@@ -263,7 +272,11 @@ fn run(builds: &[PathBuf]) -> Tally {
             let mm: Vec<String> = match seg_mismatches(b, dumps.dir(), n) {
                 Err(e) => vec![e],
                 Ok((all, din)) => {
-                    let rt = if all.is_empty() { BTreeSet::new() } else { round_trip_artefacts(&din) };
+                    let rt = if all.is_empty() {
+                        BTreeSet::new()
+                    } else {
+                        round_trip_artefacts(&din)
+                    };
                     let mut kept = Vec::new();
                     for m in all {
                         if rt.contains(&key(&m)) {
@@ -274,7 +287,10 @@ fn run(builds: &[PathBuf]) -> Tally {
                             t.cast_artefacts += 1;
                             t.cast_artefact_paths.insert(m.path.clone());
                         } else {
-                            kept.push(format!("{} {:?}: pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours));
+                            kept.push(format!(
+                                "{} {:?}: pob={:?} ours={:?}",
+                                m.path, m.kind, m.pob, m.ours
+                            ));
                         }
                     }
                     kept
@@ -307,7 +323,10 @@ fn report(name: &str, t: &Tally) {
         t.lua_order
     );
     if !t.cast_artefact_paths.is_empty() {
-        eprintln!("{name}: %d-cast artefact paths: {:?}", t.cast_artefact_paths);
+        eprintln!(
+            "{name}: %d-cast artefact paths: {:?}",
+            t.cast_artefact_paths
+        );
     }
     if !t.builds_without_dumps.is_empty() {
         eprintln!(
@@ -341,7 +360,10 @@ fn df_e_l4_corpus() {
         "corpus builds without dumps: {:?}",
         t.builds_without_dumps
     );
-    assert_eq!(t.passed, t.hits, "DF-E corpus: every hit must pass (L4 100%)");
+    assert_eq!(
+        t.passed, t.hits,
+        "DF-E corpus: every hit must pass (L4 100%)"
+    );
 }
 
 #[test]

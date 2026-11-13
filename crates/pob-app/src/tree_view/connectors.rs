@@ -100,7 +100,11 @@ fn art(assets: &TreeAssets, name: &str) -> (f64, f64) {
 
 /// lua: PassiveTree.lua:937-990 `PassiveTreeClass:BuildConnector(node1, node2)`
 /// @pob Classes/PassiveTree.lua:937-990 h=82b6ce4a
-pub fn build_connector(assets: &TreeAssets, node1: &NodeRef, node2: &NodeRef) -> Vec<Rc<Connector>> {
+pub fn build_connector(
+    assets: &TreeAssets,
+    node1: &NodeRef,
+    node2: &NodeRef,
+) -> Vec<Rc<Connector>> {
     let (mut node1, mut node2) = (node1.clone(), node2.clone());
     // L938-944
     let mut connector = Connector {
@@ -110,7 +114,8 @@ pub fn build_connector(assets: &TreeAssets, node1: &NodeRef, node2: &NodeRef) ->
         ..Connector::default()
     };
     // L945 if node1.g == node2.g and node1.o == node2.o then
-    if node1.extra.get(n!("g")).raw_eq(&node2.extra.get(n!("g"))) && node1.o.get() == node2.o.get() {
+    if node1.extra.get(n!("g")).raw_eq(&node2.extra.get(n!("g"))) && node1.o.get() == node2.o.get()
+    {
         // Nodes are in the same orbit of the same group
         // Calculate the starting angle (node1.angle) and arc angle
         // L948
@@ -375,10 +380,8 @@ pub fn build_subgraph_connectors(assets: &TreeAssets, sub_graph: &Table) -> Vec<
     };
     for (_, pair) in pairs.ipairs() {
         let Some(pair) = pair.table() else { continue };
-        let (Some(node1), Some(node2)) = (
-            pair.get(1.0).obj::<Node>(),
-            pair.get(2.0).obj::<Node>(),
-        ) else {
+        let (Some(node1), Some(node2)) = (pair.get(1.0).obj::<Node>(), pair.get(2.0).obj::<Node>())
+        else {
             continue;
         };
         // L2022 local connectors = self.tree:BuildConnector(node1, node2)

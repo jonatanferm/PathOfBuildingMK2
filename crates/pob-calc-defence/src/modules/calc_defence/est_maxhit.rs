@@ -5,7 +5,8 @@
 //! Owner: DF-G. The module-level locals this segment reads (`isElemental`,
 //! `dmgTypeList`, `allyLifePoolList`, CalcDefence.lua 24-43) are DF-A's
 //! (`helpers.rs`, comment marker 7-43).
-#![allow(non_snake_case, unused_assignments)] // unused_assignments: Lua dead stores (`local hitTaken = 0`) kept verbatim
+#![allow(non_snake_case, unused_assignments)]
+// unused_assignments: Lua dead stores (`local hitTaken = 0`) kept verbatim
 // literal Lua shapes: `a = a + b`, `local x` assigned in each branch, the NaN test `x == x`
 #![allow(clippy::assign_op_pattern, clippy::needless_late_init, clippy::eq_op)]
 

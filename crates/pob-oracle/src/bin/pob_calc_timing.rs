@@ -76,7 +76,11 @@ struct Opts {
     power: u32,
 }
 
-fn one_build(pob: &mut pob_oracle::jit::JitPob, build: &PathBuf, o: &Opts) -> Result<String, String> {
+fn one_build(
+    pob: &mut pob_oracle::jit::JitPob,
+    build: &PathBuf,
+    o: &Opts,
+) -> Result<String, String> {
     let xml = std::fs::read_to_string(build).map_err(|e| format!("{}: {e}", build.display()))?;
     let name = build
         .file_stem()
@@ -112,11 +116,17 @@ fn one_build(pob: &mut pob_oracle::jit::JitPob, build: &PathBuf, o: &Opts) -> Re
 fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let mut builds: Vec<PathBuf> = Vec::new();
-    let mut o = Opts { recalc: 10, warmup: 3, power: 2 };
+    let mut o = Opts {
+        recalc: 10,
+        warmup: 3,
+        power: 2,
+    };
     let mut json: Option<PathBuf> = None;
     let mut pob: Option<PathBuf> = None;
     let num = |v: Option<String>, what: &str| -> Result<u32, String> {
-        v.ok_or(format!("{what} N"))?.parse().map_err(|e| format!("{what}: {e}"))
+        v.ok_or(format!("{what} N"))?
+            .parse()
+            .map_err(|e| format!("{what}: {e}"))
     };
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -146,8 +156,13 @@ fn run() -> Result<(), String> {
         let line = match one_build(&mut pob, b, &o) {
             Ok(l) => l,
             Err(e) => {
-                let name = b.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-                format!(r#"{{"build":"{name}","engine":"luajit","error":{}}}"#, serde_json::Value::String(e))
+                let name = b
+                    .file_stem()
+                    .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+                format!(
+                    r#"{{"build":"{name}","engine":"luajit","error":{}}}"#,
+                    serde_json::Value::String(e)
+                )
             }
         };
         if json.is_none() {

@@ -59,7 +59,6 @@ use pob_ui_oracle::lua_calc::LuaCalcBridge;
 use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
 
 fn inputs() -> Option<PathBuf> {
@@ -681,11 +680,8 @@ fn calcs_section(xml: &str) -> Result<Vec<String>, String> {
         .iter()
         .filter_map(|c| match c {
             XmlChild::Node(n) => {
-                let mut a: Vec<String> = n
-                    .attrib
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v:?}"))
-                    .collect();
+                let mut a: Vec<String> =
+                    n.attrib.iter().map(|(k, v)| format!("{k}={v:?}")).collect();
                 a.sort();
                 Some(format!("{} {{{}}}", n.elem, a.join(" ")))
             }

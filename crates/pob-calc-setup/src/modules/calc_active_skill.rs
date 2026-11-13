@@ -395,7 +395,9 @@ pub fn createActiveSkill(
     // L84-92 ---@class ActiveSkill
     let activeSkill = ActiveSkill::new(activeEffect.clone(), supportList.clone(), actor);
     // CCR-0135: a Weak back-pointer (the summoning skill owns the minion that owns this skill).
-    activeSkill.summonSkill.set(summonSkill.as_ref().map(Rc::downgrade));
+    activeSkill
+        .summonSkill
+        .set(summonSkill.as_ref().map(Rc::downgrade));
     activeSkill.socketGroup.set(socketGroup);
 
     // L95
@@ -2547,9 +2549,13 @@ mod fup2_key_tests {
         stats.set(n!("base_skill_effect_duration"), 1000.0);
         assert!(read_at(&stats, &Val::Num(f64::NAN)).is_nil());
         assert!(read_at(&stats, &Val::Nil).is_nil());
-        assert_eq!(read_at(&stats, &Val::from("base_skill_effect_duration")).num(), 1000.0);
+        assert_eq!(
+            read_at(&stats, &Val::from("base_skill_effect_duration")).num(),
+            1000.0
+        );
         let k = Val::Num(f64::NAN);
-        let e = pob_lua::error::catch(|| read_at(&stats, &k).num_or(0.0) + Val::Nil.num()).unwrap_err();
+        let e =
+            pob_lua::error::catch(|| read_at(&stats, &k).num_or(0.0) + Val::Nil.num()).unwrap_err();
         assert!(e.0.contains("arithmetic on a nil value"), "{}", e.0);
         let e = pob_lua::error::catch(|| stats.set(val_key(&k), 1.0)).unwrap_err();
         assert!(e.0.contains("table index is NaN"), "{}", e.0);

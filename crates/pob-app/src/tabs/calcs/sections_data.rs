@@ -145,10 +145,9 @@ pub fn load() -> Vec<SectionDef> {
         let Some(t) = section.table() else {
             lua_error!("CalcSections: a section is not a table")
         };
-        let width = t
-            .index(1.0)
-            .num()
-            .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on local 'width' (a nil value)"));
+        let width = t.index(1.0).num().unwrap_or_else(|| {
+            lua_error!("attempt to perform arithmetic on local 'width' (a nil value)")
+        });
         let id = t.index(2.0).as_str().unwrap_or_default().to_owned();
         let group = t.index(3.0).num().unwrap_or(f64::NAN);
         let colour = t.index(4.0).as_str().unwrap_or_default().to_owned();

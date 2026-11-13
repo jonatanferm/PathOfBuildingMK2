@@ -144,10 +144,7 @@ pub mod protocol {
         match v["op"].as_str() {
             Some("build_output") => Ok(Request::BuildOutput {
                 seq,
-                xml: v["xml"]
-                    .as_str()
-                    .ok_or("bad request: no xml")?
-                    .to_owned(),
+                xml: v["xml"].as_str().ok_or("bad request: no xml")?.to_owned(),
             }),
             op => Err(format!("bad request: op {op:?}")),
         }
@@ -185,8 +182,10 @@ pub mod protocol {
                 seq,
                 result: Ok(stats),
             } => {
-                let m: serde_json::Map<String, J> =
-                    stats.iter().map(|(k, v)| (k.clone(), num_json(*v))).collect();
+                let m: serde_json::Map<String, J> = stats
+                    .iter()
+                    .map(|(k, v)| (k.clone(), num_json(*v)))
+                    .collect();
                 json!({ "seq": seq, "ok": true, "stats": m })
             }
             Reply::Done {
@@ -878,21 +877,19 @@ mod thread {
                 let mut waiting = false;
                 {
                     let mut links = self.links.borrow_mut();
-                    links.retain(|l| {
-                        loop {
-                            match l.rx.try_recv() {
-                                Ok((answer, ev)) => {
-                                    if answer {
-                                        l.outstanding.set(l.outstanding.get().saturating_sub(1));
-                                    }
-                                    events.push((l.sink.clone(), ev));
+                    links.retain(|l| loop {
+                        match l.rx.try_recv() {
+                            Ok((answer, ev)) => {
+                                if answer {
+                                    l.outstanding.set(l.outstanding.get().saturating_sub(1));
                                 }
-                                Err(std::sync::mpsc::TryRecvError::Empty) => {
-                                    waiting |= l.outstanding.get() > 0;
-                                    return true;
-                                }
-                                Err(std::sync::mpsc::TryRecvError::Disconnected) => return false,
+                                events.push((l.sink.clone(), ev));
                             }
+                            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                waiting |= l.outstanding.get() > 0;
+                                return true;
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Disconnected) => return false,
                         }
                     });
                 }
@@ -911,7 +908,10 @@ mod thread {
                 // block on the first link that owes an answer
                 let links = self.links.borrow();
                 if let Some(l) = links.iter().find(|l| l.outstanding.get() > 0) {
-                    match l.rx.recv_timeout((deadline - now).min(Duration::from_millis(50))) {
+                    match l
+                        .rx
+                        .recv_timeout((deadline - now).min(Duration::from_millis(50)))
+                    {
                         Ok((answer, ev)) => {
                             if answer {
                                 l.outstanding.set(l.outstanding.get().saturating_sub(1));
@@ -1019,7 +1019,11 @@ self.onmessage = (e) => { if (handle) handle(e.data); else queue.push(e.data); }
                     "script[type=module][src]",
                 ] {
                     if let Ok(Some(e)) = doc.query_selector(sel) {
-                        let attr = if sel.starts_with("link") { "href" } else { "src" };
+                        let attr = if sel.starts_with("link") {
+                            "href"
+                        } else {
+                            "src"
+                        };
                         if let Some(v) = e.get_attribute(attr) {
                             return Some(v);
                         }
@@ -1084,12 +1088,11 @@ self.onmessage = (e) => { if (handle) handle(e.data); else queue.push(e.data); }
         let worker = web_sys::Worker::new_with_options(&url, &opts)?;
         let _ = web_sys::Url::revoke_object_url(&url);
         let s = sink.clone();
-        let onmessage = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-            move |e: web_sys::MessageEvent| {
+        let onmessage =
+            Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |e: web_sys::MessageEvent| {
                 let text = e.data().as_string().unwrap_or_default();
                 s(WorkerEvent::Message(text));
-            },
-        );
+            });
         let s = sink.clone();
         let onerror =
             Closure::<dyn FnMut(web_sys::ErrorEvent)>::new(move |e: web_sys::ErrorEvent| {
@@ -1187,7 +1190,10 @@ self.onmessage = (e) => { if (handle) handle(e.data); else queue.push(e.data); }
             let bytes = fetch_bytes(&join(data_base, "data.bin")).await?;
             pob_gamedata::init(&bytes).map_err(|e| JsValue::from_str(&format!("data.bin: {e}")))?;
         }
-        let latest = pob_gamedata::data().gameVersions.latestTreeVersion.to_string();
+        let latest = pob_gamedata::data()
+            .gameVersions
+            .latestTreeVersion
+            .to_string();
         if in_worker() {
             ensure_trees(&[latest]).await;
         } else {

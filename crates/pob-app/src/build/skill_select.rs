@@ -214,7 +214,9 @@ pub fn refresh_skill_select_controls(cx: &mut Cx, controls: CtrlId, mainGroup: f
         };
         // L1642
         let colourCoded = if explodeSourceName.truthy() {
-            let rarity = lor(source_field(&explodeSource, "rarity"), || Val::from("NORMAL"));
+            let rarity = lor(source_field(&explodeSource, "rarity"), || {
+                Val::from("NORMAL")
+            });
             let code = match &rarity {
                 Val::Str(r) => cx.main.cc.get(r).cloned(),
                 _ => None,
@@ -225,8 +227,8 @@ pub fn refresh_skill_select_controls(cx: &mut Cx, controls: CtrlId, mainGroup: f
             None
         };
         // L1643
-        let label = colourCoded
-            .unwrap_or_else(|| activeEffect.grantedEffect.get().name.to_string());
+        let label =
+            colourCoded.unwrap_or_else(|| activeEffect.grantedEffect.get().name.to_string());
         cx.w_mut::<DropDownControl>(main_skill)
             .list
             .push(DropItem::new(label, Rc::new((i + 1) as f64)));
@@ -278,7 +280,10 @@ pub fn refresh_skill_select_controls(cx: &mut Cx, controls: CtrlId, mainGroup: f
             // L1662
             cx.w_mut::<DropDownControl>(main_skill_part)
                 .list
-                .push(DropItem::new(part.name.to_string(), Rc::new((i + 1) as f64)));
+                .push(DropItem::new(
+                    part.name.to_string(),
+                    Rc::new((i + 1) as f64),
+                ));
         }
         // L1664
         let part_sel = src_num(&srcInstance(), "skillPart", calcs).unwrap_or(1.0);
@@ -323,7 +328,8 @@ pub fn refresh_skill_select_controls(cx: &mut Cx, controls: CtrlId, mainGroup: f
         cx.w_mut::<EditControl>(main_skill_stage_count).buf = tostring_val(&v);
     }
     // L1678 (CCR-0103 §3: `grantedEffect.minionList` nil vs `{ }`)
-    let ge_minion_list_set = pob_calc::modules::calc_active_skill::minionList_is_set(&grantedEffect);
+    let ge_minion_list_set =
+        pob_calc::modules::calc_active_skill::minionList_is_set(&grantedEffect);
     let activeMinionList: Vec<Name> = activeSkill.minionList.get().snapshot();
     if !skillFlags.truthy(Name::from("disable"))
         && (ge_minion_list_set || !activeMinionList.is_empty())
@@ -340,18 +346,22 @@ pub fn refresh_skill_select_controls(cx: &mut Cx, controls: CtrlId, mainGroup: f
                     .itemsTab
                     .itemSets
                     .with(|s| s.get(&itemSetId).cloned())
-                    .unwrap_or_else(|| lua_error!("attempt to index local 'itemSet' (a nil value)"));
+                    .unwrap_or_else(|| {
+                        lua_error!("attempt to index local 'itemSet' (a nil value)")
+                    });
                 // L1683-1686
                 let label = itemSet
                     .str(Name::from("title"))
                     .map_or_else(|| "Default Item Set".to_owned(), |s| s.to_string());
-                cx.w_mut::<DropDownControl>(main_skill_minion).list.push(DropItem::new(
-                    label,
-                    Rc::new(MinionListValue {
-                        item_set_id: Some(f64::from(itemSetId)),
-                        minion_id: None,
-                    }),
-                ));
+                cx.w_mut::<DropDownControl>(main_skill_minion)
+                    .list
+                    .push(DropItem::new(
+                        label,
+                        Rc::new(MinionListValue {
+                            item_set_id: Some(f64::from(itemSetId)),
+                            minion_id: None,
+                        }),
+                    ));
             }
             // L1688
             let value = src_num(&srcInstance(), "skillMinionItemSet", calcs).unwrap_or(1.0);
@@ -370,13 +380,15 @@ pub fn refresh_skill_select_controls(cx: &mut Cx, controls: CtrlId, mainGroup: f
                     .minions
                     .get(minionId)
                     .unwrap_or_else(|| lua_error!("attempt to index a nil value (field '?')"));
-                cx.w_mut::<DropDownControl>(main_skill_minion).list.push(DropItem::new(
-                    minion.name.to_string(),
-                    Rc::new(MinionListValue {
-                        item_set_id: None,
-                        minion_id: Some(*minionId),
-                    }),
-                ));
+                cx.w_mut::<DropDownControl>(main_skill_minion)
+                    .list
+                    .push(DropItem::new(
+                        minion.name.to_string(),
+                        Rc::new(MinionListValue {
+                            item_set_id: None,
+                            minion_id: Some(*minionId),
+                        }),
+                    ));
             }
             // L1697 (`srcInstance["skillMinion"..suffix] or list[1]`: with no such field the
             // value is the first entry, a table, which equals no `minionId`)
@@ -398,20 +410,29 @@ pub fn refresh_skill_select_controls(cx: &mut Cx, controls: CtrlId, mainGroup: f
         // L1700
         set_shown(cx, main_skill_minion, true);
         // L1701
-        cx.w_mut::<DropDownControl>(main_skill_minion_skill).list.clear();
+        cx.w_mut::<DropDownControl>(main_skill_minion_skill)
+            .list
+            .clear();
         // L1702
         if let Some(minion) = activeSkill.minion.get() {
             // L1703
             for minionSkill in minion.activeSkillList.get().snapshot() {
                 // L1704
-                let name = minionSkill.activeEffect.get().grantedEffect.get().name.to_string();
+                let name = minionSkill
+                    .activeEffect
+                    .get()
+                    .grantedEffect
+                    .get()
+                    .name
+                    .to_string();
                 cx.w_mut::<DropDownControl>(main_skill_minion_skill)
                     .list
                     .push(DropItem::str(name));
             }
             // L1706
             let s = src_num(&srcInstance(), "skillMinionSkill", calcs).unwrap_or(1.0);
-            cx.w_mut::<DropDownControl>(main_skill_minion_skill).sel_index = sel(s);
+            cx.w_mut::<DropDownControl>(main_skill_minion_skill)
+                .sel_index = sel(s);
             // L1707
             set_shown(cx, main_skill_minion_skill, true);
             // L1708

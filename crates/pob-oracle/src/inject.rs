@@ -46,9 +46,9 @@ use pob_calc::global_cache::{set_cachedData, CachedData};
 use pob_calc::lua_table::{IndexMeta, Val};
 use pob_calc::model::{BuildRef, GemInstance, SocketGroup};
 use pob_calc::probe::{
-    self as probe, element_kind, key_kind, member_kind, mark_absent, rc_ptr, set_member,
-    typed_keys, with_registry, DataRef, DataTarget, Kind, Marker, PKey, PObj, ProbeField, PV,
-    SBox, BREAKDOWN_FNS, ITEM_FIELDS,
+    self as probe, element_kind, key_kind, mark_absent, member_kind, rc_ptr, set_member,
+    typed_keys, with_registry, DataRef, DataTarget, Kind, Marker, PKey, PObj, ProbeField, SBox,
+    BREAKDOWN_FNS, ITEM_FIELDS, PV,
 };
 use pob_calc::Table;
 use pob_gamedata::{ModRef, Name, SkillTypeSet};
@@ -204,8 +204,7 @@ const MOD_TYPES: &[&str] = &[
 /// state_dump.lua `isMod`.
 pub(crate) fn is_mod(m: &Map<String, J>) -> bool {
     m.get("name").is_some_and(J::is_string)
-        && m
-            .get("type")
+        && m.get("type")
             .and_then(J::as_str)
             .is_some_and(|t| MOD_TYPES.contains(&t))
         && !m.contains_key("$id")
@@ -487,14 +486,17 @@ impl<'a> Inj<'a> {
         let expect = if self.list_fits(expect, def) {
             expect
         } else {
-            self.note(format!("{expect:?} with elements of another type: dynamic table"));
+            self.note(format!(
+                "{expect:?} with elements of another type: dynamic table"
+            ));
             Kind::Table
         };
         let old = self.kinds.get(&nk).copied();
         let st = Self::structural(def);
         let new = match (st, old) {
             (Some(s), _) => {
-                if expect.is_strong() && expect != s && !(expect == Kind::Store && s == Kind::Store) {
+                if expect.is_strong() && expect != s && !(expect == Kind::Store && s == Kind::Store)
+                {
                     let msg = format!("{nk:?}: {s:?} expected as {expect:?}");
                     self.note(msg);
                 }
@@ -551,7 +553,9 @@ impl<'a> Inj<'a> {
             Kind::ModVec => |_, j| j.as_object().is_some_and(is_mod),
             _ => return true,
         };
-        Self::members(def).iter().all(|(k, x)| matches!(k, PKeyJ::N(_)) && elem_ok(self, x))
+        Self::members(def)
+            .iter()
+            .all(|(k, x)| matches!(k, PKeyJ::N(_)) && elem_ok(self, x))
     }
 
     fn run_worklist(&mut self) {
@@ -706,7 +710,10 @@ impl<'a> Inj<'a> {
             Kind::Actor => PObj::Actor(Actor::new()),
             Kind::Item => {
                 let it: ItemRef = Rc::new(Item::default());
-                self.bind(def.get("requirements"), PObj::Table(it.requirements.clone()));
+                self.bind(
+                    def.get("requirements"),
+                    PObj::Table(it.requirements.clone()),
+                );
                 PObj::Item(it)
             }
             Kind::Effect => {
@@ -721,7 +728,10 @@ impl<'a> Inj<'a> {
                 let ge = match ge {
                     Some(g) => g,
                     None => {
-                        self.note(format!("skill effect without a resolvable grantedEffect: {}", short(def)));
+                        self.note(format!(
+                            "skill effect without a resolvable grantedEffect: {}",
+                            short(def)
+                        ));
                         any_granted_effect()
                     }
                 };
@@ -1061,7 +1071,9 @@ impl<'a> Inj<'a> {
                     let v = self.decode(x, Kind::Node);
                     match (k, v.obj::<Node>()) {
                         (PKeyJ::N(n), Some(node)) => m.with_mut(|m| m.set(n as i64, Some(node))),
-                        _ => self.note("allocNodes-like map entry that is not [n] = node".to_owned()),
+                        _ => {
+                            self.note("allocNodes-like map entry that is not [n] = node".to_owned())
+                        }
                     }
                 }
             }
@@ -1206,7 +1218,12 @@ impl<'a> Inj<'a> {
         }
     }
 
-    fn fill_list<T: ProbeField + Clone>(&mut self, l: &Shared<Vec<T>>, members: Vec<(PKeyJ<'a>, &'a J)>, ek: Kind) {
+    fn fill_list<T: ProbeField + Clone>(
+        &mut self,
+        l: &Shared<Vec<T>>,
+        members: Vec<(PKeyJ<'a>, &'a J)>,
+        ek: Kind,
+    ) {
         let mut items: Vec<(f64, T)> = Vec::new();
         for (k, x) in members {
             let PKeyJ::N(n) = k else {
@@ -1330,12 +1347,17 @@ impl<'a> Inj<'a> {
             it.rarity.set(Name::from(&x));
         }
         it.quality.set(n("quality"));
-        it.corrupted.set(get("corrupted").and_then(J::as_bool).unwrap_or(false));
+        it.corrupted
+            .set(get("corrupted").and_then(J::as_bool).unwrap_or(false));
         it.variant.set(n("variant"));
         it.jewelRadiusIndex.set(n("jewelRadiusIndex"));
         it.limit.set(n("limit"));
         if let Some(b) = get("base") {
-            match self.decode(b, Kind::Data).obj::<DataRef>().map(|d| d.target.clone()) {
+            match self
+                .decode(b, Kind::Data)
+                .obj::<DataRef>()
+                .map(|d| d.target.clone())
+            {
                 Some(DataTarget::ItemBase(x)) => it.base.set(Some(x)),
                 _ => self.note(format!("item base not resolved: {b}")),
             }
@@ -1396,7 +1418,9 @@ impl<'a> Inj<'a> {
             .collect();
         let name = Name::from("EnemyModifier");
         for a in actors {
-            let Some(set) = a.appliedEnemyModifiers.get() else { continue };
+            let Some(set) = a.appliedEnemyModifiers.get() else {
+                continue;
+            };
             let mut payloads: Vec<ModRef> = Vec::new();
             let mut cur = Some(a.modDB.get());
             while let Some(s) = cur {
@@ -1509,7 +1533,9 @@ impl<'a> Inj<'a> {
                 "CALCULATOR" => Mode::CALCULATOR,
                 _ => continue,
             };
-            let J::Object(entries) = entries else { continue };
+            let J::Object(entries) = entries else {
+                continue;
+            };
             for (uuid, e) in entries {
                 let skill = e
                     .get("ActiveSkill")
@@ -1589,7 +1615,9 @@ fn fill_mod_lines(it: &ItemRef, ml: &Map<String, J>) {
             .collect();
         f.set(Shared::new(lines));
     }
-    let Some(J::Object(v)) = ml.get("variant") else { return };
+    let Some(J::Object(v)) = ml.get("variant") else {
+        return;
+    };
     for (k, f) in [
         ("variantAlt", &it.variantAlt),
         ("variantAlt2", &it.variantAlt2),
@@ -1610,7 +1638,11 @@ fn fill_mod_lines(it: &ItemRef, ml: &Map<String, J>) {
 fn plain_seq(j: &J) -> Vec<&J> {
     match j {
         J::Array(a) => a.iter().collect(),
-        J::Object(m) => m.get("$seq").and_then(J::as_array).map(|a| a.iter().collect()).unwrap_or_default(),
+        J::Object(m) => m
+            .get("$seq")
+            .and_then(J::as_array)
+            .map(|a| a.iter().collect())
+            .unwrap_or_default(),
         _ => Vec::new(),
     }
 }
@@ -1681,7 +1713,10 @@ fn plain_val(j: &J) -> Val {
 fn short(j: &J) -> String {
     let s = j.to_string();
     if s.len() > 160 {
-        format!("{}…", &s[..s.char_indices().nth(160).map_or(s.len(), |(i, _)| i)])
+        format!(
+            "{}…",
+            &s[..s.char_indices().nth(160).map_or(s.len(), |(i, _)| i)]
+        )
     } else {
         s
     }

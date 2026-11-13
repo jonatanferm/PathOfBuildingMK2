@@ -32,7 +32,11 @@
 //! buttons, range lines in both `showAllItemAffixes` modes); the lists that U35's Update*
 //! functions fill stay empty on both sides.
 
-#![allow(non_snake_case, clippy::many_single_char_names, clippy::doc_lazy_continuation)]
+#![allow(
+    non_snake_case,
+    clippy::many_single_char_names,
+    clippy::doc_lazy_continuation
+)]
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -307,7 +311,11 @@ fn draw_items(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
                 Key::Char(b'v' | b'z' | b'y' | b'f' | b'd') => ctrl,
                 _ => false,
             };
-            assert!(!short, "U33's Draw stand-in: shortcut {:?} reached the Items tab", e.key);
+            assert!(
+                !short,
+                "U33's Draw stand-in: shortcut {:?} reached the Items tab",
+                e.key
+            );
         }
     }
     // L1498
@@ -337,9 +345,14 @@ fn draw_items(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
     let mut new_list = Vec::new();
     let set_select = cx.child(me, "setSelect").expect("setSelect");
     for (index, id) in m.itemsTab.itemSetOrderList.snapshot().iter().enumerate() {
-        let set = m.itemsTab.itemSets.with(|s| s.get(id).cloned()).expect("itemSet");
+        let set = m
+            .itemsTab
+            .itemSets
+            .with(|s| s.get(id).cloned())
+            .expect("itemSet");
         new_list.push(DropItem::str(
-            set.str(n!("title")).map_or_else(|| "Default".to_owned(), |t| t.to_string()),
+            set.str(n!("title"))
+                .map_or_else(|| "Default".to_owned(), |t| t.to_string()),
         ));
         if f64::from(*id) == m.itemsTab.activeItemSetId.get() {
             cx.w_mut::<DropDownControl>(set_select).sel_index = index + 1;
@@ -395,7 +408,10 @@ fn draw_items(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
         TopLeft,
         Some(to),
         TopRight,
-        Some((Prop::Val(20.0), Prop::Val(if portrait { 0.0 } else { -20.0 }))),
+        Some((
+            Prop::Val(20.0),
+            Prop::Val(if portrait { 0.0 } else { -20.0 }),
+        )),
         false,
     );
     // L1560 `main.portraitMode and 0` is false (not a number) when not portrait: SetAnchor keeps
@@ -503,9 +519,14 @@ fn set_display_item(cx: &mut Cx, item: Option<model::ItemRef>) {
             ];
             for k in 0..6 {
                 if has[k] {
-                    let c = cx.child(me, ctor::VARIANT_KEYS[k]).expect("variant control");
-                    let items: Vec<DropItem> =
-                        list.snapshot().iter().map(|s| DropItem::str(s.to_string())).collect();
+                    let c = cx
+                        .child(me, ctor::VARIANT_KEYS[k])
+                        .expect("variant control");
+                    let items: Vec<DropItem> = list
+                        .snapshot()
+                        .iter()
+                        .map(|s| DropItem::str(s.to_string()))
+                        .collect();
                     let w = cx.w_mut::<DropDownControl>(c);
                     w.list = items;
                     w.sel_index = sel[k].expect("the variant index") as usize;
@@ -562,20 +583,33 @@ fn update_display_item_tooltip(cx: &mut Cx, me: CtrlId) {
 
 /// ItemsTab.lua:2138-2146 `UpdateSocketControls()` (U35's; test port).
 fn update_socket_controls(cx: &mut Cx, me: CtrlId) {
-    let item = cx.w::<ItemsTab>(me).ctor.displayItem.clone().expect("displayItem");
+    let item = cx
+        .w::<ItemsTab>(me)
+        .ctor
+        .displayItem
+        .clone()
+        .expect("displayItem");
     let sockets = item.sockets.get().snapshot();
     let n = sockets.len() as f64 - item.abyssalSocketCount.get();
     let mut i = 1usize;
     while (i as f64) <= n {
         let color = sockets[i - 1].str(n!("color")).expect("color");
-        let drop = cx.child(me, format!("displayItemSocket{i}")).expect("socket");
+        let drop = cx
+            .child(me, format!("displayItemSocket{i}"))
+            .expect("socket");
         DropDownControl::sel_by_value(cx, drop, &|d: &DropItem| {
-            d.get::<ctor::SocketColorValue>().is_some_and(|v| v.0 == &*color)
+            d.get::<ctor::SocketColorValue>()
+                .is_some_and(|v| v.0 == &*color)
         });
         if i > 1 {
-            let link = cx.child(me, format!("displayItemLink{}", i - 1)).expect("link");
-            let same = sockets[i - 1].get(n!("group")).raw_eq(&sockets[i - 2].get(n!("group")));
-            cx.w_mut::<pob_ui_core::controls::CheckBoxControl>(link).state = same;
+            let link = cx
+                .child(me, format!("displayItemLink{}", i - 1))
+                .expect("link");
+            let same = sockets[i - 1]
+                .get(n!("group"))
+                .raw_eq(&sockets[i - 2].get(n!("group")));
+            cx.w_mut::<pob_ui_core::controls::CheckBoxControl>(link)
+                .state = same;
         }
         i += 1;
     }
@@ -1387,7 +1421,13 @@ fn u33_scenarios() {
                 audit: Vec::new(),
                 compared: true,
             };
-            let n = diff_report::write_report(&out_dir(), &tag, &run, std::env::var_os("U33_PNG").is_some()).unwrap_or(usize::MAX);
+            let n = diff_report::write_report(
+                &out_dir(),
+                &tag,
+                &run,
+                std::env::var_os("U33_PNG").is_some(),
+            )
+            .unwrap_or(usize::MAX);
             let ops = draw_ops(&run.lua);
             let t4_line = match &t4r {
                 Ok((p, b)) => {

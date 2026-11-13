@@ -81,7 +81,6 @@ use pob_ui_oracle::lua_calc::LuaCalcBridge;
 use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
 
 fn inputs() -> Option<PathBuf> {
@@ -263,7 +262,10 @@ impl pob_app::calc::MiscCalc for FakeMisc {
                 add += q * 7.0 + if g.enabled.get() { 1000.0 } else { 0.0 } + name as f64;
             }
         }
-        out.set(n!("CombinedDPS"), self.base.num_or(n!("CombinedDPS"), 0.0) + add);
+        out.set(
+            n!("CombinedDPS"),
+            self.base.num_or(n!("CombinedDPS"), 0.0) + add,
+        );
         std::task::Poll::Ready(out)
     }
 }
@@ -357,8 +359,16 @@ fn update_gem_slots(cx: &mut Cx, me: CtrlId) {
             cx.w_mut::<CheckBoxControl>(slot.enabled).state = false;
             EditControl::set_text(cx, slot.count, "1", false);
         } else {
-            let gem = group.gemList.get().get(slot_index).expect("gemList[slotIndex]");
-            let col = gem.extra.str(n!("color")).expect("gemInstance.color").to_string();
+            let gem = group
+                .gemList
+                .get()
+                .get(slot_index)
+                .expect("gemList[slotIndex]");
+            let col = gem
+                .extra
+                .str(n!("color"))
+                .expect("gemInstance.color")
+                .to_string();
             cx.w_mut::<EditControl>(slot.name_spec).inactive_col = col;
         }
     }
@@ -368,7 +378,8 @@ fn update_gem_slots(cx: &mut Cx, me: CtrlId) {
 /// `groupLabel` and the gem rows (L1281, L1296-1306).
 fn set_display_group_ui_tail(cx: &mut Cx, me: CtrlId, group: Option<SocketGroupRef>) {
     let Some(group) = group else { return };
-    let label = model::skills_tab::socketGroup_label(&group).map_or_else(|| "nil".to_owned(), |s| s.to_string());
+    let label = model::skills_tab::socketGroup_label(&group)
+        .map_or_else(|| "nil".to_owned(), |s| s.to_string());
     let gl = cx.child(me, "groupLabel").expect("groupLabel");
     EditControl::set_text(cx, gl, &label, false);
     update_gem_slots(cx, me);
@@ -472,7 +483,12 @@ fn ctor(cx: &mut Cx, build: CtrlId) -> CtrlId {
         .ui_state()
         .set(n!("sortGemsByDPS"), false);
     // L113
-    skill_list_ctor(cx, me, Anchor::new(TopLeft, me, TopLeft), rect(20, 54, 360, 300));
+    skill_list_ctor(
+        cx,
+        me,
+        Anchor::new(TopLeft, me, TopLeft),
+        rect(20, 54, 360, 300),
+    );
     // L165 (hidden stand-in: the gem edits' tab group master)
     cx.add(
         me,
@@ -497,7 +513,9 @@ fn ctor(cx: &mut Cx, build: CtrlId) -> CtrlId {
                 Anchor::new(TopLeft, me, TopLeft),
                 rect(GEM_SLOTS[0], GEM_SLOTS[1], 0, 0),
             )
-            .shown(Prop::f(|cx, _| cx.build().model.skillsTab.displayGroup.get().is_some())),
+            .shown(Prop::f(|cx, _| {
+                cx.build().model.skillsTab.displayGroup.get().is_some()
+            })),
         )
         .id();
     cx.w_mut::<U31SkillsTab>(me).anchor_gem_slots = anchor;
@@ -575,7 +593,10 @@ fn install_skills_tab_ui_hooks() {
     gs::set_skills_tab_ui_hooks(|h| {
         *h = gs::default_skills_tab_ui_hooks();
         h.gem_slot = Rc::new(|cx, me, i| {
-            cx.w::<U31SkillsTab>(me).gem_slots.get(i.wrapping_sub(1)).copied()
+            cx.w::<U31SkillsTab>(me)
+                .gem_slots
+                .get(i.wrapping_sub(1))
+                .copied()
         });
         h.set_gem_slot = Rc::new(|cx, me, i, slot| {
             let slots = &mut cx.w_mut::<U31SkillsTab>(me).gem_slots;
@@ -1516,8 +1537,15 @@ fn u31_rebuilt_slot_controls() {
         set_display_group_ui_tail(cx, me, dg);
         for ((key, o), (_, n)) in row_keys(index, &old).into_iter().zip(row_keys(index, &new)) {
             assert_ne!(o, n, "{key}: a new control");
-            assert_eq!(cx.child(me, key.clone()), Some(n), "{key}: the key names the new control");
-            assert!(!cx.is_child_of(me, o), "{key}: the old control left the controls table");
+            assert_eq!(
+                cx.child(me, key.clone()),
+                Some(n),
+                "{key}: the key names the new control"
+            );
+            assert!(
+                !cx.is_child_of(me, o),
+                "{key}: the old control left the controls table"
+            );
         }
         cx.end_frame_gc();
         // the next row still references the old delete button and enableGlobal check boxes
@@ -1525,10 +1553,17 @@ fn u31_rebuilt_slot_controls() {
         let kept = [old.delete, old.enable_global1, old.enable_global2];
         for (key, o) in row_keys(index, &old) {
             let referenced = index < n_rows && kept.contains(&o);
-            assert_eq!(cx.ui.is_alive(o), referenced, "{key}: freed unless the next row references it");
+            assert_eq!(
+                cx.ui.is_alive(o),
+                referenced,
+                "{key}: freed unless the next row references it"
+            );
         }
         let after = drawn_texts(&traced_frame(&mut rust, &mut d));
-        assert_eq!(before, after, "row {index}: the rebuilt row draws once, as before");
+        assert_eq!(
+            before, after,
+            "row {index}: the rebuilt row draws once, as before"
+        );
     }
     println!(
         "u31_rebuilt_slot_controls: {n_rows} rows, rows 1 and {n_rows} rebuilt, {} strings per frame",

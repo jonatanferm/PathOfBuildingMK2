@@ -13,10 +13,10 @@
 mod common;
 
 use common::*;
+use mlua::{Lua, Table, Value};
 use pob_lua::format::{
     lua_format_bytes, tonumber_base_bytes, tonumber_bytes, tostring_num, FmtArg,
 };
-use mlua::{Lua, Table, Value};
 
 #[derive(Clone, Debug)]
 enum Arg {
@@ -80,17 +80,21 @@ fn run_format_vectors(name: &str, fmts: &[Vec<u8>], args: &[Vec<Arg>]) {
             };
             let got = run();
             // `%d %i %o %u %x %X %c` casts depend on the LuaJIT build profile (CCR-0001).
-            c.ok_profile(cmp(&got), || cmp(&run()), || {
-                format!(
-                    "format({}, {:?}): lua {}{} rust {:?}",
-                    show(&fmts[i]),
-                    args[i],
-                    if ok { "" } else { "ERROR " },
-                    show(&r),
-                    got.as_ref()
-                        .map(|g| String::from_utf8_lossy(g).into_owned())
-                )
-            });
+            c.ok_profile(
+                cmp(&got),
+                || cmp(&run()),
+                || {
+                    format!(
+                        "format({}, {:?}): lua {}{} rust {:?}",
+                        show(&fmts[i]),
+                        args[i],
+                        if ok { "" } else { "ERROR " },
+                        show(&r),
+                        got.as_ref()
+                            .map(|g| String::from_utf8_lossy(g).into_owned())
+                    )
+                },
+            );
         }
         c.finish();
     }
@@ -549,9 +553,11 @@ fn tonumber_strings() {
             };
             let got = tonumber_bytes(s);
             // Dual-number builds scan "-0" / "-0b0" as integer +0 (CCR-0001).
-            c.ok_profile(cmp(got), || cmp(tonumber_bytes(s)), || {
-                format!("tonumber({}): lua {want:?} rust {got:?}", show(s))
-            });
+            c.ok_profile(
+                cmp(got),
+                || cmp(tonumber_bytes(s)),
+                || format!("tonumber({}): lua {want:?} rust {got:?}", show(s)),
+            );
         }
         c.finish();
     }
@@ -620,14 +626,18 @@ fn tonumber_with_base() {
             };
             let got = run();
             // Dual-number builds return "-0" in any base as integer +0 (CCR-0001).
-            c.ok_profile(cmp(&got), || cmp(&run()), || {
-                format!(
-                    "tonumber({}, {}): lua {want:?} err {:?} rust {got:?}",
-                    show(s),
-                    bases[i],
-                    lerr.as_ref().map(|m| show(m))
-                )
-            });
+            c.ok_profile(
+                cmp(&got),
+                || cmp(&run()),
+                || {
+                    format!(
+                        "tonumber({}, {}): lua {want:?} err {:?} rust {got:?}",
+                        show(s),
+                        bases[i],
+                        lerr.as_ref().map(|m| show(m))
+                    )
+                },
+            );
         }
         c.finish();
     }

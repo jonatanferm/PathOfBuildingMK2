@@ -1601,9 +1601,8 @@ fn release(env: &pob_calc::env::EnvRef) {
 /// invalidated `$CARGO_TARGET_TMPDIR/CS3/` cache wrote; on fresh dumps every ModParser closure
 /// carries `$up`, so the L5 jewel-func class missed them (81 runs failed).
 fn is_lua_fn(v: &J) -> bool {
-    v.as_object().is_some_and(|o| {
-        o.contains_key("$fn") && o.keys().all(|k| k == "$fn" || k == "$up")
-    })
+    v.as_object()
+        .is_some_and(|o| o.contains_key("$fn") && o.keys().all(|k| k == "$fn" || k == "$up"))
 }
 
 /// `{"func": {"$fn": key}, "type": …}`: the Rust `Value::JewelFunc` (`JewelFuncSpec`) export.

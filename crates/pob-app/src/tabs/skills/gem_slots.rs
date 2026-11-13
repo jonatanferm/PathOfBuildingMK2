@@ -145,7 +145,10 @@ pub fn skills_tab_ui_hooks() -> SkillsTabUiHooks {
 
 /// Replace hook entries (U30 at run time, tests).
 pub fn set_skills_tab_ui_hooks(f: impl FnOnce(&mut SkillsTabUiHooks)) {
-    SKILLS_TAB_UI_HOOKS.with(|h| f(h.borrow_mut().get_or_insert_with(default_skills_tab_ui_hooks)));
+    SKILLS_TAB_UI_HOOKS.with(|h| {
+        f(h.borrow_mut()
+            .get_or_insert_with(default_skills_tab_ui_hooks))
+    });
 }
 
 /// `self:AddUndoState()`
@@ -182,7 +185,8 @@ fn display_group(cx: &Cx) -> Option<SocketGroupRef> {
 /// `self.displayGroup` where the Lua indexes it.
 #[track_caller]
 fn dg(cx: &Cx) -> SocketGroupRef {
-    display_group(cx).unwrap_or_else(|| lua_error!("attempt to index field 'displayGroup' (a nil value)"))
+    display_group(cx)
+        .unwrap_or_else(|| lua_error!("attempt to index field 'displayGroup' (a nil value)"))
 }
 
 /// `#self.displayGroup.gemList`
@@ -229,7 +233,12 @@ fn default_level_text(cx: &Cx) -> String {
 
 /// `self.defaultGemQuality or 0`
 fn default_gem_quality(cx: &Cx) -> f64 {
-    cx.build().model.skillsTab.defaultGemQuality.get().unwrap_or(0.0)
+    cx.build()
+        .model
+        .skillsTab
+        .defaultGemQuality
+        .get()
+        .unwrap_or(0.0)
 }
 
 /// `{ nameSpec = "", level = level, quality = quality, enabled = true, enableGlobal1 = true,
@@ -278,7 +287,9 @@ fn set_state(cx: &mut Cx, id: CtrlId, v: bool) {
 /// `tooltip:CheckForUpdate(self.build.outputRevision, self.displayGroup)`
 fn check_for_update(cx: &Cx, tooltip: &mut Tooltip) -> bool {
     let rev = cx.build().model.outputRevision.get();
-    let group = display_group(cx).map_or(TtKey::Nil, |g| TtKey::Obj(TtObj(g as Rc<dyn std::any::Any>)));
+    let group = display_group(cx).map_or(TtKey::Nil, |g| {
+        TtKey::Obj(TtObj(g as Rc<dyn std::any::Any>))
+    });
     tooltip.check_for_update(cx, &[TtKey::Num(rev), group])
 }
 
@@ -317,7 +328,8 @@ fn delete_gem(cx: &mut Cx, me: CtrlId, index: usize) {
     for index2 in index..=n {
         // L750 Update the other gem slot controls
         // L751
-        let gemInstance = gem_at(cx, index2).unwrap_or_else(|| lua_error!("attempt to index local 'gemInstance' (a nil value)"));
+        let gemInstance = gem_at(cx, index2)
+            .unwrap_or_else(|| lua_error!("attempt to index local 'gemInstance' (a nil value)"));
         let s = gem_slot(cx, me, index2);
         // L752
         set_text(cx, s.name_spec, &gemInstance.nameSpec.get());
@@ -332,7 +344,11 @@ fn delete_gem(cx: &mut Cx, me: CtrlId, index: usize) {
         // L757
         set_state(cx, s.enable_global2, gemInstance.enableGlobal2.get());
         // L758
-        set_text(cx, s.count, &tostring_num(gemInstance.count.get().unwrap_or(1.0)));
+        set_text(
+            cx,
+            s.count,
+            &tostring_num(gemInstance.count.get().unwrap_or(1.0)),
+        );
     }
     // L760
     let m = cx.build().model.clone();
@@ -357,7 +373,10 @@ fn quality_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, index: usize) {
         let gemData = gemInstance.gemData.get();
 
         // L897-921 Function for both granted effect and secondary such as vaal
-        let addQualityLines = |cx: &mut Cx, tooltip: &mut Tooltip, qualityList: &[(model::Name, f64)], grantedEffect: &GrantedEffect| {
+        let addQualityLines = |cx: &mut Cx,
+                               tooltip: &mut Tooltip,
+                               qualityList: &[(model::Name, f64)],
+                               grantedEffect: &GrantedEffect| {
             let cc = cx.main.cc.clone();
             // L899
             tooltip.add_line(cx, 18.0, &format!("{}{}", cc.GEM, grantedEffect.name));
@@ -375,15 +394,18 @@ fn quality_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, index: usize) {
                 let scope = grantedEffect
                     .statDescriptionScope
                     .unwrap_or_else(|| lua_error!("attempt to concatenate a nil value"));
-                let (descriptions, _) = stat_describer::describe_stats(cx, &stats, scope.as_str(), false);
+                let (descriptions, _) =
+                    stat_describer::describe_stats(cx, &stats, scope.as_str(), false);
                 // L907 line may be nil if the value results in no line due to not being enough quality
                 // L908
                 for line in descriptions {
                     // L909 (`if line then`: every description is a string)
                     // L910 Check if we have a handler for the mod in the gem's statMap or in the shared stat map for skills
                     // L911
-                    let handled = pob_gamedata::skill_stat_map::statMapLookup(grantedEffect, qual.0).is_some()
-                        || model::data().skillStatMap.get(&qual.0).is_some();
+                    let handled =
+                        pob_gamedata::skill_stat_map::statMapLookup(grantedEffect, qual.0)
+                            .is_some()
+                            || model::data().skillStatMap.get(&qual.0).is_some();
                     if handled {
                         // L912
                         tooltip.add_line(cx, 16.0, &format!("{}{line}", cc.MAGIC));
@@ -417,7 +439,10 @@ fn quality_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, index: usize) {
             }
         }
         // L930
-        if let Some(ge) = gemData.as_ref().and_then(|gd| gd.secondaryGrantedEffect.clone()) {
+        if let Some(ge) = gemData
+            .as_ref()
+            .and_then(|gd| gd.secondaryGrantedEffect.clone())
+        {
             // L931
             let qualityTable = &ge.qualityStats;
             // L932
@@ -477,7 +502,9 @@ fn enabled_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, index: usize) {
                     } else {
                         "^7Enabling this gem will give you:"
                     };
-                    stats::add_stat_compares_to_tooltip(cx, tooltip, &calcBase, &output, header, None);
+                    stats::add_stat_compares_to_tooltip(
+                        cx, tooltip, &calcBase, &output, header, None,
+                    );
                 }
             }
         }
@@ -487,7 +514,8 @@ fn enabled_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, index: usize) {
 /// `slot.enableGlobal<i>.label` (L1055-1057 / L1074-1076): "Enable <granted effect i's name>:".
 #[track_caller]
 fn enable_global_label(cx: &Cx, index: usize, effect: usize) -> String {
-    let gem = gem_at(cx, index).unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
+    let gem =
+        gem_at(cx, index).unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
     let gem_data = gem
         .gemData
         .get()
@@ -547,12 +575,22 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
             }),
         )
         .id();
-    slot.set(GemSlot { delete, ..slot.get() });
+    slot.set(GemSlot {
+        delete,
+        ..slot.get()
+    });
     // L768
     if index == 1 {
         // L769
         let anchor = (h.anchor_gem_slots)(cx, me);
-        cx.set_anchor(delete, TopLeft, Some(anchor), TopLeft, Some((0.0.into(), 0.0.into())), false);
+        cx.set_anchor(
+            delete,
+            TopLeft,
+            Some(anchor),
+            TopLeft,
+            Some((0.0.into(), 0.0.into())),
+            false,
+        );
     } else {
         // L771
         let prevSlot = (h.gem_slot)(cx, me, index - 1)
@@ -566,7 +604,14 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                 2.0
             }
         });
-        cx.set_anchor(delete, TopLeft, Some(prevSlot.delete), BottomLeft, Some((0.0.into(), y)), false);
+        cx.set_anchor(
+            delete,
+            TopLeft,
+            Some(prevSlot.delete),
+            BottomLeft,
+            Some((0.0.into(), y)),
+            false,
+        );
     }
     // L776-778
     cx.base_mut(delete).shown = Prop::f(move |cx, _| {
@@ -580,7 +625,8 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
         index <= gem_count(cx)
     });
     // L782
-    cx.w_mut::<ButtonControl>(delete).tt.tooltip_text = Some(Prop::Val(Some("Remove this gem.".to_owned())));
+    cx.w_mut::<ButtonControl>(delete).tt.tooltip_text =
+        Some(Prop::Val(Some("Remove this gem.".to_owned())));
     // L783 self.controls["gemSlot"..index.."Delete"] = slot.delete (stored by `cx.add`)
 
     // L785 Gem name specification
@@ -618,7 +664,11 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                 // L810
                 set_state(cx, slot.enable_global2, true);
                 // L811
-                set_text(cx, slot.count, &tostring_num(g.count.get().unwrap_or(f64::NAN)));
+                set_text(
+                    cx,
+                    slot.count,
+                    &tostring_num(g.count.get().unwrap_or(f64::NAN)),
+                );
                 g
             }
             Some(g) => {
@@ -646,7 +696,9 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
             }
         };
         // L823
-        gemInstance.gemId.set(gemId.as_deref().map(model::Name::from));
+        gemInstance
+            .gemId
+            .set(gemId.as_deref().map(model::Name::from));
         // L824
         gemInstance.skillId.set(None);
         // L825
@@ -656,11 +708,17 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
         let level = process_gem_level(cx, &gemInstance);
         gemInstance.level.set(level);
         // L828
-        gemInstance.extra.set(n!("naturalMaxLevel"), gemInstance.level.get());
+        gemInstance
+            .extra
+            .set(n!("naturalMaxLevel"), gemInstance.level.get());
         // L829
         set_text(cx, slot.level, &tostring_nan(gemInstance.level.get()));
         // L830
-        set_text(cx, slot.count, &tostring_num(gemInstance.count.get().unwrap_or(1.0)));
+        set_text(
+            cx,
+            slot.count,
+            &tostring_num(gemInstance.count.get().unwrap_or(1.0)),
+        );
         // L831
         if addUndo {
             // L832
@@ -687,7 +745,10 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
             ),
         )
         .id();
-    slot.set(GemSlot { name_spec, ..slot.get() });
+    slot.set(GemSlot {
+        name_spec,
+        ..slot.get()
+    });
     // L838
     let group_label = cx
         .child(me, "groupLabel")
@@ -726,7 +787,11 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                                 // L849
                                 set_state(cx, slot.enable_global1, true);
                                 // L850
-                                set_text(cx, slot.count, &tostring_num(g.count.get().unwrap_or(f64::NAN)));
+                                set_text(
+                                    cx,
+                                    slot.count,
+                                    &tostring_num(g.count.get().unwrap_or(f64::NAN)),
+                                );
                                 g
                             }
                         };
@@ -734,12 +799,16 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                         let level = match tonumber(buf) {
                             Some(l) => l,
                             None => match gem_at(cx, index)
-                                .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"))
+                                .unwrap_or_else(|| {
+                                    lua_error!("attempt to index field '?' (a nil value)")
+                                })
                                 .extra
                                 .get(n!("naturalMaxLevel"))
                             {
                                 Val::Nil | Val::Bool(false) => process_gem_level(cx, &gemInstance),
-                                v => v.opt_num().unwrap_or_else(|| lua_error!("naturalMaxLevel is not a number")),
+                                v => v.opt_num().unwrap_or_else(|| {
+                                    lua_error!("naturalMaxLevel is not a number")
+                                }),
                             },
                         };
                         gemInstance.level.set(level);
@@ -755,7 +824,10 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
             ),
         )
         .id();
-    slot.set(GemSlot { level, ..slot.get() });
+    slot.set(GemSlot {
+        level,
+        ..slot.get()
+    });
     // L857
     cx.add_to_tab_group(level, group_label);
     // L858-860
@@ -797,7 +869,11 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                                 // L871
                                 set_state(cx, slot.enable_global1, true);
                                 // L872
-                                set_text(cx, slot.count, &tostring_num(g.count.get().unwrap_or(f64::NAN)));
+                                set_text(
+                                    cx,
+                                    slot.count,
+                                    &tostring_num(g.count.get().unwrap_or(f64::NAN)),
+                                );
                                 g
                             }
                         };
@@ -816,7 +892,10 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
             ),
         )
         .id();
-    slot.set(GemSlot { quality, ..slot.get() });
+    slot.set(GemSlot {
+        quality,
+        ..slot.get()
+    });
     // L879-887
     cx.w_mut::<EditControl>(quality).border_func = Some(Rc::new(move |cx| {
         // L880
@@ -828,7 +907,8 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                 if let Some(color) = g.extra.str(n!("color")) {
                     // L883
                     let hex = pob_lua::gsub(&color, "%^", "0", None).0;
-                    let [r, gr, b] = pob_ui_core::color_codes::hex_to_rgb(&hex).unwrap_or([0.5, 0.5, 0.5]);
+                    let [r, gr, b] =
+                        pob_ui_core::color_codes::hex_to_rgb(&hex).unwrap_or([0.5, 0.5, 0.5]);
                     return (r, gr, b);
                 }
             }
@@ -877,15 +957,18 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                             // L961
                             set_text(cx, slot.quality, &tostring_nan(g.quality.get()));
                             // L962
-                            set_text(cx, slot.count, &tostring_num(g.count.get().unwrap_or(f64::NAN)));
+                            set_text(
+                                cx,
+                                slot.count,
+                                &tostring_num(g.count.get().unwrap_or(f64::NAN)),
+                            );
                             g
                         }
                     };
                     // L964
-                    let gem_data = gemInstance
-                        .gemData
-                        .get()
-                        .unwrap_or_else(|| lua_error!("attempt to index field 'gemData' (a nil value)"));
+                    let gem_data = gemInstance.gemData.get().unwrap_or_else(|| {
+                        lua_error!("attempt to index field 'gemData' (a nil value)")
+                    });
                     if !gem_data.vaalGem {
                         // L965
                         set_state(cx, slot.enable_global1, true);
@@ -910,11 +993,15 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
             ),
         )
         .id();
-    slot.set(GemSlot { enabled, ..slot.get() });
+    slot.set(GemSlot {
+        enabled,
+        ..slot.get()
+    });
     // L975-987
-    cx.w_mut::<CheckBoxControl>(enabled).tt.tooltip_func = Some(Rc::new(move |cx, tooltip, _state| {
-        enabled_tooltip(cx, tooltip, index);
-    }));
+    cx.w_mut::<CheckBoxControl>(enabled).tt.tooltip_func =
+        Some(Rc::new(move |cx, tooltip, _state| {
+            enabled_tooltip(cx, tooltip, index);
+        }));
     // L988-990
     cx.base_mut(enabled).enabled = Prop::f(move |cx, _| {
         // L989
@@ -975,7 +1062,10 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
             ),
         )
         .id();
-    slot.set(GemSlot { count, ..slot.get() });
+    slot.set(GemSlot {
+        count,
+        ..slot.get()
+    });
     // L1010-1021
     cx.base_mut(count).shown = Prop::f(move |cx, _| {
         // L1011
@@ -983,10 +1073,11 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
         // L1012
         if let Some(gemInstance) = gemInstance {
             // L1013
-            let grantedEffectList: Vec<pob_gamedata::GrantedEffectRef> = match gemInstance.gemData.get() {
-                Some(gd) => gd.grantedEffectList.clone(),
-                None => gemInstance.grantedEffect.get().into_iter().collect(),
-            };
+            let grantedEffectList: Vec<pob_gamedata::GrantedEffectRef> =
+                match gemInstance.gemData.get() {
+                    Some(gd) => gd.grantedEffectList.clone(),
+                    None => gemInstance.grantedEffect.get().into_iter().collect(),
+                };
             // L1014
             for (i, grantedEffect) in grantedEffectList.iter().enumerate() {
                 // L1015
@@ -1008,11 +1099,19 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
         // L1023
         if check_for_update(cx, tooltip) {
             // L1024
-            tooltip.add_line(cx, 16.0, "^8Note: `count` integer value scales the DPS of associated skill by a scalar.");
+            tooltip.add_line(
+                cx,
+                16.0,
+                "^8Note: `count` integer value scales the DPS of associated skill by a scalar.",
+            );
             // L1025
             tooltip.add_line(cx, 16.0, "^8To be used with totems, minions, shot-gunning of projectiles (e.g., VD, magma-orbs),");
             // L1026
-            tooltip.add_line(cx, 16.0, "^8multi-hit projectiles (e.g. ball-lightning), traps, mines.");
+            tooltip.add_line(
+                cx,
+                16.0,
+                "^8multi-hit projectiles (e.g. ball-lightning), traps, mines.",
+            );
         }
     }));
     // L1029-1031
@@ -1041,14 +1140,20 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                             v => Some(v),
                         })
                         .map_or_else(String::new, |v| {
-                            v.str().map_or_else(|| lua_error!("attempt to concatenate a non-string value"), |s| s.to_string())
+                            v.str().map_or_else(
+                                || lua_error!("attempt to concatenate a non-string value"),
+                                |s| s.to_string(),
+                            )
                         });
                     format!("^1{msg}")
                 }),
             ),
         )
         .id();
-    slot.set(GemSlot { err_msg, ..slot.get() });
+    slot.set(GemSlot {
+        err_msg,
+        ..slot.get()
+    });
     // L1039 self.controls["gemSlot"..index.."ErrMsg"] = slot.errMsg (stored by `cx.add`)
 
     // L1041 Enable global-effect skill 1
@@ -1063,8 +1168,9 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                 Some(String::new()),
                 Some(Rc::new(move |cx: &mut Cx, state: bool| {
                     // L1043
-                    let gemInstance = gem_at(cx, index)
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'gemInstance' (a nil value)"));
+                    let gemInstance = gem_at(cx, index).unwrap_or_else(|| {
+                        lua_error!("attempt to index local 'gemInstance' (a nil value)")
+                    });
                     // L1044
                     gemInstance.enableGlobal1.set(state);
                     // an explicit value is no longer CalcSetup's nil (CCR-0145 §4)
@@ -1079,7 +1185,10 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
             ),
         )
         .id();
-    slot.set(GemSlot { enable_global1, ..slot.get() });
+    slot.set(GemSlot {
+        enable_global1,
+        ..slot.get()
+    });
     // L1048-1051
     cx.base_mut(enable_global1).shown = Prop::f(move |cx, _| enable_global_shown(cx, index, 1));
     // L1052-1054
@@ -1090,7 +1199,9 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                 .w::<CheckBoxControl>(enable_global1)
                 .label
                 .get(cx, enable_global1)
-                .unwrap_or_else(|| lua_error!("bad argument #3 to 'DrawStringWidth' (string expected, got nil)"));
+                .unwrap_or_else(|| {
+                    lua_error!("bad argument #3 to 'DrawStringWidth' (string expected, got nil)")
+                });
             cx.sg.draw_string_width(16.0, Font::Var, &label) + 5.0
         } else {
             0.0
@@ -1115,8 +1226,9 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                 Some(String::new()),
                 Some(Rc::new(move |cx: &mut Cx, state: bool| {
                     // L1062
-                    let gemInstance = gem_at(cx, index)
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'gemInstance' (a nil value)"));
+                    let gemInstance = gem_at(cx, index).unwrap_or_else(|| {
+                        lua_error!("attempt to index local 'gemInstance' (a nil value)")
+                    });
                     // L1063
                     gemInstance.enableGlobal2.set(state);
                     // an explicit value is no longer CalcSetup's nil (CCR-0145 §4)
@@ -1131,7 +1243,10 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
             ),
         )
         .id();
-    slot.set(GemSlot { enable_global2, ..slot.get() });
+    slot.set(GemSlot {
+        enable_global2,
+        ..slot.get()
+    });
     // L1067-1070
     cx.base_mut(enable_global2).shown = Prop::f(move |cx, _| enable_global_shown(cx, index, 2));
     // L1071-1073
@@ -1142,7 +1257,9 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                 .w::<CheckBoxControl>(enable_global2)
                 .label
                 .get(cx, enable_global2)
-                .unwrap_or_else(|| lua_error!("bad argument #3 to 'DrawStringWidth' (string expected, got nil)"));
+                .unwrap_or_else(|| {
+                    lua_error!("bad argument #3 to 'DrawStringWidth' (string expected, got nil)")
+                });
             cx.sg.draw_string_width(16.0, Font::Var, &label) + 12.0
         } else {
             0.0

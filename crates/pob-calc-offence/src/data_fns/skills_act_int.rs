@@ -427,10 +427,10 @@ pub(crate) fn BrandSupport_preDamageFunc(
                 Some(&activeSkill.skillCfg.get()),
                 nm!["Speed", "BrandActivationFrequency"],
             ) / 100.0)
-        / activeSkill
-            .skillModList
-            .get()
-            .More(Some(&activeSkill.skillCfg.get()), nm!["BrandActivationFrequency"]);
+        / activeSkill.skillModList.get().More(
+            Some(&activeSkill.skillCfg.get()),
+            nm!["BrandActivationFrequency"],
+        );
     activeSkill
         .skillData
         .get()
@@ -452,10 +452,10 @@ pub(crate) fn ArmageddonBrand_preDamageFunc(
                 Some(&activeSkill.skillCfg.get()),
                 nm!["Speed", "BrandActivationFrequency"],
             ) / 100.0)
-        / activeSkill
-            .skillModList
-            .get()
-            .More(Some(&activeSkill.skillCfg.get()), nm!["BrandActivationFrequency"]);
+        / activeSkill.skillModList.get().More(
+            Some(&activeSkill.skillCfg.get()),
+            nm!["BrandActivationFrequency"],
+        );
     activeSkill
         .skillData
         .get()
@@ -477,10 +477,10 @@ pub(crate) fn ArmageddonBrandAltY_preDamageFunc(
                 Some(&activeSkill.skillCfg.get()),
                 nm!["Speed", "BrandActivationFrequency"],
             ) / 100.0)
-        / activeSkill
-            .skillModList
-            .get()
-            .More(Some(&activeSkill.skillCfg.get()), nm!["BrandActivationFrequency"]);
+        / activeSkill.skillModList.get().More(
+            Some(&activeSkill.skillCfg.get()),
+            nm!["BrandActivationFrequency"],
+        );
     activeSkill
         .skillData
         .get()
@@ -586,7 +586,10 @@ pub(crate) fn BallLightning_preDamageFunc(
         // L1145
         let numStrikes = m_max(
             0.0,
-            m_min(maxStrikes, lastStrikeIdxThatHits + 1.0 - firstStrikeIdxThatHits),
+            m_min(
+                maxStrikes,
+                lastStrikeIdxThatHits + 1.0 - firstStrikeIdxThatHits,
+            ),
         );
         // L1146
         lastStrikeIdxThatHits = firstStrikeIdxThatHits + numStrikes - 1.0;
@@ -599,7 +602,10 @@ pub(crate) fn BallLightning_preDamageFunc(
             // L1151
             let breakdownHits = Table::new();
             // L1152
-            breakdownHits.push(lfmt!("^8Balls travel at^7 %.2f^8 units/sec.", ballDistPerSec));
+            breakdownHits.push(lfmt!(
+                "^8Balls travel at^7 %.2f^8 units/sec.",
+                ballDistPerSec
+            ));
             // L1153
             breakdownHits.push(lfmt!(
                 "^8Lightning bolts strike all nearby enemies every^7 %.2f^8 seconds (^7%.2f^8 strikes/sec).",
@@ -612,7 +618,10 @@ pub(crate) fn BallLightning_preDamageFunc(
                 ballDistPerStrike
             ));
             // L1155
-            breakdownHits.push(lfmt!("^8Assumes balls are cast^7 %d^8 units from the enemy.", castDist));
+            breakdownHits.push(lfmt!(
+                "^8Assumes balls are cast^7 %d^8 units from the enemy.",
+                castDist
+            ));
             // L1156
             breakdownHits.push(lfmt!(
                 "^8Balls can strike enemies up to^7 %d^8 units away from themselves.",
@@ -873,10 +882,12 @@ pub(crate) fn Bodyswap_preDamageFunc(
         // L2301
         if activeSkill.skillFlags.get().truthy(n!("totem")) {
             // L2302
-            let v = output.num(n!("TotemLife")) * skillData.num(n!("selfFireExplosionLifeMultiplier"));
+            let v =
+                output.num(n!("TotemLife")) * skillData.num(n!("selfFireExplosionLifeMultiplier"));
             skillData.set(n!("FireBonusMin"), v);
             // L2303
-            let v = output.num(n!("TotemLife")) * skillData.num(n!("selfFireExplosionLifeMultiplier"));
+            let v =
+                output.num(n!("TotemLife")) * skillData.num(n!("selfFireExplosionLifeMultiplier"));
             skillData.set(n!("FireBonusMax"), v);
         } else {
             // L2305
@@ -903,10 +914,12 @@ pub(crate) fn BodyswapAltX_preDamageFunc(
         // L2416
         if activeSkill.skillFlags.get().truthy(n!("totem")) {
             // L2417
-            let v = output.num(n!("TotemLife")) * skillData.num(n!("selfFireExplosionLifeMultiplier"));
+            let v =
+                output.num(n!("TotemLife")) * skillData.num(n!("selfFireExplosionLifeMultiplier"));
             skillData.set(n!("FireBonusMin"), v);
             // L2418
-            let v = output.num(n!("TotemLife")) * skillData.num(n!("selfFireExplosionLifeMultiplier"));
+            let v =
+                output.num(n!("TotemLife")) * skillData.num(n!("selfFireExplosionLifeMultiplier"));
             skillData.set(n!("FireBonusMax"), v);
         } else {
             // L2420
@@ -1069,7 +1082,10 @@ pub(crate) fn EyeOfWinter_preDamageFunc(
         "Skill:EyeOfWinter",
         0,
         0,
-        &[distance_ramp(&[[0.0, 0.0], [60.0 * output.num(n!("ProjectileSpeedMod")), 1.0]])],
+        &[distance_ramp(&[
+            [0.0, 0.0],
+            [60.0 * output.num(n!("ProjectileSpeedMod")), 1.0],
+        ])],
     );
 }
 
@@ -1093,7 +1109,10 @@ pub(crate) fn EyeOfWinterAltX_preDamageFunc(
         "Skill:EyeOfWinterAltX",
         0,
         0,
-        &[distance_ramp(&[[0.0, 0.0], [60.0 * output.num(n!("ProjectileSpeedMod")), 1.0]])],
+        &[distance_ramp(&[
+            [0.0, 0.0],
+            [60.0 * output.num(n!("ProjectileSpeedMod")), 1.0],
+        ])],
     );
 }
 
@@ -1117,7 +1136,10 @@ pub(crate) fn EyeOfWinterAltY_preDamageFunc(
         "Skill:EyeOfWinterAltY",
         0,
         0,
-        &[distance_ramp(&[[0.0, 0.0], [60.0 * output.num(n!("ProjectileSpeedMod")), 1.0]])],
+        &[distance_ramp(&[
+            [0.0, 0.0],
+            [60.0 * output.num(n!("ProjectileSpeedMod")), 1.0],
+        ])],
     );
 }
 
@@ -1204,18 +1226,33 @@ pub(crate) fn ForbiddenRite_preDamageFunc(
     let basetakenFlat = activeSkill.skillModList.get().Sum(
         BASE,
         None,
-        nm!["DamageTaken", "ChaosDamageTaken", "DamageTakenWhenHit", "ChaosDamageTakenWhenHit"],
+        nm![
+            "DamageTaken",
+            "ChaosDamageTaken",
+            "DamageTakenWhenHit",
+            "ChaosDamageTakenWhenHit"
+        ],
     );
     // L7395
     let baseTakenInc = activeSkill.skillModList.get().Sum(
         INC,
         None,
-        nm!["DamageTaken", "ChaosDamageTaken", "DamageTakenWhenHit", "ChaosDamageTakenWhenHit"],
+        nm![
+            "DamageTaken",
+            "ChaosDamageTaken",
+            "DamageTakenWhenHit",
+            "ChaosDamageTakenWhenHit"
+        ],
     );
     // L7396
     let baseTakenMore = activeSkill.skillModList.get().More(
         None,
-        nm!["DamageTaken", "ChaosDamageTaken", "DamageTakenWhenHit", "ChaosDamageTakenWhenHit"],
+        nm![
+            "DamageTaken",
+            "ChaosDamageTaken",
+            "DamageTakenWhenHit",
+            "ChaosDamageTakenWhenHit"
+        ],
     );
     // L7397
     let chaosDamageTaken = m_max((1.0 + baseTakenInc / 100.0) * baseTakenMore, 0.0);
@@ -1257,8 +1294,10 @@ pub(crate) fn ForbiddenRite_preDamageFunc(
     );
     // L7411
     SelfDamageTakenES = floor(
-        round(energyShield.num() * skillData.num(n!("SelfDamageTakenES")), None)
-            * (100.0 - chaosResistance.num())
+        round(
+            energyShield.num() * skillData.num(n!("SelfDamageTakenES")),
+            None,
+        ) * (100.0 - chaosResistance.num())
             / 100.0
             * chaosDamageTaken,
         None,
@@ -1272,11 +1311,15 @@ pub(crate) fn ForbiddenRite_preDamageFunc(
     // L7414
     if activeSkill.skillPart.get() == Some(2.0) {
         // L7415
-        let v = skillData.num_or(n!("dpsMultiplier"), 1.0) * (output.num(n!("ProjectileCount")) + 1.0);
+        let v =
+            skillData.num_or(n!("dpsMultiplier"), 1.0) * (output.num(n!("ProjectileCount")) + 1.0);
         skillData.set(n!("dpsMultiplier"), v);
     }
     // L7417
-    output.set(n!("FRDamageTaken"), SelfDamageTakenLife + SelfDamageTakenES + chaosFlat);
+    output.set(
+        n!("FRDamageTaken"),
+        SelfDamageTakenLife + SelfDamageTakenES + chaosFlat,
+    );
     // L7418
     if let Some(breakdown) = breakdown {
         // L7419
@@ -1316,7 +1359,10 @@ pub(crate) fn ForbiddenRite_preDamageFunc(
         // L7429
         if chaosDamageTaken != 1.0 {
             // L7430
-            FRDamageTaken.push(lfmt!("^8 *^7 %.2f^8 (Damage taken Multiplier)", chaosDamageTaken));
+            FRDamageTaken.push(lfmt!(
+                "^8 *^7 %.2f^8 (Damage taken Multiplier)",
+                chaosDamageTaken
+            ));
         }
         // L7432
         breakdown.set(n!("FRDamageTaken"), FRDamageTaken);
@@ -1337,18 +1383,33 @@ pub(crate) fn ForbiddenRiteAltX_preDamageFunc(
     let basetakenFlat = activeSkill.skillModList.get().Sum(
         BASE,
         None,
-        nm!["DamageTaken", "ChaosDamageTaken", "DamageTakenWhenHit", "ChaosDamageTakenWhenHit"],
+        nm![
+            "DamageTaken",
+            "ChaosDamageTaken",
+            "DamageTakenWhenHit",
+            "ChaosDamageTakenWhenHit"
+        ],
     );
     // L7554
     let baseTakenInc = activeSkill.skillModList.get().Sum(
         INC,
         None,
-        nm!["DamageTaken", "ChaosDamageTaken", "DamageTakenWhenHit", "ChaosDamageTakenWhenHit"],
+        nm![
+            "DamageTaken",
+            "ChaosDamageTaken",
+            "DamageTakenWhenHit",
+            "ChaosDamageTakenWhenHit"
+        ],
     );
     // L7555
     let baseTakenMore = activeSkill.skillModList.get().More(
         None,
-        nm!["DamageTaken", "ChaosDamageTaken", "DamageTakenWhenHit", "ChaosDamageTakenWhenHit"],
+        nm![
+            "DamageTaken",
+            "ChaosDamageTaken",
+            "DamageTakenWhenHit",
+            "ChaosDamageTakenWhenHit"
+        ],
     );
     // L7556
     let chaosDamageTaken = m_max((1.0 + baseTakenInc / 100.0) * baseTakenMore, 0.0);
@@ -1375,8 +1436,10 @@ pub(crate) fn ForbiddenRiteAltX_preDamageFunc(
     add = energyShield.num() * skillData.num(n!("energyShieldDealtAsChaos"));
     // L7567
     SelfDamageTakenES = floor(
-        round(energyShield.num() * skillData.num(n!("SelfDamageTakenES")), None)
-            * (100.0 - chaosResistance.num())
+        round(
+            energyShield.num() * skillData.num(n!("SelfDamageTakenES")),
+            None,
+        ) * (100.0 - chaosResistance.num())
             / 100.0
             * chaosDamageTaken,
         None,
@@ -1390,7 +1453,8 @@ pub(crate) fn ForbiddenRiteAltX_preDamageFunc(
     // L7570
     if activeSkill.skillPart.get() == Some(2.0) {
         // L7571
-        let v = skillData.num_or(n!("dpsMultiplier"), 1.0) * (output.num(n!("ProjectileCount")) + 1.0);
+        let v =
+            skillData.num_or(n!("dpsMultiplier"), 1.0) * (output.num(n!("ProjectileCount")) + 1.0);
         skillData.set(n!("dpsMultiplier"), v);
     }
     // L7573
@@ -1427,7 +1491,10 @@ pub(crate) fn ForbiddenRiteAltX_preDamageFunc(
         // L7584
         if chaosDamageTaken != 1.0 {
             // L7585
-            FRDamageTaken.push(lfmt!("^8 *^7 %.2f^8 (Damage taken Multiplier)", chaosDamageTaken));
+            FRDamageTaken.push(lfmt!(
+                "^8 *^7 %.2f^8 (Damage taken Multiplier)",
+                chaosDamageTaken
+            ));
         }
         // L7587
         breakdown.set(n!("FRDamageTaken"), FRDamageTaken);
@@ -1449,7 +1516,10 @@ pub(crate) fn FreezingPulse_preDamageFunc(
         "Skill:FreezingPulse",
         0,
         0,
-        &[distance_ramp(&[[0.0, 0.0], [60.0 * output.num(n!("ProjectileSpeedMod")), 1.0]])],
+        &[distance_ramp(&[
+            [0.0, 0.0],
+            [60.0 * output.num(n!("ProjectileSpeedMod")), 1.0],
+        ])],
     );
     // L7688
     activeSkill.skillModList.get().NewMod(
@@ -1459,7 +1529,10 @@ pub(crate) fn FreezingPulse_preDamageFunc(
         "Skill:FreezingPulse",
         0,
         0,
-        &[distance_ramp(&[[0.0, 1.0], [15.0 * output.num(n!("ProjectileSpeedMod")), 0.0]])],
+        &[distance_ramp(&[
+            [0.0, 1.0],
+            [15.0 * output.num(n!("ProjectileSpeedMod")), 0.0],
+        ])],
     );
 }
 
@@ -1740,7 +1813,10 @@ pub(crate) fn KineticFusillade_preDamageFunc(
                 // L11038
                 breakdownSequential.push(lfmt!("^8Average more multiplier:^7 %.1f%%", avgMoreMult));
                 // L11039
-                breakdown.set(n!("KineticFusilladeSequentialBreakdown"), breakdownSequential);
+                breakdown.set(
+                    n!("KineticFusilladeSequentialBreakdown"),
+                    breakdownSequential,
+                );
                 // L11040
                 let ProjectileCount = lor(breakdown.get(n!("ProjectileCount")), || {
                     Val::Table(Table::new())
@@ -1792,7 +1868,8 @@ pub(crate) fn KineticFusillade_postCritFunc(
     // L11063
     let durationMod = output.get(n!("DurationMod"));
     // L11064
-    let baseTimeForAllProjectiles = baseDelayBetweenProjectiles.num() * (projectileCount.num() - 1.0);
+    let baseTimeForAllProjectiles =
+        baseDelayBetweenProjectiles.num() * (projectileCount.num() - 1.0);
     // L11065
     let effectiveDelay = (hoverDelay.num() + baseTimeForAllProjectiles) * durationMod.num();
     // Testing in game showed playing in Lockstep rounded the duration to server ticks but Predictive did not
@@ -1862,12 +1939,14 @@ pub(crate) fn KineticFusillade_postCritFunc(
                 nm!["Speed"],
             );
             // L11087
-            let neededInc = ((maxEffectiveAPS / currentAPS.num()) * (1.0 + currentInc / 100.0) - 1.0) * 100.0;
+            let neededInc =
+                ((maxEffectiveAPS / currentAPS.num()) * (1.0 + currentInc / 100.0) - 1.0) * 100.0;
             // L11088
             let additionalInc = neededInc - currentInc;
             // L11089
             let neededPredictiveInc =
-                ((maxEffectivePredictiveAPS / currentAPS.num()) * (1.0 + currentInc / 100.0) - 1.0) * 100.0;
+                ((maxEffectivePredictiveAPS / currentAPS.num()) * (1.0 + currentInc / 100.0) - 1.0)
+                    * 100.0;
             // L11090
             let additionalPredictiveInc = neededPredictiveInc - currentInc;
             // L11091
@@ -1963,7 +2042,10 @@ pub(crate) fn KineticFusillade_postCritFunc(
                 output.get(n!("ProjectileCount"))
             });
             // L11120
-            skillData.set(n!("dpsMultiplier"), originalMultiplier.num() * efficiencyRatio);
+            skillData.set(
+                n!("dpsMultiplier"),
+                originalMultiplier.num() * efficiencyRatio,
+            );
         }
     }
 }
@@ -2044,7 +2126,10 @@ pub(crate) fn KineticFusilladeAltX_preDamageFunc(
                 // L11256
                 breakdownSequential.push(lfmt!("^8Average more multiplier:^7 %.1f%%", avgMoreMult));
                 // L11257
-                breakdown.set(n!("KineticFusilladeSequentialBreakdown"), breakdownSequential);
+                breakdown.set(
+                    n!("KineticFusilladeSequentialBreakdown"),
+                    breakdownSequential,
+                );
                 // L11258
                 let ProjectileCount = lor(breakdown.get(n!("ProjectileCount")), || {
                     Val::Table(Table::new())
@@ -2096,7 +2181,8 @@ pub(crate) fn KineticFusilladeAltX_postCritFunc(
     // L11281
     let durationMod = output.get(n!("DurationMod"));
     // L11282
-    let baseTimeForAllProjectiles = baseDelayBetweenProjectiles.num() * (projectileCount.num() - 1.0);
+    let baseTimeForAllProjectiles =
+        baseDelayBetweenProjectiles.num() * (projectileCount.num() - 1.0);
     // L11283
     let effectiveDelay = (hoverDelay.num() + baseTimeForAllProjectiles) * durationMod.num();
     // Testing in game showed playing in Lockstep rounded the duration to server ticks but Predictive did not
@@ -2166,12 +2252,14 @@ pub(crate) fn KineticFusilladeAltX_postCritFunc(
                 nm!["Speed"],
             );
             // L11305
-            let neededInc = ((maxEffectiveAPS / currentAPS.num()) * (1.0 + currentInc / 100.0) - 1.0) * 100.0;
+            let neededInc =
+                ((maxEffectiveAPS / currentAPS.num()) * (1.0 + currentInc / 100.0) - 1.0) * 100.0;
             // L11306
             let additionalInc = neededInc - currentInc;
             // L11307
             let neededPredictiveInc =
-                ((maxEffectivePredictiveAPS / currentAPS.num()) * (1.0 + currentInc / 100.0) - 1.0) * 100.0;
+                ((maxEffectivePredictiveAPS / currentAPS.num()) * (1.0 + currentInc / 100.0) - 1.0)
+                    * 100.0;
             // L11308
             let additionalPredictiveInc = neededPredictiveInc - currentInc;
             // L11309
@@ -2267,7 +2355,10 @@ pub(crate) fn KineticFusilladeAltX_postCritFunc(
                 output.get(n!("ProjectileCount"))
             });
             // L11338
-            skillData.set(n!("dpsMultiplier"), originalMultiplier.num() * efficiencyRatio);
+            skillData.set(
+                n!("dpsMultiplier"),
+                originalMultiplier.num() * efficiencyRatio,
+            );
         }
     }
 }
@@ -2307,7 +2398,8 @@ pub(crate) fn LightningSpireTrap_preDamageFunc(
     // L11681
     let baseInterval = skillData.get(n!("repeatInterval"));
     // L11682
-    let incFrequency = (1.0 + skillModList.Sum(INC, Some(&skillCfg), nm!["TrapThrowingSpeed"]) / 100.0);
+    let incFrequency =
+        (1.0 + skillModList.Sum(INC, Some(&skillCfg), nm!["TrapThrowingSpeed"]) / 100.0);
     // L11683
     let moreFrequency = skillModList.More(Some(&skillCfg), nm!["TrapThrowingSpeed"]);
     // L11684
@@ -2339,8 +2431,8 @@ pub(crate) fn LightningSpireTrap_preDamageFunc(
     let hitChance = |enemyRadius: f64, areaDamageRadius: f64, areaSpreadRadius: f64| -> f64 {
         // L11697
         let damagingAreaRadius = areaDamageRadius + enemyRadius - 1.0; // radius where area damage can land to hit the enemy;
-        // -1 because of two assumptions: PoE coordinates are integers and damage is not registered if the two areas only share a point or vertex. If either is not correct, then -1 is not needed.
-        // L11699
+                                                                       // -1 because of two assumptions: PoE coordinates are integers and damage is not registered if the two areas only share a point or vertex. If either is not correct, then -1 is not needed.
+                                                                       // L11699
         m_min(
             damagingAreaRadius * damagingAreaRadius / (areaSpreadRadius * areaSpreadRadius),
             1.0,
@@ -2369,7 +2461,8 @@ pub(crate) fn LightningSpireTrap_preDamageFunc(
         // L11709
         OverlapChance.push("^8= (area where wave can spawn to damage enemy) / (total area)");
         // L11710
-        OverlapChance.push("^8= (^7secondary radius^8 + ^7enemy radius^8 - 1) ^ 2 / ^7radius^8 ^ 2");
+        OverlapChance
+            .push("^8= (^7secondary radius^8 + ^7enemy radius^8 - 1) ^ 2 / ^7radius^8 ^ 2");
         // L11711
         OverlapChance.push(lfmt!(
             "^8= (^7%d^8 +^7 %d^8 - 1) ^ 2 /^7 %d^8 ^ 2",
@@ -2387,7 +2480,10 @@ pub(crate) fn LightningSpireTrap_preDamageFunc(
         // L11715
         WavePulseRate.push(lfmt!("%.2f ^8(base pulse rate)", 1.0 / baseInterval.num()));
         // L11716
-        WavePulseRate.push(lfmt!("* %.2f ^8(increased/reduced pulse frequency)", incFrequency));
+        WavePulseRate.push(lfmt!(
+            "* %.2f ^8(increased/reduced pulse frequency)",
+            incFrequency
+        ));
         // L11717
         WavePulseRate.push(lfmt!("* %.2f ^8(more/less pulse frequency)", moreFrequency));
         // L11718
@@ -2410,19 +2506,29 @@ pub(crate) fn LightningSpireTrap_preDamageFunc(
         // L11726
         PulsesPerTrap.push(lfmt!(
             "^8Next breakpoint: %d%% increased Trap Throwing Speed / %d%% increased Duration",
-            m_ceil(100.0 * ((pulses + 1.0) * baseInterval.num() / (duration * moreFrequency) - incFrequency)),
             m_ceil(
                 100.0
-                    * ((pulses + 1.0) / (wavePulseRate * skillData.num(n!("duration")) * moreDuration)
+                    * ((pulses + 1.0) * baseInterval.num() / (duration * moreFrequency)
+                        - incFrequency)
+            ),
+            m_ceil(
+                100.0
+                    * ((pulses + 1.0)
+                        / (wavePulseRate * skillData.num(n!("duration")) * moreDuration)
                         - incDuration)
             )
         ));
         // L11730
         PulsesPerTrap.push(lfmt!(
             "^8Previous breakpoint: %d%% reduced Trap Throwing Speed / %d%% reduced Duration",
-            -m_ceil(100.0 * (pulses * baseInterval.num() / (duration * moreFrequency) - incFrequency) - 1.0),
             -m_ceil(
-                100.0 * (pulses / (wavePulseRate * skillData.num(n!("duration")) * moreDuration) - incDuration)
+                100.0 * (pulses * baseInterval.num() / (duration * moreFrequency) - incFrequency)
+                    - 1.0
+            ),
+            -m_ceil(
+                100.0
+                    * (pulses / (wavePulseRate * skillData.num(n!("duration")) * moreDuration)
+                        - incDuration)
                     - 1.0
             )
         ));
@@ -2501,7 +2607,8 @@ pub(crate) fn LightningSpireTrap_preDamageFunc(
             // L11769
             SkillDPSMultiplier.push("DPS multiplier");
             // L11770
-            SkillDPSMultiplier.push("^8= ^7average active traps^8 * ^7maximum waves^8 * ^7overlap chance^8");
+            SkillDPSMultiplier
+                .push("^8= ^7average active traps^8 * ^7maximum waves^8 * ^7overlap chance^8");
             // L11771
             SkillDPSMultiplier.push(lfmt!(
                 "^8=^7 %.2f^8 *^7 %d^8 *^7 %.2f",
@@ -2594,8 +2701,9 @@ pub(crate) fn LightningSpireTrapAltX_preDamageFunc(
     // L11935
     let baseSpeed = 1.0 / skillModList.Sum(BASE, Some(&skillCfg), nm!["TrapThrowingTime"]);
     // L11936
-    let mut throwSpeed =
-        baseSpeed * calcLib::r#mod(&skillModList, Some(&skillCfg), nm!["TrapThrowingSpeed"]) * actionSpeedMod;
+    let mut throwSpeed = baseSpeed
+        * calcLib::r#mod(&skillModList, Some(&skillCfg), nm!["TrapThrowingSpeed"])
+        * actionSpeedMod;
     // L11937
     throwSpeed = m_min(throwSpeed, data().misc.ServerTickRate);
     // L11938
@@ -2613,8 +2721,8 @@ pub(crate) fn LightningSpireTrapAltX_preDamageFunc(
     let hitChance = |enemyRadius: f64, areaDamageRadius: f64, areaSpreadRadius: f64| -> f64 {
         // L11945
         let damagingAreaRadius = areaDamageRadius + enemyRadius - 1.0; // radius where area damage can land to hit the enemy;
-        // -1 because of two assumptions: PoE coordinates are integers and damage is not registered if the two areas only share a point or vertex. If either is not correct, then -1 is not needed.
-        // L11947
+                                                                       // -1 because of two assumptions: PoE coordinates are integers and damage is not registered if the two areas only share a point or vertex. If either is not correct, then -1 is not needed.
+                                                                       // L11947
         m_min(
             damagingAreaRadius * damagingAreaRadius / (areaSpreadRadius * areaSpreadRadius),
             1.0,
@@ -2643,7 +2751,8 @@ pub(crate) fn LightningSpireTrapAltX_preDamageFunc(
         // L11957
         OverlapChance.push("^8= (area where wave can spawn to damage enemy) / (total area)");
         // L11958
-        OverlapChance.push("^8= (^7secondary radius^8 + ^7enemy radius^8 - 1) ^ 2 / ^7radius^8 ^ 2");
+        OverlapChance
+            .push("^8= (^7secondary radius^8 + ^7enemy radius^8 - 1) ^ 2 / ^7radius^8 ^ 2");
         // L11959
         OverlapChance.push(lfmt!(
             "^8= (^7%d^8 +^7 %d^8 - 1) ^ 2 /^7 %d^8 ^ 2",
@@ -2673,7 +2782,8 @@ pub(crate) fn LightningSpireTrapAltX_preDamageFunc(
             "^8Next breakpoint: %d%% increased Duration",
             m_ceil(
                 100.0
-                    * ((pulses + 1.0) / (wavePulseRate * skillData.num(n!("duration")) * moreDuration)
+                    * ((pulses + 1.0)
+                        / (wavePulseRate * skillData.num(n!("duration")) * moreDuration)
                         - incDuration)
             )
         ));
@@ -2681,7 +2791,9 @@ pub(crate) fn LightningSpireTrapAltX_preDamageFunc(
         PulsesPerTrap.push(lfmt!(
             "^8Previous breakpoint: %d%% reduced Duration",
             -m_ceil(
-                100.0 * (pulses / (wavePulseRate * skillData.num(n!("duration")) * moreDuration) - incDuration)
+                100.0
+                    * (pulses / (wavePulseRate * skillData.num(n!("duration")) * moreDuration)
+                        - incDuration)
                     - 1.0
             )
         ));
@@ -2760,7 +2872,8 @@ pub(crate) fn LightningSpireTrapAltX_preDamageFunc(
             // L12009
             SkillDPSMultiplier.push("DPS multiplier");
             // L12010
-            SkillDPSMultiplier.push("^8= ^7average active traps^8 * ^7maximum waves^8 * ^7overlap chance^8");
+            SkillDPSMultiplier
+                .push("^8= ^7average active traps^8 * ^7maximum waves^8 * ^7overlap chance^8");
             // L12011
             SkillDPSMultiplier.push(lfmt!(
                 "^8=^7 %.2f^8 *^7 %d^8 *^7 %.2f",
@@ -2861,8 +2974,8 @@ pub(crate) fn LightningSpireTrapAltY_preDamageFunc(
     let hitChance = |enemyRadius: f64, areaDamageRadius: f64, areaSpreadRadius: f64| -> f64 {
         // L12177
         let damagingAreaRadius = areaDamageRadius + enemyRadius - 1.0; // radius where area damage can land to hit the enemy;
-        // -1 because of two assumptions: PoE coordinates are integers and damage is not registered if the two areas only share a point or vertex. If either is not correct, then -1 is not needed.
-        // L12179
+                                                                       // -1 because of two assumptions: PoE coordinates are integers and damage is not registered if the two areas only share a point or vertex. If either is not correct, then -1 is not needed.
+                                                                       // L12179
         m_min(
             damagingAreaRadius * damagingAreaRadius / (areaSpreadRadius * areaSpreadRadius),
             1.0,
@@ -2891,7 +3004,8 @@ pub(crate) fn LightningSpireTrapAltY_preDamageFunc(
         // L12189
         OverlapChance.push("^8= (area where wave can spawn to damage enemy) / (total area)");
         // L12190
-        OverlapChance.push("^8= (^7secondary radius^8 + ^7enemy radius^8 - 1) ^ 2 / ^7radius^8 ^ 2");
+        OverlapChance
+            .push("^8= (^7secondary radius^8 + ^7enemy radius^8 - 1) ^ 2 / ^7radius^8 ^ 2");
         // L12191
         OverlapChance.push(lfmt!(
             "^8= (^7%d^8 +^7 %d^8 - 1) ^ 2 /^7 %d^8 ^ 2",
@@ -2921,7 +3035,8 @@ pub(crate) fn LightningSpireTrapAltY_preDamageFunc(
             "^8Next breakpoint: %d%% increased Duration",
             m_ceil(
                 100.0
-                    * ((pulses + 1.0) / (wavePulseRate * skillData.num(n!("duration")) * moreDuration)
+                    * ((pulses + 1.0)
+                        / (wavePulseRate * skillData.num(n!("duration")) * moreDuration)
                         - incDuration)
             )
         ));
@@ -2929,7 +3044,9 @@ pub(crate) fn LightningSpireTrapAltY_preDamageFunc(
         PulsesPerTrap.push(lfmt!(
             "^8Previous breakpoint: %d%% reduced Duration",
             -m_ceil(
-                100.0 * (pulses / (wavePulseRate * skillData.num(n!("duration")) * moreDuration) - incDuration)
+                100.0
+                    * (pulses / (wavePulseRate * skillData.num(n!("duration")) * moreDuration)
+                        - incDuration)
                     - 1.0
             )
         ));
@@ -3008,7 +3125,8 @@ pub(crate) fn LightningSpireTrapAltY_preDamageFunc(
             // L12241
             SkillDPSMultiplier.push("DPS multiplier");
             // L12242
-            SkillDPSMultiplier.push("^8= ^7average active traps^8 * ^7maximum waves^8 * ^7overlap chance^8");
+            SkillDPSMultiplier
+                .push("^8= ^7average active traps^8 * ^7maximum waves^8 * ^7overlap chance^8");
             // L12243
             SkillDPSMultiplier.push(lfmt!(
                 "^8=^7 %.2f^8 *^7 %d^8 *^7 %.2f",
@@ -3107,7 +3225,8 @@ pub(crate) fn LightningTendrilsAltX_postCritFunc(
         let critMulti = output.num(n!("CritMultiplier"));
         // L12659
         let averageMore = 100.0
-            * (((interval - 1.0) * (1.0 + critChance * (critMulti - 1.0)) + (1.0 + pulseDamage) * critMulti)
+            * (((interval - 1.0) * (1.0 + critChance * (critMulti - 1.0))
+                + (1.0 + pulseDamage) * critMulti)
                 / (interval * ((1.0 - effectiveCritChance) + critMulti * effectiveCritChance))
                 - 1.0);
         // L12660: `nil` flags are skipped by createMod (flags 0), so the keyword flags are
@@ -3138,7 +3257,11 @@ pub(crate) fn Manabond_preDamageFunc(
         .num_or(n!("ManabondMissingUnreservedManaPercentage"), 100.0);
     // L13529
     let manaGainedAsBaseLightningDamage = m_floor(
-        (activeSkill.skillData.get().num(n!("ManabondMissingManaGainPercent")) / 100.0)
+        (activeSkill
+            .skillData
+            .get()
+            .num(n!("ManabondMissingManaGainPercent"))
+            / 100.0)
             * (missingUnreservedManaPercentage / 100.0)
             * output.num_or(n!("ManaUnreserved"), 0.0),
     );
@@ -3201,10 +3324,10 @@ pub(crate) fn PenanceBrand_preDamageFunc(
                 Some(&activeSkill.skillCfg.get()),
                 nm!["Speed", "BrandActivationFrequency"],
             ) / 100.0)
-        / activeSkill
-            .skillModList
-            .get()
-            .More(Some(&activeSkill.skillCfg.get()), nm!["BrandActivationFrequency"]);
+        / activeSkill.skillModList.get().More(
+            Some(&activeSkill.skillCfg.get()),
+            nm!["BrandActivationFrequency"],
+        );
     activeSkill.skillData.get().set(n!("hitTimeOverride"), v);
 }
 
@@ -3223,10 +3346,10 @@ pub(crate) fn PenanceBrandAltX_preDamageFunc(
                 Some(&activeSkill.skillCfg.get()),
                 nm!["Speed", "BrandActivationFrequency"],
             ) / 100.0)
-        / activeSkill
-            .skillModList
-            .get()
-            .More(Some(&activeSkill.skillCfg.get()), nm!["BrandActivationFrequency"]);
+        / activeSkill.skillModList.get().More(
+            Some(&activeSkill.skillCfg.get()),
+            nm!["BrandActivationFrequency"],
+        );
     activeSkill
         .skillData
         .get()
@@ -3248,10 +3371,10 @@ pub(crate) fn PenanceBrandAltY_preDamageFunc(
                 Some(&activeSkill.skillCfg.get()),
                 nm!["Speed", "BrandActivationFrequency"],
             ) / 100.0)
-        / activeSkill
-            .skillModList
-            .get()
-            .More(Some(&activeSkill.skillCfg.get()), nm!["BrandActivationFrequency"]);
+        / activeSkill.skillModList.get().More(
+            Some(&activeSkill.skillCfg.get()),
+            nm!["BrandActivationFrequency"],
+        );
     activeSkill
         .skillData
         .get()
@@ -3307,7 +3430,9 @@ pub(crate) fn VaalRighteousFire_preDamageFunc(
     // L15626
     if activeSkill.skillFlags.get().truthy(n!("totem")) {
         // L15627
-        let v = output.num(n!("TotemLife")) * skillData.num(n!("percentSacrificed")) * skillData.num(n!("RFMultiplier"));
+        let v = output.num(n!("TotemLife"))
+            * skillData.num(n!("percentSacrificed"))
+            * skillData.num(n!("RFMultiplier"));
         skillData.set(n!("FireDot"), v);
     } else {
         // L15629
@@ -3393,10 +3518,10 @@ pub(crate) fn StormBrand_preDamageFunc(
                 Some(&activeSkill.skillCfg.get()),
                 nm!["Speed", "BrandActivationFrequency"],
             ) / 100.0)
-        / activeSkill
-            .skillModList
-            .get()
-            .More(Some(&activeSkill.skillCfg.get()), nm!["BrandActivationFrequency"]);
+        / activeSkill.skillModList.get().More(
+            Some(&activeSkill.skillCfg.get()),
+            nm!["BrandActivationFrequency"],
+        );
     activeSkill
         .skillData
         .get()
@@ -3418,10 +3543,10 @@ pub(crate) fn StormBrandAltX_preDamageFunc(
                 Some(&activeSkill.skillCfg.get()),
                 nm!["Speed", "BrandActivationFrequency"],
             ) / 100.0)
-        / activeSkill
-            .skillModList
-            .get()
-            .More(Some(&activeSkill.skillCfg.get()), nm!["BrandActivationFrequency"]);
+        / activeSkill.skillModList.get().More(
+            Some(&activeSkill.skillCfg.get()),
+            nm!["BrandActivationFrequency"],
+        );
     activeSkill
         .skillData
         .get()
@@ -3445,7 +3570,8 @@ pub(crate) fn StormBurst_preDamageFunc(
         let jumpPeriod = skillData.num(n!("repeatFrequency")) * 10.0;
         // additional 1 tick upon spawn of orb
         // L18042
-        let v = skillData.num_or(n!("dpsMultiplier"), 1.0) * (1.0 + m_floor(duration * 10.0 / jumpPeriod));
+        let v = skillData.num_or(n!("dpsMultiplier"), 1.0)
+            * (1.0 + m_floor(duration * 10.0 / jumpPeriod));
         skillData.set(n!("dpsMultiplier"), v);
     } else if activeSkill.skillPart.get() == Some(3.0) {
         // L18044
@@ -3458,7 +3584,10 @@ pub(crate) fn StormBurst_preDamageFunc(
         activeSkill.skillModList.get().NewMod(
             n!("Damage"),
             MORE,
-            m_max(skillData.num(n!("remainingDurationDamage")) * remainingJumps - 100.0, 0.0),
+            m_max(
+                skillData.num(n!("remainingDurationDamage")) * remainingJumps - 100.0,
+                0.0,
+            ),
             "Skill:StormBurst",
             0,
             0,
@@ -3487,7 +3616,10 @@ pub(crate) fn StormBurstAltX_preDamageFunc(
         activeSkill.skillModList.get().NewMod(
             n!("Damage"),
             MORE,
-            m_max(skillData.num(n!("remainingDurationDamage")) * remainingJumps - 100.0, 0.0),
+            m_max(
+                skillData.num(n!("remainingDurationDamage")) * remainingJumps - 100.0,
+                0.0,
+            ),
             "Skill:StormBurst",
             0,
             0,
@@ -3549,15 +3681,10 @@ pub(crate) fn VoltaxicBurst_preDamageFunc(
         Some(&activeSkill.skillCfg.get()),
         nm!["VoltaxicDurationIncDamage"],
     ) * duration;
-    activeSkill.skillModList.get().NewMod(
-        n!("Damage"),
-        INC,
-        v,
-        "Skill:VoltaxicBurst",
-        0,
-        0,
-        &[],
-    );
+    activeSkill
+        .skillModList
+        .get()
+        .NewMod(n!("Damage"), INC, v, "Skill:VoltaxicBurst", 0, 0, &[]);
 }
 
 /// @pob Data/Skills/act_int.lua:20542-20544 h=0a437538
@@ -3600,7 +3727,8 @@ pub(crate) fn WaveOfConviction_preDamageFunc(
     if skillData.truthy(n!("duration")) {
         // L20797
         let duration = m_floor(
-            m_ceil(skillData.num(n!("duration")) * data().misc.ServerTickRate) / data().misc.ServerTickRate
+            m_ceil(skillData.num(n!("duration")) * data().misc.ServerTickRate)
+                / data().misc.ServerTickRate
                 * output.num(n!("DurationMod"))
                 * 10.0,
         );
@@ -3636,7 +3764,8 @@ pub(crate) fn WaveOfConvictionAltY_preDamageFunc(
     if skillData.truthy(n!("duration")) {
         // L20891
         let duration = m_floor(
-            m_ceil(skillData.num(n!("duration")) * data().misc.ServerTickRate) / data().misc.ServerTickRate
+            m_ceil(skillData.num(n!("duration")) * data().misc.ServerTickRate)
+                / data().misc.ServerTickRate
                 * output.num(n!("DurationMod"))
                 * 10.0,
         );
@@ -3704,10 +3833,10 @@ pub(crate) fn WintertideBrand_preDamageFunc(
                 Some(&activeSkill.skillCfg.get()),
                 nm!["Speed", "BrandActivationFrequency"],
             ) / 100.0)
-        / activeSkill
-            .skillModList
-            .get()
-            .More(Some(&activeSkill.skillCfg.get()), nm!["BrandActivationFrequency"]);
+        / activeSkill.skillModList.get().More(
+            Some(&activeSkill.skillCfg.get()),
+            nm!["BrandActivationFrequency"],
+        );
     activeSkill
         .skillData
         .get()
@@ -3718,7 +3847,11 @@ pub(crate) fn WintertideBrand_preDamageFunc(
         let skillCfg = activeSkill.skillCfg.get();
         let skillData = activeSkill.skillData.get();
         // L21111
-        let skillMaxStages = skillModList.Sum(BASE, Some(&skillCfg), nm!["Multiplier:WintertideBrandMaxStages"]);
+        let skillMaxStages = skillModList.Sum(
+            BASE,
+            Some(&skillCfg),
+            nm!["Multiplier:WintertideBrandMaxStages"],
+        );
         // L21112
         let enemy = activeSkill
             .actor()
@@ -3731,9 +3864,13 @@ pub(crate) fn WintertideBrand_preDamageFunc(
             );
         // L21113
         // (`{}`: an env table without `mode_effective` and no enemyDB, CCR-0046)
-        let duration = calcSkillDuration(&skillModList, Some(&skillCfg), &skillData, None, None) * debuffDurationMult;
+        let duration = calcSkillDuration(&skillModList, Some(&skillCfg), &skillData, None, None)
+            * debuffDurationMult;
         // L21114
-        let maxStages = m_min(m_floor(duration / skillData.num(n!("hitTimeOverride"))), skillMaxStages);
+        let maxStages = m_min(
+            m_floor(duration / skillData.num(n!("hitTimeOverride"))),
+            skillMaxStages,
+        );
         // L21115
         let timeToReachMaxStages = maxStages * skillData.num(n!("hitTimeOverride"));
         // L21116
@@ -3746,7 +3883,8 @@ pub(crate) fn WintertideBrand_preDamageFunc(
         );
         // Each activation adds one stage; average the completed stages over the attached duration
         // L21119
-        let averageStages = (maxStages * (maxStages - 1.0) / 2.0 * skillData.num(n!("hitTimeOverride"))
+        let averageStages = (maxStages * (maxStages - 1.0) / 2.0
+            * skillData.num(n!("hitTimeOverride"))
             + maxStages * timeAtMaxStages)
             / duration;
         // L21120
@@ -3756,12 +3894,17 @@ pub(crate) fn WintertideBrand_preDamageFunc(
             + skillModList.Sum(BASE, Some(&skillCfg), nm!["Duration", "TertiaryDuration"]);
         // L21122
         let endDurationMod = m_max(
-            calcLib::r#mod(&skillModList, Some(&skillCfg), nm!["Duration", "TertiaryDuration"]),
+            calcLib::r#mod(
+                &skillModList,
+                Some(&skillCfg),
+                nm!["Duration", "TertiaryDuration"],
+            ),
             0.0,
         );
         // L21123
-        let endDuration = m_ceil(endDurationBase * endDurationMod * debuffDurationMult * data().misc.ServerTickRate)
-            / data().misc.ServerTickRate;
+        let endDuration = m_ceil(
+            endDurationBase * endDurationMod * debuffDurationMult * data().misc.ServerTickRate,
+        ) / data().misc.ServerTickRate;
         // L21124
         let endUptime = m_min(endDuration / duration, 1.0);
         // L21125

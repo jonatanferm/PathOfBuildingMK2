@@ -43,8 +43,8 @@ mod late_provider;
 pub mod probe_segments;
 
 pub mod modules {
-    pub use pob_calc_core::modules::*;
     pub use pob_calc_config::modules::{config_options, mod_map};
+    pub use pob_calc_core::modules::*;
     pub use pob_calc_defence::modules::calc_defence;
     pub use pob_calc_offence::modules::calc_offence;
     pub use pob_calc_setup::modules::{calc_active_skill, calc_setup};

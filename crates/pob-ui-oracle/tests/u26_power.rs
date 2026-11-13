@@ -231,7 +231,9 @@ fn norm_mod_key(k: &str) -> String {
     let mut rest = k;
     while let Some(i) = rest.find("function: ") {
         let after = &rest[i + "function: ".len()..];
-        let end = after.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(after.len());
+        let end = after
+            .find(|c: char| !c.is_ascii_alphanumeric())
+            .unwrap_or(after.len());
         if end == 0 {
             out.push_str(&rest[..i + "function: ".len()]);
             rest = after;
@@ -258,17 +260,28 @@ fn install_standin_calc() {
     pob_calc::modules::power::calc_replay::set(Some(Rc::new(
         |ov: &pob_calc::env::Override, _ufd: Option<bool>| {
             let out = base_output();
-            let apply = |set: Option<pob_lua::Shared<pob_lua::LjIntMap<pob_calc::classes::NodeRef>>>, sign: f64| {
-                for (_, node) in set.map(|s| s.with(pob_lua::LjIntMap::pairs)).unwrap_or_default() {
-                    let (life, dps) = standin_delta(&node);
-                    out.set(pob_lua::n!("Life"), out.num(pob_lua::n!("Life")) + sign * life);
-                    out.set(
-                        pob_lua::n!("LifeUnreserved"),
-                        out.num(pob_lua::n!("LifeUnreserved")) + sign * life,
-                    );
-                    out.set(pob_lua::n!("CombinedDPS"), out.num(pob_lua::n!("CombinedDPS")) + sign * dps);
-                }
-            };
+            let apply =
+                |set: Option<pob_lua::Shared<pob_lua::LjIntMap<pob_calc::classes::NodeRef>>>,
+                 sign: f64| {
+                    for (_, node) in set
+                        .map(|s| s.with(pob_lua::LjIntMap::pairs))
+                        .unwrap_or_default()
+                    {
+                        let (life, dps) = standin_delta(&node);
+                        out.set(
+                            pob_lua::n!("Life"),
+                            out.num(pob_lua::n!("Life")) + sign * life,
+                        );
+                        out.set(
+                            pob_lua::n!("LifeUnreserved"),
+                            out.num(pob_lua::n!("LifeUnreserved")) + sign * life,
+                        );
+                        out.set(
+                            pob_lua::n!("CombinedDPS"),
+                            out.num(pob_lua::n!("CombinedDPS")) + sign * dps,
+                        );
+                    }
+                };
             apply(ov.addNodes.get(), 1.0);
             apply(ov.removeNodes.get(), -1.0);
             Some(out)
@@ -292,7 +305,11 @@ fn rust_stubs() {
                 14.0,
                 &format!(
                     "^7{} {}",
-                    if node.alloc.get() { "allocated" } else { "unallocated" },
+                    if node.alloc.get() {
+                        "allocated"
+                    } else {
+                        "unallocated"
+                    },
                     node.r#type.get()
                 ),
             );
@@ -381,14 +398,18 @@ impl pob_sg::Platform for RecordingPlatform {
         self.inner.time_ms()
     }
     fn copy(&mut self, text: &str) {
-        self.effects.borrow_mut().push(SideEffect::Copy(text.to_owned()));
+        self.effects
+            .borrow_mut()
+            .push(SideEffect::Copy(text.to_owned()));
         self.inner.copy(text);
     }
     fn paste(&mut self) -> Option<String> {
         self.inner.paste()
     }
     fn open_url(&mut self, url: &str) {
-        self.effects.borrow_mut().push(SideEffect::OpenUrl(url.to_owned()));
+        self.effects
+            .borrow_mut()
+            .push(SideEffect::OpenUrl(url.to_owned()));
         self.inner.open_url(url);
     }
     fn set_window_title(&mut self, title: &str) {
@@ -641,7 +662,9 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
         .filter(|c| {
             matches!(
                 c.call,
-                ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
             )
         })
         .count()
@@ -654,7 +677,9 @@ fn report_ops(frames: &[FrameTrace]) -> usize {
         .flat_map(|f| &f.calls)
         .filter(|c| {
             matches!(c.call, ApiCall::DrawString { .. })
-                && c.ctl.as_deref().is_some_and(|p| p.contains("powerReportList"))
+                && c.ctl
+                    .as_deref()
+                    .is_some_and(|p| p.contains("powerReportList"))
         })
         .count()
 }
@@ -699,7 +724,12 @@ fn op_key(op: &DrawOp) -> String {
             height,
             font,
             text,
-        } => format!("S {} {} {align:?} {} {font:?} {text}", r(*x), r(*y), r(*height)),
+        } => format!(
+            "S {} {} {align:?} {} {font:?} {text}",
+            r(*x),
+            r(*y),
+            r(*height)
+        ),
         other => format!("{other:?}"),
     };
     format!("{:?} {} {call}", op.color, rs(&op.viewport))
@@ -771,7 +801,11 @@ fn describe(d: &Divergence) -> String {
             idx,
             lua,
             rust,
-        } => format!("changed {bucket:?}#{idx}: lua {} | rust {}", op(lua), op(rust)),
+        } => format!(
+            "changed {bucket:?}#{idx}: lua {} | rust {}",
+            op(lua),
+            op(rust)
+        ),
         Divergence::Effect { lua, rust } => format!("effect: lua {lua:?} rust {rust:?}"),
     }
 }
@@ -811,7 +845,12 @@ fn u26_scenarios() {
         let (script, base_dir) = runner::load_script(&path).unwrap();
         let fx = runner::fixtures(&script, &base_dir).unwrap();
         let tag = format!("u26_{stem}");
-        let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(1280, 800, 1.0)) {
+        let (lua, rust) = match run_sides(
+            &root,
+            &script,
+            fx.user_dir.as_deref(),
+            runner::screen(1280, 800, 1.0),
+        ) {
             Ok(s) => s,
             Err(e) => {
                 out.failures.push(format!("{tag}: {e:#}"));
@@ -833,7 +872,10 @@ fn u26_scenarios() {
         };
         let _ = diff_report::write_report(&out_dir(), &tag, &run, false);
         // `U26_VERBOSE=N`: the first N divergences of the first divergent frames (authoring aid)
-        if let Some(nv) = std::env::var("U26_VERBOSE").ok().and_then(|v| v.parse::<usize>().ok()) {
+        if let Some(nv) = std::env::var("U26_VERBOSE")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+        {
             for (fi, d) in divs.iter().take(3) {
                 out.lines
                     .push(format!("{tag} frame {fi}: {} divergences", d.len()));
@@ -845,7 +887,8 @@ fn u26_scenarios() {
         let first = divs.first().map(|(fi, d)| {
             format!(
                 "frame {fi}: {}",
-                d.first().map_or_else(|| "frame missing".to_owned(), describe)
+                d.first()
+                    .map_or_else(|| "frame missing".to_owned(), describe)
             )
         });
         let ops = draw_ops(&run.lua);
@@ -907,15 +950,20 @@ fn u26_scenarios() {
 #[ignore = "authoring aid"]
 fn u26_probe() {
     let Some(root) = inputs() else { return };
-    let Ok(build) = std::env::var("U26_PROBE") else { return };
+    let Ok(build) = std::env::var("U26_PROBE") else {
+        return;
+    };
     let scr = std::env::var("U26_SCREEN").unwrap_or_else(|_| "1280x800@1".to_owned());
     let (wh, s) = scr.split_once('@').unwrap();
     let (w, h) = wh.split_once('x').unwrap();
     let (w, h, s): (i32, i32, f32) = (w.parse().unwrap(), h.parse().unwrap(), s.parse().unwrap());
-    let steps = std::env::var("U26_PROBE_STEPS").unwrap_or_default().replace(';', "\n");
-    let script =
-        runner::parse_script(&format!("frames 2\nload-build \"{build}\"\nframes 2\n{steps}\nframes 1\n"))
-            .unwrap();
+    let steps = std::env::var("U26_PROBE_STEPS")
+        .unwrap_or_default()
+        .replace(';', "\n");
+    let script = runner::parse_script(&format!(
+        "frames 2\nload-build \"{build}\"\nframes 2\n{steps}\nframes 1\n"
+    ))
+    .unwrap();
     let user = UserDir::new(Some(&test_dir().join("user"))).unwrap();
     let handles = OracleHandles::default();
     let (sg, sys) = boot::oracle_parts(&root, &user.path, &handles).unwrap();
@@ -930,9 +978,18 @@ fn u26_probe() {
     let show = |name: &str, id: pob_ui_core::prelude::CtrlId| {
         let (x, y) = cx.pos(id);
         let (cw, ch) = cx.size(id);
-        println!("control {name}: shown={} x={x} y={y} w={cw} h={ch}", cx.is_shown(id));
+        println!(
+            "control {name}: shown={} x={x} y={y} w={cw} h={ch}",
+            cx.is_shown(id)
+        );
     };
-    for k in ["treeHeatMap", "nodePowerMaxDepthSelect", "treeHeatMapStatSelect", "powerReport", "powerReportList"] {
+    for k in [
+        "treeHeatMap",
+        "nodePowerMaxDepthSelect",
+        "treeHeatMapStatSelect",
+        "powerReport",
+        "powerReportList",
+    ] {
         show(k, ctl(k));
     }
     let list = ctl("powerReportList");
@@ -940,12 +997,14 @@ fn u26_probe() {
         show(k, cx.child(list, k).unwrap());
     }
     let l = cx.w::<pob_ui_core::controls::ListControl>(list);
-    println!(
-        "label {:?}",
-        l.label.as_ref().map(|p| p.get(cx, list))
-    );
+    println!("label {:?}", l.label.as_ref().map(|p| p.get(cx, list)));
     for (i, c) in l.col_list.iter().enumerate() {
-        println!("col {} offset {:?} width {:?}", i + 1, c.offset, c.computed_width);
+        println!(
+            "col {} offset {:?} width {:?}",
+            i + 1,
+            c.offset,
+            c.computed_width
+        );
     }
     let n = pob_ui_core::controls::ListControl::list_len(cx, list);
     println!("rows {n}");
@@ -955,13 +1014,27 @@ fn u26_probe() {
         .filter(|e| e.pathDist == pob_app::tabs::tree::power_report_list::PathDist::Str("Cluster"))
         .map(|e| (e.name.clone(), e.power))
         .collect();
-    println!("cluster rows {} (first {:?})", clusters.len(), clusters.first());
+    println!(
+        "cluster rows {} (first {:?})",
+        clusters.len(),
+        clusters.first()
+    );
     for i in 1..=n.min(40) {
         let v = pob_ui_core::controls::ListControl::list_get(cx, list, i).unwrap();
-        let e = v.rc::<pob_app::tabs::tree::power_report_list::ReportEntry>().unwrap();
+        let e = v
+            .rc::<pob_app::tabs::tree::power_report_list::ReportEntry>()
+            .unwrap();
         println!(
             "row {i}: {} {:?} power {} {:?} path {:?} {:?} alloc {} xy {:?},{:?}",
-            e.r#type, e.name, e.power, e.powerStr, e.pathDist, e.pathPowerStr, e.allocated, e.x, e.y
+            e.r#type,
+            e.name,
+            e.power,
+            e.powerStr,
+            e.pathDist,
+            e.pathPowerStr,
+            e.allocated,
+            e.x,
+            e.y
         );
     }
 }
@@ -1069,8 +1142,15 @@ fn u26_progress_steps() {
         pob_app::tabs::tree::power::build_power(cx);
         steps += 1;
         let running = pob_calc::modules::power::powerBuilderRunning(&m);
-        let pacer_alive = !cx.w::<pob_app::tabs::tree::TreeTab>(tab).power.pacer.is_dead();
-        assert_eq!(running, pacer_alive, "the pacer is alive while the report runs (step {steps})");
+        let pacer_alive = !cx
+            .w::<pob_app::tabs::tree::TreeTab>(tab)
+            .power
+            .pacer
+            .is_dead();
+        assert_eq!(
+            running, pacer_alive,
+            "the pacer is alive while the report runs (step {steps})"
+        );
         if running {
             assert!(pob_ui_core::coroutine::co::any_alive(), "step {steps}");
         }
@@ -1105,7 +1185,10 @@ fn u26_progress_steps() {
     assert!(steps > 2, "the report yielded on time");
     assert!(!progress_labels.is_empty(), "progress labels");
     assert!(toast_seen, "the progress toast");
-    assert!(toast_after.is_none(), "the completion callback removes the toast");
+    assert!(
+        toast_after.is_none(),
+        "the completion callback removes the toast"
+    );
     assert_eq!(final_label, "Click to focus node on tree");
     assert!(rows > 0, "report rows");
 }

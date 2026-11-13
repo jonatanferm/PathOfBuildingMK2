@@ -107,7 +107,12 @@ pub mod replay {
 }
 
 /// `itemLib.applyRange(line, range, valueScalar, baseValueScalar)` (IT-C).
-fn applyRange(line: &str, range: &Val, valueScalar: Option<f64>, baseValueScalar: Option<f64>) -> String {
+fn applyRange(
+    line: &str,
+    range: &Val,
+    valueScalar: Option<f64>,
+    baseValueScalar: Option<f64>,
+) -> String {
     #[cfg(feature = "probe")]
     if let Some(f) = replay::get().applyRange {
         return f(line, range, valueScalar, baseValueScalar);
@@ -261,7 +266,10 @@ fn tlen(v: &Val) -> usize {
 fn as_table(v: &Val, what: &str) -> Table {
     match v {
         Val::Table(t) => t.clone(),
-        other => lua_error!("attempt to index field '{what}' (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to index field '{what}' (a {} value)",
+            other.lua_type()
+        ),
     }
 }
 
@@ -486,7 +494,10 @@ impl Item {
                             // L457
                             let captured = smatch1(line, "%((.-)%)");
                             // L458
-                            self.xset(n!("foilType"), vstr(captured.as_deref().unwrap_or("Rainbow")));
+                            self.xset(
+                                n!("foilType"),
+                                vstr(captured.as_deref().unwrap_or("Rainbow")),
+                            );
                             // L459
                             break;
                         }
@@ -570,7 +581,11 @@ impl Item {
         let vgs = self.xget(n!("variantGroupSelections"));
         self.xset(
             n!("variantGroupSelections"),
-            if vgs.truthy() { vgs } else { Val::Table(Table::new()) },
+            if vgs.truthy() {
+                vgs
+            } else {
+                Val::Table(Table::new())
+            },
         );
         // L511
         self.xset(n!("usesVariantGroups"), false);
@@ -671,7 +686,10 @@ impl Item {
                     // L557
                     let captured = smatch1(&line, "%((.-)%)");
                     // L558
-                    self.xset(n!("foilType"), vstr(captured.as_deref().unwrap_or("Rainbow")));
+                    self.xset(
+                        n!("foilType"),
+                        vstr(captured.as_deref().unwrap_or("Rainbow")),
+                    );
                 } else if let Some(key) = influenceItemMap(&line) {
                     // L560
                     self.influences.set(Name::from(key), true);
@@ -745,9 +763,8 @@ impl Item {
                             // L592
                             if modData.affix.as_deref() == Some(modName) {
                                 // L593
-                                let ignoreModType = self
-                                    .rareLikeUnique_ref()
-                                    .is_some_and(|r| r.ignoreModType);
+                                let ignoreModType =
+                                    self.rareLikeUnique_ref().is_some_and(|r| r.ignoreModType);
                                 let entry = |table: &Table| {
                                     let e = Table::new();
                                     e.set(n!("modId"), *modId);
@@ -795,8 +812,10 @@ impl Item {
                         linePostfix = " (enchant)".to_owned();
                     }
                     // L621
-                    let possibleLineFlags =
-                        smatch1(&gsub1(&fullModName, "Foulborn", "Mutated"), "(.*)Modifier.*");
+                    let possibleLineFlags = smatch1(
+                        &gsub1(&fullModName, "Foulborn", "Mutated"),
+                        "(.*)Modifier.*",
+                    );
                     // L622
                     if let Some(possibleLineFlags) = possibleLineFlags {
                         // L623
@@ -895,12 +914,12 @@ impl Item {
                             self.xset(n!("memoryStrands"), onum(specToNumber(&specVal)));
                         } else if sn == "Requires Class" {
                             // L672
-                            self.classRestriction.set(Some(Name::from(specVal.as_str())));
+                            self.classRestriction
+                                .set(Some(Name::from(specVal.as_str())));
                         } else if smatch(sn, "Quality %([%a%s]+ Modifiers%)").is_some() {
                             // L674
-                            self.catalystQuality.set(specToNumber_opt(
-                                smatch1(&specVal, "(%d+)%%").as_deref(),
-                            ));
+                            self.catalystQuality
+                                .set(specToNumber_opt(smatch1(&specVal, "(%d+)%%").as_deref()));
                             // L675
                             for i in 1..=catalystDescriptorList.len() {
                                 // L676
@@ -936,8 +955,7 @@ impl Item {
                         } else if sn == "Radius" && self.r#type.get() == "Jewel" {
                             // L692
                             let label = smatch(&specVal, "^[%a ]+").map(|c| c[0].clone());
-                            self.jewelRadiusLabel
-                                .set(label.as_deref().map(LStr::from));
+                            self.jewelRadiusLabel.set(label.as_deref().map(LStr::from));
                             // L693
                             if label.as_deref() == Some("Variable") {
                                 // Jewel radius is variable and must be read from it's mods instead after they are parsed
@@ -1011,7 +1029,9 @@ impl Item {
                                         .set(Some(n!("Two-Toned Boots (Armour/Evasion)")));
                                     // L731
                                     self.base.set(
-                                        d.itemBases.get("Two-Toned Boots (Armour/Evasion)").cloned(),
+                                        d.itemBases
+                                            .get("Two-Toned Boots (Armour/Evasion)")
+                                            .cloned(),
                                     );
                                 }
                             } else if sn == "Energy Shield" {
@@ -1023,9 +1043,8 @@ impl Item {
                                 {
                                     // Yet another hack for Two-Toned Boots
                                     // L737
-                                    self.baseName.set(Some(n!(
-                                        "Two-Toned Boots (Evasion/Energy Shield)"
-                                    )));
+                                    self.baseName
+                                        .set(Some(n!("Two-Toned Boots (Evasion/Energy Shield)")));
                                     // L738
                                     self.base.set(
                                         d.itemBases
@@ -1153,23 +1172,25 @@ impl Item {
                             let rangeStr = c.as_ref().map(|c| c[0].clone());
                             let affix = c.as_ref().map(|c| c[1].clone());
                             // L805
-                            let mut range: Val =
-                                if rangeStr.as_deref().is_some_and(|r| sfind_plain(r, ",").is_some()) {
-                                    // L806
-                                    let ranges = Table::new();
-                                    // L807
-                                    for value in gmatch_all(rangeStr.as_deref().unwrap(), "[^,]+") {
-                                        // L808 (`t_insert(ranges, nil)` is a no-op)
-                                        if let Some(x) = tonumber(&value[0]) {
-                                            ranges.push(x);
-                                        }
+                            let mut range: Val = if rangeStr
+                                .as_deref()
+                                .is_some_and(|r| sfind_plain(r, ",").is_some())
+                            {
+                                // L806
+                                let ranges = Table::new();
+                                // L807
+                                for value in gmatch_all(rangeStr.as_deref().unwrap(), "[^,]+") {
+                                    // L808 (`t_insert(ranges, nil)` is a no-op)
+                                    if let Some(x) = tonumber(&value[0]) {
+                                        ranges.push(x);
                                     }
-                                    // L810
-                                    Val::Table(ranges)
-                                } else {
-                                    // L812 (`tonumber(nil)` is nil)
-                                    onum(rangeStr.as_deref().and_then(tonumber))
-                                };
+                                }
+                                // L810
+                                Val::Table(ranges)
+                            } else {
+                                // L812 (`tonumber(nil)` is nil)
+                                onum(rangeStr.as_deref().and_then(tonumber))
+                            };
                             // L814
                             if !range.truthy()
                                 && affix.as_deref().unwrap_or(specVal.as_str()) != "None"
@@ -1179,9 +1200,15 @@ impl Item {
                             }
                             // L817
                             let e = Table::new();
-                            e.set(n!("modId"), vstr(affix.as_deref().unwrap_or(specVal.as_str())));
+                            e.set(
+                                n!("modId"),
+                                vstr(affix.as_deref().unwrap_or(specVal.as_str())),
+                            );
                             e.set(n!("range"), range);
-                            e.set(n!("fractured"), if fractured { Val::Bool(true) } else { Val::Nil });
+                            e.set(
+                                n!("fractured"),
+                                if fractured { Val::Bool(true) } else { Val::Nil },
+                            );
                             affixes.push(e);
                         } else if sn == "Implicits" {
                             // L823
@@ -1309,7 +1336,10 @@ impl Item {
                                     // L878
                                     for varId in gmatch_all(&val, "%d+") {
                                         // L879
-                                        vl.set(Key::from(tonumber(&varId[0]).expect("digits")), true);
+                                        vl.set(
+                                            Key::from(tonumber(&varId[0]).expect("digits")),
+                                            true,
+                                        );
                                     }
                                 } else if k == "version" {
                                     // L882
@@ -1376,7 +1406,10 @@ impl Item {
                             match modLine.table(n!("variantList")) {
                                 None => {
                                     // L915
-                                    ConPrintf(lfmt!("Grouped item line has no variant: %s", line.as_str()));
+                                    ConPrintf(lfmt!(
+                                        "Grouped item line has no variant: %s",
+                                        line.as_str()
+                                    ));
                                 }
                                 Some(mlVariantList) => {
                                     let variantGroups =
@@ -1396,7 +1429,9 @@ impl Item {
                                             let vid = variantId.to_val().num();
                                             // L921
                                             let known = self.variantList.get().is_some_and(|vl| {
-                                                vid >= 1.0 && vid == vid.trunc() && vl.get(vid as usize).is_some()
+                                                vid >= 1.0
+                                                    && vid == vid.trunc()
+                                                    && vl.get(vid as usize).is_some()
                                             });
                                             if known {
                                                 // L922
@@ -1416,8 +1451,11 @@ impl Item {
                                                         let ver = versionId.to_val().num();
                                                         let vlist = self.xget(n!("versionList"));
                                                         if vlist.truthy()
-                                                            && tget_num(&as_table(&vlist, "versionList"), ver)
-                                                                .truthy()
+                                                            && tget_num(
+                                                                &as_table(&vlist, "versionList"),
+                                                                ver,
+                                                            )
+                                                            .truthy()
                                                         {
                                                             // L927
                                                             versions.set(versionId, true);
@@ -1485,7 +1523,9 @@ impl Item {
                         if self.base.get().is_none() && (r == "NORMAL" || r == "MAGIC") {
                             // Exact match (affix-less magic and normal items)
                             // L963
-                            if smatch(&self.name.get(), "Energy Blade").is_some() && itemClass.is_some() {
+                            if smatch(&self.name.get(), "Energy Blade").is_some()
+                                && itemClass.is_some()
+                            {
                                 // Special handling for energy blade base.
                                 // L964
                                 self.name.set(LStr::from(
@@ -1557,7 +1597,10 @@ impl Item {
                                         vstr(&ssub(&name, 1, Some(s as i64 - 1))),
                                     );
                                     // L992
-                                    self.xset(n!("nameSuffix"), vstr(&ssub(&name, e as i64 + 1, None)));
+                                    self.xset(
+                                        n!("nameSuffix"),
+                                        vstr(&ssub(&name, e as i64 + 1, None)),
+                                    );
                                 }
                             }
                             // L995
@@ -1602,7 +1645,8 @@ impl Item {
                             // Set the actual base if variant matches or doesn't have variants
                             // L1016
                             let usesVariantGroups = self.xget(n!("usesVariantGroups")).truthy();
-                            let baseMatches = (usesVariantGroups && self.CheckModLineVariant(&modLine))
+                            let baseMatches = (usesVariantGroups
+                                && self.CheckModLineVariant(&modLine))
                                 || (!usesVariantGroups
                                     && (self.variant.get().is_none()
                                         || !modLine.truthy(n!("variantList"))
@@ -1648,7 +1692,11 @@ impl Item {
                                 // L1032
                                 let affixes: Option<&'static AffixTable> = base
                                     .subType
-                                    .and_then(|st| d.itemMods.get(&Name::from(format!("{}{}", base.r#type, st).as_str())))
+                                    .and_then(|st| {
+                                        d.itemMods.get(&Name::from(
+                                            format!("{}{}", base.r#type, st).as_str(),
+                                        ))
+                                    })
                                     .or_else(|| d.itemMods.get(&base.r#type))
                                     .or_else(|| d.itemMods.get(&n!("Item")));
                                 self.xset(
@@ -1705,11 +1753,14 @@ impl Item {
                                         .map(clusterJewel_table),
                                 );
                                 // L1053
-                                self.requirements.set(n!("str"), base.req.str.unwrap_or(0.0));
+                                self.requirements
+                                    .set(n!("str"), base.req.str.unwrap_or(0.0));
                                 // L1054
-                                self.requirements.set(n!("dex"), base.req.dex.unwrap_or(0.0));
+                                self.requirements
+                                    .set(n!("dex"), base.req.dex.unwrap_or(0.0));
                                 // L1055
-                                self.requirements.set(n!("int"), base.req.int.unwrap_or(0.0));
+                                self.requirements
+                                    .set(n!("int"), base.req.int.unwrap_or(0.0));
                                 // L1056
                                 let rs = self.requirements.num(n!("str"));
                                 let rd = self.requirements.num(n!("dex"));
@@ -1744,7 +1795,10 @@ impl Item {
                                             let ml = Table::new();
                                             ml.set(n!("line"), vstr(line));
                                             ml.set(n!("extra"), ostr(extra.as_deref()));
-                                            ml.set(n!("modList"), modlist_table(modList.unwrap_or_default()));
+                                            ml.set(
+                                                n!("modList"),
+                                                modlist_table(modList.unwrap_or_default()),
+                                            );
                                             self.buffModLines.get().push(ml);
                                         }
                                         flaskBuffLines = Some(fbl);
@@ -1791,7 +1845,9 @@ impl Item {
                             let affix_of = |modId: &Val| -> Option<&'static Arc<ItemMod>> {
                                 let a = match affixes {
                                     Some(a) => a,
-                                    None => lua_error!("attempt to index field 'affixes' (a nil value)"),
+                                    None => {
+                                        lua_error!("attempt to index field 'affixes' (a nil value)")
+                                    }
                                 };
                                 match modId {
                                     Val::Str(s) => a.0.get(&Name::from(&**s)),
@@ -1814,8 +1870,11 @@ impl Item {
                                 for (_, pendingAffix) in pal.ipairs() {
                                     let pendingAffix = pendingAffix.table().expect("pending affix");
                                     // L1101
-                                    let Some(modData) = affix_of(&pendingAffix.get(n!("modId"))) else {
-                                        lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)")
+                                    let Some(modData) = affix_of(&pendingAffix.get(n!("modId")))
+                                    else {
+                                        lua_error!(
+                                            "bad argument #1 to 'ipairs' (table expected, got nil)"
+                                        )
                                     };
                                     // L1102
                                     for modDataLine in &modData.lines {
@@ -1828,7 +1887,8 @@ impl Item {
                                         }
                                         // L1107
                                         if fallbackAffix.is_none()
-                                            && valueStrippedLine == gsub1(modDataLine, "%-?%d+%.?%d*", "#")
+                                            && valueStrippedLine
+                                                == gsub1(modDataLine, "%-?%d+%.?%d*", "#")
                                         {
                                             // L1108
                                             fallbackAffix = Some(pendingAffix.clone());
@@ -1857,7 +1917,8 @@ impl Item {
                             let mut bestPrecisionRange: f64 = -1.0;
                             // L1120
                             let rollRanges = Table::new();
-                            let pal = as_table(&self.xget(n!("pendingAffixList")), "pendingAffixList");
+                            let pal =
+                                as_table(&self.xget(n!("pendingAffixList")), "pendingAffixList");
                             let first = as_table(&pal.get(Key::I(1)), "?");
                             // L1121
                             let affixMod = affix_of(&first.get(n!("modId")));
@@ -1876,10 +1937,12 @@ impl Item {
                             ) {
                                 let (value, range) = (c[0].clone(), c[1].clone());
                                 // L1124
-                                let mm = smatch(&range, "(%-?%d+%.?%d*)%-(%-?%d+%.?%d*)").expect("matched above");
+                                let mm = smatch(&range, "(%-?%d+%.?%d*)%-(%-?%d+%.?%d*)")
+                                    .expect("matched above");
                                 let (mut min, mut max) = (mm[0].clone(), mm[1].clone());
                                 // L1125
-                                if tonumber(&min).expect("number") > tonumber(&max).expect("number") {
+                                if tonumber(&min).expect("number") > tonumber(&max).expect("number")
+                                {
                                     // L1126
                                     std::mem::swap(&mut min, &mut max);
                                 }
@@ -1965,10 +2028,12 @@ impl Item {
                             ) {
                                 let (value, range) = (c[0].clone(), c[1].clone());
                                 // L1160
-                                let mm = smatch(&range, "(%-?%d+%.?%d*)%-(%-?%d+%.?%d*)").expect("matched above");
+                                let mm = smatch(&range, "(%-?%d+%.?%d*)%-(%-?%d+%.?%d*)")
+                                    .expect("matched above");
                                 let (mut min, mut max) = (mm[0].clone(), mm[1].clone());
                                 // L1161
-                                if tonumber(&min).expect("number") > tonumber(&max).expect("number") {
+                                if tonumber(&min).expect("number") > tonumber(&max).expect("number")
+                                {
                                     // L1162
                                     std::mem::swap(&mut min, &mut max);
                                 }
@@ -2028,8 +2093,8 @@ impl Item {
                         // L1187
                         let (mut modList, mut extra) = parseMod(&rangedLine, false);
                         // L1188
-                        let nextModGroup = rawLine(l + 1)
-                            .and_then(|s| smatch1(&s, "{modGroup:([^}]+)}"));
+                        let nextModGroup =
+                            rawLine(l + 1).and_then(|s| smatch1(&s, "{modGroup:([^}]+)}"));
                         // Only combine generated lines that came from the same modifier.
                         // L1191
                         let mlModGroup = modLine.str(n!("modGroup"));
@@ -2039,7 +2104,11 @@ impl Item {
                         {
                             // Try to combine it with the next line
                             // L1194
-                            let nextLine = gsub1(&gsub1(&rawLine(l + 1).unwrap(), "%b{}", ""), " ?%(%l+%)", "");
+                            let nextLine = gsub1(
+                                &gsub1(&rawLine(l + 1).unwrap(), "%b{}", ""),
+                                " ?%(%l+%)",
+                                "",
+                            );
                             // L1195
                             let combLine = format!("{line} {nextLine}");
                             // L1196
@@ -2137,7 +2206,9 @@ impl Item {
                         } else if smatch(ll, "if the eater of worlds is dominant").is_some() {
                             // L1237
                             self.xset(n!("canHaveEldritchInfluence"), true);
-                        } else if ll == "has a crucible passive skill tree with only support passive skills" {
+                        } else if ll
+                            == "has a crucible passive skill tree with only support passive skills"
+                        {
                             // L1239
                             self.xset(n!("canHaveOnlySupportSkillsCrucibleTree"), true);
                         } else if ll == "has a crucible passive skill tree" {
@@ -2196,12 +2267,16 @@ impl Item {
                         // L1273
                         for pattern in modMagnitudePattern {
                             // L1274
-                            if !modLine.truthy(n!("disabled")) && sfind(&lower(&rangedLine), pattern) {
+                            if !modLine.truthy(n!("disabled"))
+                                && sfind(&lower(&rangedLine), pattern)
+                            {
                                 // L1275
                                 let rangedLine = applyRange(
                                     &line,
                                     &lor(
-                                        lor(modLine.get(n!("range")), || onum(main_defaultItemAffixQuality())),
+                                        lor(modLine.get(n!("range")), || {
+                                            onum(main_defaultItemAffixQuality())
+                                        }),
                                         || Val::Num(1.0),
                                     ),
                                     Some(catalystScalar),
@@ -2218,9 +2293,12 @@ impl Item {
                                 let mut multiplier: Option<f64> = None;
                                 // "are doubled" format -> swap variables
                                 // L1279
-                                if amount.is_some() && !(increaseOrDecrease.is_some() || modTagsString.is_some()) {
+                                if amount.is_some()
+                                    && !(increaseOrDecrease.is_some() || modTagsString.is_some())
+                                {
                                     // L1280
-                                    modTagsString = amount.as_ref().and_then(Val::str).map(|s| s.to_string());
+                                    modTagsString =
+                                        amount.as_ref().and_then(Val::str).map(|s| s.to_string());
                                     // L1281
                                     amount = Some(Val::Num(100.0));
                                     // L1282
@@ -2229,7 +2307,9 @@ impl Item {
                                     multiplier = Some(2.0);
                                 }
                                 // L1285
-                                if let (Some(amount), Some(modTagsString)) = (amount.as_ref(), modTagsString.as_ref()) {
+                                if let (Some(amount), Some(modTagsString)) =
+                                    (amount.as_ref(), modTagsString.as_ref())
+                                {
                                     let iod = increaseOrDecrease.as_deref();
                                     if iod == Some("increased") || iod == Some("reduced") {
                                         let amountNum = match amount {
@@ -2242,7 +2322,11 @@ impl Item {
                                         // L1287
                                         let mut modType: Option<String> = None;
                                         // L1288
-                                        let quality = if iod == Some("increased") { amountNum } else { -amountNum };
+                                        let quality = if iod == Some("increased") {
+                                            amountNum
+                                        } else {
+                                            -amountNum
+                                        };
                                         // L1289
                                         if modTagsString == "explicit physical and chaos damage" {
                                             // L1290
@@ -2255,13 +2339,19 @@ impl Item {
                                         } else {
                                             // explicit elemental damage -> tags = {elemental, damage}, modType = explicit
                                             // L1293
-                                            for word in gmatch_all(&format!("{modTagsString} "), "%S+") {
+                                            for word in
+                                                gmatch_all(&format!("{modTagsString} "), "%S+")
+                                            {
                                                 // L1294
                                                 let word = lower(&word[0]);
                                                 // L1295
-                                                let word = modMagnitudeTagMap(&word).map_or(word, str::to_owned);
+                                                let word = modMagnitudeTagMap(&word)
+                                                    .map_or(word, str::to_owned);
                                                 // L1296
-                                                if word == "implicit" || word == "explicit" || word == "enchant" {
+                                                if word == "implicit"
+                                                    || word == "explicit"
+                                                    || word == "enchant"
+                                                {
                                                     // L1297
                                                     modType = Some(word);
                                                 } else {
@@ -2290,7 +2380,8 @@ impl Item {
                         let nImplicit = self.implicitModLines.get().len() as f64;
                         // L1309
                         if modLine.truthy(n!("enchant"))
-                            || (modLine.truthy(n!("crafted")) && nEnchant + nImplicit < implicitLines)
+                            || (modLine.truthy(n!("crafted"))
+                                && nEnchant + nImplicit < implicitLines)
                         {
                             // L1310
                             modLines = self.enchantModLines.get();
@@ -2324,7 +2415,9 @@ impl Item {
                             // L1326
                             modLine.set(n!("valueScalar"), catalystScalar);
                             // L1327
-                            let r = lor(modLine.get(n!("range")), || onum(main_defaultItemAffixQuality()));
+                            let r = lor(modLine.get(n!("range")), || {
+                                onum(main_defaultItemAffixQuality())
+                            });
                             modLine.set(n!("range"), r);
                             // L1328
                             modLines.push(modLine.clone());
@@ -2375,7 +2468,9 @@ impl Item {
                                 // L1348
                                 gameModeStage = Stage::DONE;
                             }
-                        } else if foundExplicit || (!foundExplicit && gameModeStage == Stage::EXPLICIT) {
+                        } else if foundExplicit
+                            || (!foundExplicit && gameModeStage == Stage::EXPLICIT)
+                        {
                             // L1351
                             modLine.set(n!("modList"), Table::new());
                             // L1352
@@ -2451,11 +2546,14 @@ impl Item {
             // In-game requirement totals include requirements from socketed gems.
             // Derive the item's attribute requirements from its base and local mods instead.
             // L1381
-            self.requirements.set(n!("str"), base.req.str.unwrap_or(0.0));
+            self.requirements
+                .set(n!("str"), base.req.str.unwrap_or(0.0));
             // L1382
-            self.requirements.set(n!("dex"), base.req.dex.unwrap_or(0.0));
+            self.requirements
+                .set(n!("dex"), base.req.dex.unwrap_or(0.0));
             // L1383
-            self.requirements.set(n!("int"), base.req.int.unwrap_or(0.0));
+            self.requirements
+                .set(n!("int"), base.req.int.unwrap_or(0.0));
         }
         // L1385
         if let Some(base) = base.as_ref() {
@@ -2473,7 +2571,9 @@ impl Item {
         }
         // hack for cane of kulemak
         // L1394
-        if self.title_str().is_some_and(|t| lower(&t) == "cane of kulemak")
+        if self
+            .title_str()
+            .is_some_and(|t| lower(&t) == "cane of kulemak")
             && isUniqueRarity
             && self.xget(n!("advancedCopy")).truthy()
         {
@@ -2515,7 +2615,9 @@ impl Item {
                             'modMagnitudeContinue: {
                                 // avoid scaling variant lines which are not active
                                 // L1414
-                                if r#mod.truthy(n!("variantList")) && self.GetModLineVariantCount(&r#mod) == 0.0 {
+                                if r#mod.truthy(n!("variantList"))
+                                    && self.GetModLineVariantCount(&r#mod) == 0.0
+                                {
                                     // L1415
                                     break 'modMagnitudeContinue;
                                 }
@@ -2525,7 +2627,9 @@ impl Item {
                                 // L1419
                                 for parsedMod in ipairs_tbl(&r#mod.get(n!("modList"))) {
                                     // L1420
-                                    if parsedMod.get(n!("name")).str().as_deref() == Some("ExtraSkill") {
+                                    if parsedMod.get(n!("name")).str().as_deref()
+                                        == Some("ExtraSkill")
+                                    {
                                         // L1421
                                         grantsSkill = true;
                                         // L1422
@@ -2575,7 +2679,9 @@ impl Item {
                                 }
                                 // L1446
                                 if let Some(anyTags) = modMagnitudeMod.table(n!("anyTags")) {
-                                    if !(has(&anyTags.get(Key::I(1))) || has(&anyTags.get(Key::I(2)))) {
+                                    if !(has(&anyTags.get(Key::I(1)))
+                                        || has(&anyTags.get(Key::I(2))))
+                                    {
                                         // L1447
                                         r#match = false;
                                     }
@@ -2583,9 +2689,12 @@ impl Item {
                                 // L1449
                                 if r#match && !r#mod.truthy(n!("unscalable")) && !grantsSkill {
                                     // L1450
-                                    if let Some(multiplier) = modMagnitudeMod.opt_num(n!("multiplier")) {
+                                    if let Some(multiplier) =
+                                        modMagnitudeMod.opt_num(n!("multiplier"))
+                                    {
                                         // L1451
-                                        let v = r#mod.opt_num(n!("valueScalar")).unwrap_or(1.0) * multiplier;
+                                        let v = r#mod.opt_num(n!("valueScalar")).unwrap_or(1.0)
+                                            * multiplier;
                                         r#mod.set(n!("valueScalar"), v);
                                     } else {
                                         // L1453
@@ -2595,7 +2704,9 @@ impl Item {
                                     }
                                 }
                                 // L1456
-                                if let Some(vs) = r#mod.opt_num(n!("valueScalar")).filter(|v| *v != 1.0) {
+                                if let Some(vs) =
+                                    r#mod.opt_num(n!("valueScalar")).filter(|v| *v != 1.0)
+                                {
                                     // L1457
                                     let rangedLine = applyRange(
                                         &r#mod.str(n!("line")).expect("line"),
@@ -2642,15 +2753,24 @@ impl Item {
                     // L1479
                     prefixes.set(
                         n!("limit"),
-                        m_max(m_min(prefixes.opt_num(n!("limit")).unwrap_or(0.0) + 1.0, 2.0), 0.0),
+                        m_max(
+                            m_min(prefixes.opt_num(n!("limit")).unwrap_or(0.0) + 1.0, 2.0),
+                            0.0,
+                        ),
                     );
                     // L1480
                     suffixes.set(
                         n!("limit"),
-                        m_max(m_min(suffixes.opt_num(n!("limit")).unwrap_or(0.0) + 1.0, 2.0), 0.0),
+                        m_max(
+                            m_min(suffixes.opt_num(n!("limit")).unwrap_or(0.0) + 1.0, 2.0),
+                            0.0,
+                        ),
                     );
                     // L1481
-                    self.xset(n!("affixLimit"), prefixes.num(n!("limit")) + suffixes.num(n!("limit")));
+                    self.xset(
+                        n!("affixLimit"),
+                        prefixes.num(n!("limit")) + suffixes.num(n!("limit")),
+                    );
                 } else {
                     // L1483
                     self.xset(n!("affixLimit"), 2.0);
@@ -2676,7 +2796,10 @@ impl Item {
                     prefixes.set(
                         n!("limit"),
                         m_max(
-                            m_min(prefixes.opt_num(n!("limit")).unwrap_or(0.0) + affixLimit / 2.0, affixLimit),
+                            m_min(
+                                prefixes.opt_num(n!("limit")).unwrap_or(0.0) + affixLimit / 2.0,
+                                affixLimit,
+                            ),
                             0.0,
                         ),
                     );
@@ -2684,12 +2807,18 @@ impl Item {
                     suffixes.set(
                         n!("limit"),
                         m_max(
-                            m_min(suffixes.opt_num(n!("limit")).unwrap_or(0.0) + affixLimit / 2.0, affixLimit),
+                            m_min(
+                                suffixes.opt_num(n!("limit")).unwrap_or(0.0) + affixLimit / 2.0,
+                                affixLimit,
+                            ),
                             0.0,
                         ),
                     );
                     // L1490
-                    self.xset(n!("affixLimit"), prefixes.num(n!("limit")) + suffixes.num(n!("limit")));
+                    self.xset(
+                        n!("affixLimit"),
+                        prefixes.num(n!("limit")) + suffixes.num(n!("limit")),
+                    );
                 }
             } else if let Some(rlu) = self.rareLikeUnique_ref() {
                 // L1493
@@ -2697,7 +2826,10 @@ impl Item {
                 // L1494
                 suffixes.set(n!("limit"), rlu.suffixLimit);
                 // L1495
-                self.xset(n!("affixLimit"), prefixes.num(n!("limit")) + suffixes.num(n!("limit")));
+                self.xset(
+                    n!("affixLimit"),
+                    prefixes.num(n!("limit")) + suffixes.num(n!("limit")),
+                );
             } else {
                 // L1497
                 self.xset(n!("crafted"), false);
@@ -2731,12 +2863,16 @@ impl Item {
                                     _ => false,
                                 };
                                 // L1504
-                                if !matches!(&modId, Val::Str(s) if &**s == "None") && !known(&modId) {
+                                if !matches!(&modId, Val::Str(s) if &**s == "None")
+                                    && !known(&modId)
+                                {
                                     // L1505 LUA-ORDER: `pairs(self.affixes)`, first affix whose
                                     // display name matches (dump order here)
                                     for (mid, r#mod) in &affixes.0 {
                                         // L1506
-                                        if let (Val::Str(s), Some(a)) = (&modId, r#mod.affix.as_deref()) {
+                                        if let (Val::Str(s), Some(a)) =
+                                            (&modId, r#mod.affix.as_deref())
+                                        {
                                             if **s == *a {
                                                 // L1507
                                                 entry.set(n!("modId"), *mid);
@@ -2786,7 +2922,8 @@ impl Item {
         } else if let Some(variantList) = self.variantList.get() {
             let n = variantList.len() as f64;
             // L1533
-            self.variant.set(Some(m_min(n, self.variant.get().unwrap_or(n))));
+            self.variant
+                .set(Some(m_min(n, self.variant.get().unwrap_or(n))));
             let alts = [
                 (n!("hasAltVariant"), &self.variantAlt),
                 (n!("hasAltVariant2"), &self.variantAlt2),
@@ -2812,15 +2949,23 @@ impl Item {
                     None => lua_error!("attempt to index field '{}' (a nil value)", c.as_str()),
                 };
                 let mid = Name::from(modId);
-                let originalMod = (if mutated { category(n!("Foulborn")).0.get(&mid) } else { None })
-                    .or_else(|| category(n!("ItemExclusive")).0.get(&mid));
+                let originalMod = (if mutated {
+                    category(n!("Foulborn")).0.get(&mid)
+                } else {
+                    None
+                })
+                .or_else(|| category(n!("ItemExclusive")).0.get(&mid));
                 // L1554
                 let Some(originalMod) = originalMod else {
                     // L1555
                     ConPrintf(lfmt!(
                         "mod not found while testing mutated mods %s, %s",
                         modId,
-                        if mutated { pob_lua::FmtArg::Bool(true) } else { pob_lua::FmtArg::Nil }
+                        if mutated {
+                            pob_lua::FmtArg::Bool(true)
+                        } else {
+                            pob_lua::FmtArg::Nil
+                        }
                     ));
                     // L1556
                     return;
@@ -2839,7 +2984,8 @@ impl Item {
                         for modLine in self.explicitModLines.get().snapshot() {
                             // L1564
                             if !matchedLines.iter().any(|m| m.ptr_eq(&modLine))
-                                && normaliseModLine(&modLine.str(n!("line")).expect("line")) == statLine
+                                && normaliseModLine(&modLine.str(n!("line")).expect("line"))
+                                    == statLine
                                 && self.CheckModLineVariant(&modLine)
                             {
                                 // L1567
@@ -2906,7 +3052,8 @@ impl Item {
             let Some(title) = self.title_str() else {
                 lua_error!("attempt to concatenate field 'title' (a nil value)")
             };
-            self.title.set(Some(LStr::from(format!("Foulborn {title}").as_str())));
+            self.title
+                .set(Some(LStr::from(format!("Foulborn {title}").as_str())));
         } else if !self.xget(n!("foulborn")).truthy() && hasFoulbornPrefix {
             // L1606
             let t = gsub1(&self.title_str().unwrap(), "[Ff]oulborn ", "");
@@ -2971,7 +3118,8 @@ impl Item {
             let Some(jewelData) = self.jewelData.get() else {
                 lua_error!("attempt to index field 'jewelData' (a nil value)")
             };
-            self.jewelRadiusIndex.set(jewelData.opt_num(n!("radiusIndex")));
+            self.jewelRadiusIndex
+                .set(jewelData.opt_num(n!("radiusIndex")));
         }
         // L1639
         let r = self.rarity.get();

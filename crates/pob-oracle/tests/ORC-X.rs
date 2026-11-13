@@ -62,7 +62,10 @@ fn require_inputs() -> Option<()> {
         "no data dump (data/dump)",
     )?;
     let why = testkit::probe_inputs().err();
-    require(why.is_none().then_some(()), why.as_deref().unwrap_or_default())
+    require(
+        why.is_none().then_some(()),
+        why.as_deref().unwrap_or_default(),
+    )
 }
 
 fn corpus(parity: &Path) -> Vec<PathBuf> {
@@ -97,7 +100,11 @@ fn generalize(path: &str) -> String {
     let mut out = String::new();
     let mut chars = path.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '[' && chars.peek().is_some_and(|d| d.is_ascii_digit() || *d == '-' || *d == '@') {
+        if c == '['
+            && chars
+                .peek()
+                .is_some_and(|d| d.is_ascii_digit() || *d == '-' || *d == '@')
+        {
             out.push_str("[#]");
             for d in chars.by_ref() {
                 if d == ']' {
@@ -451,7 +458,10 @@ fn orcx_round_trip_synthetic() {
         eprintln!("{} {:?} pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours);
     }
     assert!(rt.mismatches.is_empty());
-    assert!(rt.exact, "the synthetic document exports byte-for-byte (as JSON)");
+    assert!(
+        rt.exact,
+        "the synthetic document exports byte-for-byte (as JSON)"
+    );
 }
 
 // ---- injection is typed and the export sees changes -----------------------------------------------
@@ -478,7 +488,11 @@ fn orcx_inject_is_typed_and_export_sensitive() {
     let held = corpus_dumps(&xml).unwrap_or_else(|e| panic!("{e}"));
     let dump = testkit::load_dump(held.dirs(), "perform:in")
         .unwrap_or_else(|| panic!("{}: the probe dumped no perform:in", stem(&xml)));
-    eprintln!("inject typed: 1 dump compared ({} {})", stem(&xml), dump.hit);
+    eprintln!(
+        "inject typed: 1 dump compared ({} {})",
+        stem(&xml),
+        dump.hit
+    );
     let build = testkit::empty_build();
     let (env, locals) = pob_oracle::inject::state(&dump, &build).expect("inject");
     let jenv = &dump.root["env"];
@@ -498,7 +512,13 @@ fn orcx_inject_is_typed_and_export_sensitive() {
         "skillCfg.skillName typed"
     );
     assert!(
-        !main.activeEffect.get().grantedEffect.get().levels.is_empty(),
+        !main
+            .activeEffect
+            .get()
+            .grantedEffect
+            .get()
+            .levels
+            .is_empty(),
         "activeEffect.grantedEffect resolved to data"
     );
     assert!(
@@ -578,10 +598,15 @@ fn replay_one(
         let output = env.player.output.get();
         output.set("Life", caller_life);
         output.set(CALLER_KEY, 7.0);
-        env.player
-            .modDB
-            .get()
-            .NewMod(n!("ReviewCallerMod"), ModType::BASE, 3.0, "ORC-X review", 0, 0, &[]);
+        env.player.modDB.get().NewMod(
+            n!("ReviewCallerMod"),
+            ModType::BASE,
+            3.0,
+            "ORC-X review",
+            0,
+            0,
+            &[],
+        );
     }
     let mut dumps = BTreeMap::new();
     dumps.insert(din.hit.clone(), din.clone());
@@ -598,7 +623,9 @@ fn replay_one(
     if !std::rc::Rc::ptr_eq(&mod_db, &env.player.modDB.get()) {
         return Err("replay replaced env.player.modDB".to_owned());
     }
-    if !output.ptr_eq(&env.player.output.get()) && dout.root["env"]["player"].get("output").is_some() {
+    if !output.ptr_eq(&env.player.output.get())
+        && dout.root["env"]["player"].get("output").is_some()
+    {
         return Err("replay replaced env.player.output".to_owned());
     }
     if let (Some(a), Some(b)) = (main, env.player.mainSkill.get()) {
@@ -665,7 +692,9 @@ fn replay_one(
         } else if m.path.contains(CALLER_KEY) {
             1
         } else if m.path.contains(CALLER_MOD)
-            || m.ours.as_ref().is_some_and(|v| v.to_string().contains(CALLER_MOD))
+            || m.ours
+                .as_ref()
+                .is_some_and(|v| v.to_string().contains(CALLER_MOD))
         {
             2
         } else {
@@ -685,15 +714,13 @@ fn replay_one(
 }
 
 /// Replay with and without the caller's own changes ([`replay_one`]).
-fn replay_both(
-    t: &mut Tally,
-    stem: &str,
-    din: &StateDump,
-    dout: &StateDump,
-    callee: &str,
-) {
+fn replay_both(t: &mut Tally, stem: &str, din: &StateDump, dout: &StateDump, callee: &str) {
     for perturb in [false, true] {
-        let what = format!("{stem} {}{}", din.hit, if perturb { " (caller changes)" } else { "" });
+        let what = format!(
+            "{stem} {}{}",
+            din.hit,
+            if perturb { " (caller changes)" } else { "" }
+        );
         if perturb {
             t.perturbed += 1;
         } else {
@@ -767,7 +794,8 @@ fn rsf_options() -> pob_oracle::runner::ProbeOptions {
 /// the probe fails (CK3: a test failure).
 #[cfg(feature = "luajit")]
 fn rsf_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
-    run_skill_func_dumps(xml).map_err(|e| format!("{}: probing runSkillFunc failed: {e}", stem(xml)))
+    run_skill_func_dumps(xml)
+        .map_err(|e| format!("{}: probing runSkillFunc failed: {e}", stem(xml)))
 }
 
 #[cfg(not(feature = "luajit"))]
@@ -826,7 +854,8 @@ fn orcx_replay_run_skill_func_all57() {
             continue;
         };
         let (Ok(din), Ok(dout)) = (StateDump::load(&pin), StateDump::load(&pout)) else {
-            t.failed.push(format!("{stem}: unreadable runSkillFunc dump"));
+            t.failed
+                .push(format!("{stem}: unreadable runSkillFunc dump"));
             continue;
         };
         replay_both(&mut t, stem, &din, &dout, "runSkillFunc");
@@ -865,21 +894,32 @@ fn orcx_segment_runner_plumbing() {
     let held = corpus_dumps(&xml).unwrap_or_else(|e| panic!("{e}"));
     let din = testkit::load_dump(held.dirs(), "offence:in")
         .unwrap_or_else(|| panic!("{stem}: the probe dumped no offence:in"));
-    eprintln!("segment runner plumbing: 1 dump compared ({stem} {})", din.hit);
+    eprintln!(
+        "segment runner plumbing: 1 dump compared ({stem} {})",
+        din.hit
+    );
     let build = testkit::empty_build();
     let inj = pob_oracle::inject::inject(&din, &build).expect("inject");
     let locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
     let names: Vec<&str> = locals.iter().map(|(k, _)| k.as_str()).collect();
     assert!(names.contains(&"activeSkill") && names.contains(&"actor"));
     // the ctx takes the injected locals by name
-    let ctx_names = <pob_calc::modules::calc_offence::OffenceCtx as pob_calc::probe::ProbeState>::locals();
+    let ctx_names =
+        <pob_calc::modules::calc_offence::OffenceCtx as pob_calc::probe::ProbeState>::locals();
     assert!(ctx_names.contains(&"skillCfg") && ctx_names.contains(&"ailmentData"));
     let stubbed = pob_calc::stub::stub_report().len();
     let (flow, after) =
         pob_calc::probe::run_segment("offence:362", &locals).expect("offence:362 runs");
     assert_eq!(flow, pob_calc::Flow::Normal);
     let after_names: Vec<&str> = after.iter().map(|(k, _)| k.as_str()).collect();
-    for n in ["env", "actor", "activeSkill", "skillModList", "output", "passList"] {
+    for n in [
+        "env",
+        "actor",
+        "activeSkill",
+        "skillModList",
+        "output",
+        "passList",
+    ] {
         assert!(after_names.contains(&n), "ctx local {n} exported");
     }
     let env = inj.env.clone();

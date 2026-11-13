@@ -90,7 +90,10 @@ struct DisplayFmt {
 fn node_power(node: &Node) -> Table {
     match node.extra.get(n!("power")) {
         Val::Table(t) => t,
-        other => lua_error!("attempt to index field 'power' (a {} value)", other.lua_type()),
+        other => lua_error!(
+            "attempt to index field 'power' (a {} value)",
+            other.lua_type()
+        ),
     }
 }
 
@@ -143,7 +146,11 @@ impl TreeTab {
 
     /// lua: TreeTab.lua:1061-1168 `TreeTabClass:BuildPowerReportList(currentStat)`
     /// @pob Classes/TreeTab.lua:1061-1168 h=623f2422
-    pub fn BuildPowerReportList(cx: &Cx, _me: CtrlId, currentStat: Option<&Table>) -> Vec<Rc<ReportEntry>> {
+    pub fn BuildPowerReportList(
+        cx: &Cx,
+        _me: CtrlId,
+        currentStat: Option<&Table>,
+    ) -> Vec<Rc<ReportEntry>> {
         let m = cx.build().model.clone();
         // L1062
         let mut report: Vec<Rc<ReportEntry>> = Vec::new();
@@ -166,7 +173,10 @@ impl TreeTab {
         // L1073
         for ds in display_stats::displayStats().iter() {
             // L1074
-            if ds.stat.is_some_and(|d| stat.str().is_some_and(|s| *s == *d)) {
+            if ds
+                .stat
+                .is_some_and(|d| stat.str().is_some_and(|s| *s == *d))
+            {
                 // L1075
                 displayStat = Some(DisplayFmt {
                     fmt: ds.fmt,
@@ -191,7 +201,11 @@ impl TreeTab {
             lowerIsBetter: false,
         });
         // L1089
-        let powerMultiplier = if displayStat.pc || displayStat.r#mod { 100.0 } else { 1.0 };
+        let powerMultiplier = if displayStat.pc || displayStat.r#mod {
+            100.0
+        } else {
+            1.0
+        };
         // L1090-1098
         let formatPower = |power: f64| -> String {
             // L1091
@@ -203,11 +217,15 @@ impl TreeTab {
                 &pob_lua::lua_format(&format!("%{fmt}"), &[FmtArg::from(power)]),
             );
             // L1092
-            if (power > 0.0 && !displayStat.lowerIsBetter) || (power < 0.0 && displayStat.lowerIsBetter) {
+            if (power > 0.0 && !displayStat.lowerIsBetter)
+                || (power < 0.0 && displayStat.lowerIsBetter)
+            {
                 // L1093
                 return format!("{}{powerStr}", cx.main.cc.POSITIVE);
             // L1094
-            } else if (power < 0.0 && !displayStat.lowerIsBetter) || (power > 0.0 && displayStat.lowerIsBetter) {
+            } else if (power < 0.0 && !displayStat.lowerIsBetter)
+                || (power > 0.0 && displayStat.lowerIsBetter)
+            {
                 // L1095
                 return format!("{}{powerStr}", cx.main.cc.NEGATIVE);
             }
@@ -265,7 +283,10 @@ impl TreeTab {
             let Some(env) = &mainEnv else {
                 lua_error!("attempt to index field 'mainEnv' (a nil value)")
             };
-            env.grantedPassives.get().with(|g| g.get(id)).unwrap_or(false)
+            env.grantedPassives
+                .get()
+                .with(|g| g.get(id))
+                .unwrap_or(false)
         };
 
         // -- search all nodes, ignoring ascendancies, sockets, etc.
@@ -324,11 +345,12 @@ impl TreeTab {
                     // L1136
                     if let (Some(effect), Some(effectPower)) = (effect, effectPower) {
                         // L1137
-                        let effectLabelParts: Option<Vec<LStr>> =
-                            if isAlloc && !node.allMasteryOptions.get() {
-                                Some(node.sd.get().snapshot())
-                            } else {
-                                match effect.extra.get(n!("stats")) {
+                        let effectLabelParts: Option<Vec<LStr>> = if isAlloc
+                            && !node.allMasteryOptions.get()
+                        {
+                            Some(node.sd.get().snapshot())
+                        } else {
+                            match effect.extra.get(n!("stats")) {
                                     Val::Nil | Val::Bool(false) => Some(effect.sd.get().snapshot()),
                                     Val::Table(t) => Some(
                                         t.ipairs()
@@ -346,22 +368,33 @@ impl TreeTab {
                                         other.lua_type()
                                     ),
                                 }
-                            };
+                        };
                         // L1138
                         let name = match &effectLabelParts {
                             Some(parts) => format!("{}: {}", node.dn.get(), t_concat(parts, " / ")),
                             None => node.dn.get().to_string(),
                         };
                         // L1139
-                        let nodePower = num_or0(effectPower.get(n!("singleStat"))) * powerMultiplier;
+                        let nodePower =
+                            num_or0(effectPower.get(n!("singleStat"))) * powerMultiplier;
                         // L1140
                         let pp = match effectPower.get(n!("pathPower")) {
-                            Val::Nil | Val::Bool(false) => num_or0(effectPower.get(n!("singleStat"))),
+                            Val::Nil | Val::Bool(false) => {
+                                num_or0(effectPower.get(n!("singleStat")))
+                            }
                             v => v.num(),
                         };
                         let pathPower = (pp / pathDist) * powerMultiplier;
                         // L1141
-                        addReportEntry(&node, name, nodePower, pathPower, PathDist::Num(pathDist), isAlloc, None);
+                        addReportEntry(
+                            &node,
+                            name,
+                            nodePower,
+                            pathPower,
+                            PathDist::Num(pathDist),
+                            isAlloc,
+                            None,
+                        );
                     }
                 }
             }
@@ -382,7 +415,10 @@ impl TreeTab {
                 let nodePower = match node.extra.get(n!("power")) {
                     Val::Nil | Val::Bool(false) => 0.0,
                     Val::Table(p) => num_or0(p.get(n!("singleStat"))),
-                    other => lua_error!("attempt to index field 'power' (a {} value)", other.lua_type()),
+                    other => lua_error!(
+                        "attempt to index field 'power' (a {} value)",
+                        other.lua_type()
+                    ),
                 } * powerMultiplier;
                 // L1152
                 addReportEntry(

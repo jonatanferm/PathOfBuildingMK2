@@ -197,11 +197,16 @@ mod tests {
     /// draws the same strings as the Rust side (pob-app main_mode/init.rs, about_popup.rs).
     #[test]
     fn patch_9_matches_the_rust_branding() {
-        let p9: Vec<&Patch> = PATCHES.iter().filter(|p| p.reason.starts_with("patch 9")).collect();
+        let p9: Vec<&Patch> = PATCHES
+            .iter()
+            .filter(|p| p.reason.starts_with("patch 9"))
+            .collect();
         assert_eq!(p9.len(), 4);
         assert!(p9.iter().all(|p| p.file == "Modules/Main.lua"));
         let fork = pob_app::main_mode::init::FORK_LABEL;
-        assert!(p9.iter().any(|p| p.replace.contains(&format!("return \"{fork}\""))));
+        assert!(p9
+            .iter()
+            .any(|p| p.replace.contains(&format!("return \"{fork}\""))));
         let about = pob_app::main_mode::about_popup::about_version_text();
         let prefix = about.strip_suffix(pob_app::launch::PORT_VERSION).unwrap();
         assert!(p9
@@ -210,14 +215,17 @@ mod tests {
         assert!(p9
             .iter()
             .any(|p| p.replace.contains("or \"Version: \") .. __portVersion ..")));
-        assert!(p9.iter().any(|p| p.find.starts_with("\tself.controls.checkUpdate.shown")
-            && p.replace.contains("return false")));
+        assert!(p9
+            .iter()
+            .any(|p| p.find.starts_with("\tself.controls.checkUpdate.shown")
+                && p.replace.contains("return false")));
         // Nothing but these sites: every patch-9 anchor names one of the four controls' code.
         for p in &p9 {
             assert!(
                 p.find.contains("checkUpdate.shown")
                     || p.find.contains("PoB Community Fork")
-                    || p.find.contains("launch.versionNumber .. (launch.versionBranch")
+                    || p.find
+                        .contains("launch.versionNumber .. (launch.versionBranch")
                     || p.find.contains("Path of Building Community Fork v"),
                 "{p:?}"
             );

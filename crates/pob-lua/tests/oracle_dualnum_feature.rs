@@ -19,7 +19,9 @@ fn workspace_root() -> PathBuf {
 fn manifests(root: &Path) -> Vec<PathBuf> {
     let mut out = vec![root.join("Cargo.toml")];
     for dir in ["crates", "app"] {
-        let Ok(rd) = std::fs::read_dir(root.join(dir)) else { continue };
+        let Ok(rd) = std::fs::read_dir(root.join(dir)) else {
+            continue;
+        };
         for e in rd.flatten() {
             let m = e.path().join("Cargo.toml");
             if m.is_file() {
@@ -53,8 +55,16 @@ fn oracle_dualnum_enabled_only_by_pob_lua_dev_deps() {
     let root = workspace_root();
     let own = root.join("crates/pob-lua/Cargo.toml");
     let all = manifests(&root);
-    assert!(all.contains(&own), "pob-lua manifest not found under {}", root.display());
-    assert!(all.len() > 10, "workspace scan found only {} manifests", all.len());
+    assert!(
+        all.contains(&own),
+        "pob-lua manifest not found under {}",
+        root.display()
+    );
+    assert!(
+        all.len() > 10,
+        "workspace scan found only {} manifests",
+        all.len()
+    );
 
     let mut bad = Vec::new();
     let mut own_def = false;
@@ -78,7 +88,10 @@ fn oracle_dualnum_enabled_only_by_pob_lua_dev_deps() {
                 false
             };
             if !ok {
-                bad.push(format!("{} {section}: {line}", m.strip_prefix(&root).unwrap_or(m).display()));
+                bad.push(format!(
+                    "{} {section}: {line}",
+                    m.strip_prefix(&root).unwrap_or(m).display()
+                ));
             }
         }
     }
@@ -87,6 +100,12 @@ fn oracle_dualnum_enabled_only_by_pob_lua_dev_deps() {
         "`oracle-dualnum` is test-only (AMENDMENTS A6); not allowed here:\n{}",
         bad.join("\n")
     );
-    assert!(own_def, "pob-lua [features] no longer defines `oracle-dualnum = []`");
-    assert!(own_dev, "pob-lua [dev-dependencies] no longer enables `oracle-dualnum` on itself");
+    assert!(
+        own_def,
+        "pob-lua [features] no longer defines `oracle-dualnum = []`"
+    );
+    assert!(
+        own_dev,
+        "pob-lua [dev-dependencies] no longer enables `oracle-dualnum` on itself"
+    );
 }

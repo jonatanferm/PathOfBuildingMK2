@@ -389,7 +389,8 @@ fn df_b_l4() {
             let held = match build_dumps(xml) {
                 Ok(d) => d,
                 Err(e) => {
-                    o.missing.push(format!("{stem}: no DF-B dumps (probe failed: {e})"));
+                    o.missing
+                        .push(format!("{stem}: no DF-B dumps (probe failed: {e})"));
                     return o;
                 }
             };

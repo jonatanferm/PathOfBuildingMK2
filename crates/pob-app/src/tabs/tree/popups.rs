@@ -51,8 +51,7 @@ use std::rc::Rc;
 use pob_lua::{n, pattern};
 use pob_ui_core::controls::drop_down::DropTipArgs;
 use pob_ui_core::controls::{
-    ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl,
-    LabelControl,
+    ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl,
 };
 use pob_ui_core::popups::{self, PopupOpts};
 use pob_ui_core::prelude::*;
@@ -114,10 +113,15 @@ impl TreeTab {
                     .add(
                         p,
                         CtrlKey::Idx(2),
-                        ButtonControl::new(Anchor::NONE, rect(-99, 259, 90, 20), "Import Tree", move |cx| {
-                            // L638
-                            Self::OpenImportPopup(cx, me);
-                        }),
+                        ButtonControl::new(
+                            Anchor::NONE,
+                            rect(-99, 259, 90, 20),
+                            "Import Tree",
+                            move |cx| {
+                                // L638
+                                Self::OpenImportPopup(cx, me);
+                            },
+                        ),
                     )
                     .id();
                 // L640-643
@@ -146,10 +150,15 @@ impl TreeTab {
                 cx.add(
                     p,
                     CtrlKey::Idx(4),
-                    ButtonControl::new(Anchor::new(Left, export_tree, Right), rect(8, 0, 90, 20), "Done", |cx| {
-                        // L650
-                        popups::close_popup(cx);
-                    }),
+                    ButtonControl::new(
+                        Anchor::new(Left, export_tree, Right),
+                        rect(8, 0, 90, 20),
+                        "Done",
+                        |cx| {
+                            // L650
+                            popups::close_popup(cx);
+                        },
+                    ),
                 );
             },
             PopupOpts::default(),
@@ -158,7 +167,12 @@ impl TreeTab {
 
     /// lua: TreeTab.lua:655-672 `TreeTabClass:OpenVersionConvertPopup(version, ignoreTreeSubType)`
     /// @pob Classes/TreeTab.lua:655-672 h=5244437b
-    pub fn OpenVersionConvertPopup(cx: &mut Cx, me: CtrlId, version: Name, ignore_tree_sub_type: bool) {
+    pub fn OpenVersionConvertPopup(
+        cx: &mut Cx,
+        me: CtrlId,
+        version: Name,
+        ignore_tree_sub_type: bool,
+    ) {
         // L671 (the title is evaluated after the constructors, which draw nothing)
         let title = format!("Convert to Version {}", display(&version));
         popups::open_popup(
@@ -183,36 +197,65 @@ impl TreeTab {
                 cx.add(
                     p,
                     "convert",
-                    ButtonControl::new(Anchor::NONE, rect(-125, 105, 100, 20), "Convert", move |cx| {
-                        // L660
-                        Self::ConvertToVersion(cx, me, version, true, false, ignore_tree_sub_type);
-                        // L661
-                        popups::close_popup(cx);
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(-125, 105, 100, 20),
+                        "Convert",
+                        move |cx| {
+                            // L660
+                            Self::ConvertToVersion(
+                                cx,
+                                me,
+                                version,
+                                true,
+                                false,
+                                ignore_tree_sub_type,
+                            );
+                            // L661
+                            popups::close_popup(cx);
+                        },
+                    ),
                 );
                 // L663-666
                 cx.add(
                     p,
                     "convertCopy",
-                    ButtonControl::new(Anchor::NONE, rect(0, 105, 125, 20), "Copy + Convert", move |cx| {
-                        // L664
-                        Self::ConvertToVersion(cx, me, version, false, false, ignore_tree_sub_type);
-                        // L665
-                        popups::close_popup(cx);
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(0, 105, 125, 20),
+                        "Copy + Convert",
+                        move |cx| {
+                            // L664
+                            Self::ConvertToVersion(
+                                cx,
+                                me,
+                                version,
+                                false,
+                                false,
+                                ignore_tree_sub_type,
+                            );
+                            // L665
+                            popups::close_popup(cx);
+                        },
+                    ),
                 );
                 // L667-670
                 cx.add(
                     p,
                     "cancel",
-                    ButtonControl::new(Anchor::NONE, rect(125, 105, 100, 20), "Cancel", move |cx| {
-                        // L668
-                        let vs = super::core::ctl(cx, me, "versionSelect");
-                        let tv = cx.build().model.spec.get().treeVersion.get();
-                        Self::sel_version(cx, vs, &tv);
-                        // L669
-                        popups::close_popup(cx);
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(125, 105, 100, 20),
+                        "Cancel",
+                        move |cx| {
+                            // L668
+                            let vs = super::core::ctl(cx, me, "versionSelect");
+                            let tv = cx.build().model.spec.get().treeVersion.get();
+                            Self::sel_version(cx, vs, &tv);
+                            // L669
+                            popups::close_popup(cx);
+                        },
+                    ),
                 );
             },
             PopupOpts {
@@ -241,17 +284,26 @@ impl TreeTab {
                 let p = p.id();
                 // L675 local controls = { }
                 // L676
-                cx.add(p, "warningLabel", LabelControl::new(Anchor::NONE, rect(0, 20, 0, 16), label));
+                cx.add(
+                    p,
+                    "warningLabel",
+                    LabelControl::new(Anchor::NONE, rect(0, 20, 0, 16), label),
+                );
                 // L678-681
                 cx.add(
                     p,
                     "convert",
-                    ButtonControl::new(Anchor::NONE, rect(-58, 105, 100, 20), "Convert", move |cx| {
-                        // L679
-                        Self::ConvertAllToVersion(cx, me, version);
-                        // L680
-                        popups::close_popup(cx);
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(-58, 105, 100, 20),
+                        "Convert",
+                        move |cx| {
+                            // L679
+                            Self::ConvertAllToVersion(cx, me, version);
+                            // L680
+                            popups::close_popup(cx);
+                        },
+                    ),
                 );
                 // L682-684
                 cx.add(
@@ -289,7 +341,11 @@ impl TreeTab {
                 cx.add(
                     p,
                     "nameLabel",
-                    LabelControl::new(Anchor::NONE, rect(-180, 20, 0, 16), "Enter name for this passive tree:"),
+                    LabelControl::new(
+                        Anchor::NONE,
+                        rect(-180, 20, 0, 16),
+                        "Enter name for this passive tree:",
+                    ),
                 );
                 // L750-753
                 cx.add(
@@ -306,7 +362,8 @@ impl TreeTab {
                                 cx.w_mut::<LabelControl>(msg).label = Prop::Val(String::new());
                                 // L752
                                 let edit = pc(cx, p, "edit");
-                                let ok = has_non_space(buf) && has_non_space(&cx.w::<EditControl>(edit).buf);
+                                let ok = has_non_space(buf)
+                                    && has_non_space(&cx.w::<EditControl>(edit).buf);
                                 let import = pc(cx, p, "import");
                                 cx.base_mut(import).enabled = Prop::Val(ok);
                             })),
@@ -318,7 +375,11 @@ impl TreeTab {
                 cx.add(
                     p,
                     "editLabel",
-                    LabelControl::new(Anchor::NONE, rect(-150, 45, 0, 16), "Enter passive tree link:"),
+                    LabelControl::new(
+                        Anchor::NONE,
+                        rect(-150, 45, 0, 16),
+                        "Enter passive tree link:",
+                    ),
                 );
                 // L755-758
                 cx.add(
@@ -335,7 +396,8 @@ impl TreeTab {
                                 cx.w_mut::<LabelControl>(msg).label = Prop::Val(String::new());
                                 // L757
                                 let name = pc(cx, p, "name");
-                                let ok = has_non_space(buf) && has_non_space(&cx.w::<EditControl>(name).buf);
+                                let ok = has_non_space(buf)
+                                    && has_non_space(&cx.w::<EditControl>(name).buf);
                                 let import = pc(cx, p, "import");
                                 cx.base_mut(import).enabled = Prop::Val(ok);
                             })),
@@ -344,15 +406,24 @@ impl TreeTab {
                     ),
                 );
                 // L759
-                cx.add(p, "msg", LabelControl::new(Anchor::NONE, rect(0, 65, 0, 16), ""));
+                cx.add(
+                    p,
+                    "msg",
+                    LabelControl::new(Anchor::NONE, rect(0, 65, 0, 16), ""),
+                );
                 // L760-810
                 let import = cx
                     .add(
                         p,
                         "import",
-                        ButtonControl::new(Anchor::NONE, rect(-45, 85, 80, 20), "Import", move |cx| {
-                            Self::import_click(cx, me, p, version_lookup);
-                        }),
+                        ButtonControl::new(
+                            Anchor::NONE,
+                            rect(-45, 85, 80, 20),
+                            "Import",
+                            move |cx| {
+                                Self::import_click(cx, me, p, version_lookup);
+                            },
+                        ),
                     )
                     .id();
                 // L811
@@ -447,7 +518,11 @@ impl TreeTab {
                 let p = p.id();
                 // L821 local controls = { }
                 // L822
-                cx.add(p, "label", LabelControl::new(Anchor::NONE, rect(0, 20, 0, 16), "Passive tree link:"));
+                cx.add(
+                    p,
+                    "label",
+                    LabelControl::new(Anchor::NONE, rect(0, 20, 0, 16), "Passive tree link:"),
+                );
                 // L823
                 let init = tree_link.borrow().clone();
                 cx.add(
@@ -468,48 +543,62 @@ impl TreeTab {
                 cx.add(
                     p,
                     "shrink",
-                    ButtonControl::new(Anchor::NONE, rect(-90, 70, 140, 20), "Shrink with PoEURL", move |cx| {
-                        let shrink = pc(cx, p, "shrink");
-                        // L825
-                        cx.base_mut(shrink).enabled = Prop::Val(false);
-                        // L826
-                        cx.w_mut::<ButtonControl>(shrink).label = Prop::Val("Shrinking...".to_owned());
-                        // L827-836
-                        let url = format!("http://poeurl.com/shrink.php?url={}", tl.borrow());
-                        let tl2 = tl.clone();
-                        crate::platform::net::download_page(
-                            cx,
-                            &url,
-                            Rc::new(move |cx, response, err_msg| {
-                                // L828
-                                let shrink = pc(cx, p, "shrink");
-                                cx.w_mut::<ButtonControl>(shrink).label = Prop::Val("Done".to_owned());
-                                // L829
-                                let body_ok = err_msg.is_none()
-                                    && has_non_space(response.body.as_deref().unwrap_or_else(|| {
-                                        lua_error!("attempt to index field 'body' (a nil value)")
-                                    }));
-                                if !body_ok {
-                                    // L830
-                                    popups::open_message_popup(
-                                        cx,
-                                        "PoEURL Shortener",
-                                        "Failed to get PoEURL link. Try again later.",
-                                    );
-                                } else {
-                                    // L832
-                                    let link = format!("http://poeurl.com/{}", response.body.unwrap_or_default());
-                                    *tl2.borrow_mut() = link.clone();
-                                    // L833
-                                    let edit = pc(cx, p, "edit");
-                                    EditControl::set_text(cx, edit, &link, false);
-                                    // L834
-                                    cx.select_control(p, Some(edit));
-                                }
-                            }),
-                            None,
-                        );
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(-90, 70, 140, 20),
+                        "Shrink with PoEURL",
+                        move |cx| {
+                            let shrink = pc(cx, p, "shrink");
+                            // L825
+                            cx.base_mut(shrink).enabled = Prop::Val(false);
+                            // L826
+                            cx.w_mut::<ButtonControl>(shrink).label =
+                                Prop::Val("Shrinking...".to_owned());
+                            // L827-836
+                            let url = format!("http://poeurl.com/shrink.php?url={}", tl.borrow());
+                            let tl2 = tl.clone();
+                            crate::platform::net::download_page(
+                                cx,
+                                &url,
+                                Rc::new(move |cx, response, err_msg| {
+                                    // L828
+                                    let shrink = pc(cx, p, "shrink");
+                                    cx.w_mut::<ButtonControl>(shrink).label =
+                                        Prop::Val("Done".to_owned());
+                                    // L829
+                                    let body_ok = err_msg.is_none()
+                                        && has_non_space(response.body.as_deref().unwrap_or_else(
+                                            || {
+                                                lua_error!(
+                                                    "attempt to index field 'body' (a nil value)"
+                                                )
+                                            },
+                                        ));
+                                    if !body_ok {
+                                        // L830
+                                        popups::open_message_popup(
+                                            cx,
+                                            "PoEURL Shortener",
+                                            "Failed to get PoEURL link. Try again later.",
+                                        );
+                                    } else {
+                                        // L832
+                                        let link = format!(
+                                            "http://poeurl.com/{}",
+                                            response.body.unwrap_or_default()
+                                        );
+                                        *tl2.borrow_mut() = link.clone();
+                                        // L833
+                                        let edit = pc(cx, p, "edit");
+                                        EditControl::set_text(cx, edit, &link, false);
+                                        // L834
+                                        cx.select_control(p, Some(edit));
+                                    }
+                                }),
+                                None,
+                            );
+                        },
+                    ),
                 );
                 // L838-840
                 let tl = tree_link.clone();
@@ -574,7 +663,11 @@ impl TreeTab {
                 cx.add(
                     p,
                     "modSelectLabel",
-                    LabelControl::new(Anchor::nil(TopRight, TopLeft), rect(170, 25, 0, 16), "^7Modifier:"),
+                    LabelControl::new(
+                        Anchor::nil(TopRight, TopLeft),
+                        rect(170, 25, 0, 16),
+                        "^7Modifier:",
+                    ),
                 );
                 // L925
                 let g = groups.clone();
@@ -586,17 +679,20 @@ impl TreeTab {
                             Anchor::nil(TopLeft, TopLeft),
                             rect(175, 25, 250, 18),
                             drop_items(&groups.borrow()),
-                            Some(Rc::new(move |cx: &mut Cx, idx: usize, _v: Option<&DropItem>| {
-                                let g = g.borrow().get(idx.wrapping_sub(1)).cloned();
-                                construct_ui(cx, p, g.as_ref());
-                            })),
+                            Some(Rc::new(
+                                move |cx: &mut Cx, idx: usize, _v: Option<&DropItem>| {
+                                    let g = g.borrow().get(idx.wrapping_sub(1)).cloned();
+                                    construct_ui(cx, p, g.as_ref());
+                                },
+                            )),
                             None,
                             false,
                         ),
                     )
                     .id();
                 // L926
-                cx.w_mut::<DropDownControl>(mod_select).sel_index = default_tattoo.unwrap_or(1.0) as usize;
+                cx.w_mut::<DropDownControl>(mod_select).sel_index =
+                    default_tattoo.unwrap_or(1.0) as usize;
                 // L927-934
                 cx.w_mut::<DropDownControl>(mod_select).tt.tooltip_func = Some(Rc::new(
                     |cx: &mut Cx, tooltip: &mut Tooltip, (mode, _index, value): DropTipArgs| {
@@ -641,20 +737,25 @@ impl TreeTab {
                 cx.add(
                     p,
                     "reset",
-                    ButtonControl::new(Anchor::NONE, rect(0, 75, 80, 20), "Reset Node", move |cx| {
-                        // L944
-                        Self::RemoveTattooFromNode(cx, me, &s2);
-                        // L945
-                        SPEC_UNDO.add_undo_state(cx, me, false);
-                        // L946
-                        tree_tab_mut(cx, me).mod_flag = true;
-                        // L947
-                        cx.build().model.buildFlag.set(true);
-                        // L948
-                        set_default_tattoo(cx, me, &n2, None);
-                        // L949
-                        popups::close_popup(cx);
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(0, 75, 80, 20),
+                        "Reset Node",
+                        move |cx| {
+                            // L944
+                            Self::RemoveTattooFromNode(cx, me, &s2);
+                            // L945
+                            SPEC_UNDO.add_undo_state(cx, me, false);
+                            // L946
+                            tree_tab_mut(cx, me).mod_flag = true;
+                            // L947
+                            cx.build().model.buildFlag.set(true);
+                            // L948
+                            set_default_tattoo(cx, me, &n2, None);
+                            // L949
+                            popups::close_popup(cx);
+                        },
+                    ),
                 );
                 // L951-953
                 cx.add(
@@ -680,11 +781,10 @@ impl TreeTab {
                     )
                     .id();
                 // L989
-                cx.w_mut::<ButtonControl>(total).tt.tooltip_func = Some(Rc::new(
-                    |cx: &mut Cx, tooltip: &mut Tooltip, ()| {
+                cx.w_mut::<ButtonControl>(total).tt.tooltip_func =
+                    Some(Rc::new(|cx: &mut Cx, tooltip: &mut Tooltip, ()| {
                         get_tattoo_count(cx, Some(tooltip));
-                    },
-                ));
+                    }));
             },
             PopupOpts {
                 enter: Some("save".into()),
@@ -799,7 +899,9 @@ impl TreeTab {
             .extra
             .str(n!("name"))
             .map(|s| s.to_string())
-            .unwrap_or_else(|| lua_error!("bad argument #3 to 'OpenPopup' (string expected, got nil)"));
+            .unwrap_or_else(|| {
+                lua_error!("bad argument #3 to 'OpenPopup' (string expected, got nil)")
+            });
         // L1043
         popups::open_popup(
             cx,
@@ -816,7 +918,12 @@ impl TreeTab {
                     "close",
                     ButtonControl::new(
                         Anchor::NONE,
-                        [0.0.into(), (30.0 + passive_mastery_control_height).into(), 90.0.into(), 20.0.into()],
+                        [
+                            0.0.into(),
+                            (30.0 + passive_mastery_control_height).into(),
+                            90.0.into(),
+                            20.0.into(),
+                        ],
                         "Cancel",
                         move |cx| {
                             // L1037
@@ -837,7 +944,12 @@ impl TreeTab {
                     "effect",
                     PassiveMasteryControl::new(
                         Anchor::nil(TopLeft, TopLeft),
-                        [6.0.into(), 25.0.into(), 0.0.into(), passive_mastery_control_height.into()],
+                        [
+                            6.0.into(),
+                            25.0.into(),
+                            0.0.into(),
+                            passive_mastery_control_height.into(),
+                        ],
                         effects,
                         me,
                         node_c.clone(),
@@ -911,11 +1023,21 @@ fn tattoo_nodes(cx: &Cx) -> Vec<(String, NodeRef)> {
 
 /// `table.concat(sd, sep)`
 fn concat_sd(node: &model::Node, sep: &str) -> String {
-    node.sd.get().with(|v| v.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(sep))
+    node.sd.get().with(|v| {
+        v.iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join(sep)
+    })
 }
 
 /// `local function buildMods(selectedNode)` (L852-884)
-fn build_mods(cx: &mut Cx, me: CtrlId, selected_node: &NodeRef, mod_groups: &Rc<RefCell<Vec<ModGroup>>>) {
+fn build_mods(
+    cx: &mut Cx,
+    me: CtrlId,
+    selected_node: &NodeRef,
+    mod_groups: &Rc<RefCell<Vec<ModGroup>>>,
+) {
     let spec = cx.build().model.spec.get();
     let tree = spec.tree.get();
     let tree_node = tree
@@ -936,9 +1058,11 @@ fn build_mods(cx: &mut Cx, me: CtrlId, selected_node: &NodeRef, mod_groups: &Rc<
         .map_or_else(String::new, |s| s.to_string());
     // L856 (ORDER: sorted below, module docs)
     for (id, node) in tattoo_nodes(cx) {
-        let target_type = node.extra.str(n!("targetType")).map(|s| s.to_string()).unwrap_or_else(|| {
-            lua_error!("attempt to index field 'targetType' (a nil value)")
-        });
+        let target_type = node
+            .extra
+            .str(n!("targetType"))
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| lua_error!("attempt to index field 'targetType' (a nil value)"));
         let target_value = node.extra.str(n!("targetValue")).map(|s| s.to_string());
         let minimum_connected = node.extra.num(n!("MinimumConnected"));
         let legacy = node.extra.get(n!("legacy"));
@@ -981,7 +1105,10 @@ fn build_mods(cx: &mut Cx, me: CtrlId, selected_node: &NodeRef, mod_groups: &Rc<
                     }
                 }
             }
-            let sd: Vec<String> = node.sd.get().with(|v| v.iter().map(|s| s.to_string()).collect());
+            let sd: Vec<String> = node
+                .sd
+                .get()
+                .with(|v| v.iter().map(|s| s.to_string()).collect());
             // L866-871
             if combine {
                 // L868-870: the copy's first two lines become one (`node.sd[2]` must exist)
@@ -991,7 +1118,11 @@ fn build_mods(cx: &mut Cx, me: CtrlId, selected_node: &NodeRef, mod_groups: &Rc<
                 let _ = format!("{} {}", sd[0], second);
             }
             // L872
-            let mut descriptions_and_reminders: Vec<String> = if combine { vec![sd.join(" ")] } else { sd.clone() };
+            let mut descriptions_and_reminders: Vec<String> = if combine {
+                vec![sd.join(" ")]
+            } else {
+                sd.clone()
+            };
             // L873
             if let Some(rt) = node.extra.table(n!("reminderText")) {
                 // L874
@@ -1012,11 +1143,18 @@ fn build_mods(cx: &mut Cx, me: CtrlId, selected_node: &NodeRef, mod_groups: &Rc<
         }
     }
     // L883
-    pob_lua::sort(&mut mod_groups.borrow_mut(), |a, b| a.label.as_bytes() < b.label.as_bytes());
+    pob_lua::sort(&mut mod_groups.borrow_mut(), |a, b| {
+        a.label.as_bytes() < b.label.as_bytes()
+    });
 }
 
 /// `local function addModifier(selectedNode)` (L885-894; DIVERGENCE(tattoo-alias))
-fn add_modifier(cx: &mut Cx, p: CtrlId, selected_node: &NodeRef, mod_groups: &Rc<RefCell<Vec<ModGroup>>>) {
+fn add_modifier(
+    cx: &mut Cx,
+    p: CtrlId,
+    selected_node: &NodeRef,
+    mod_groups: &Rc<RefCell<Vec<ModGroup>>>,
+) {
     let spec = cx.build().model.spec.get();
     let ms = pc(cx, p, "modSelect");
     let sel = cx.w::<DropDownControl>(ms).sel_index;
@@ -1089,7 +1227,11 @@ fn construct_ui(cx: &mut Cx, p: CtrlId, mod_group: Option<&ModGroup>) {
         cx.add(
             p,
             CtrlKey::Idx(idx),
-            LabelControl::new(Anchor::new(TopLeft, other, TopLeft), rect(0, 20, 600, 16), format!("^7{desc}")),
+            LabelControl::new(
+                Anchor::new(TopLeft, other, TopLeft),
+                rect(0, 20, 600, 16),
+                format!("^7{desc}"),
+            ),
         );
         // L913
         total_height += 20.0;
@@ -1130,7 +1272,8 @@ fn get_tattoo_count(cx: &Cx, mut tooltip: Option<&mut Tooltip>) -> String {
     // L962
     for (_, node) in spec.hashOverrides.with(pob_lua::LjIntMap::pairs) {
         // L963
-        if node.isTattoo.get() && pattern::find(&node.dn.get(), "Runegraft", None, false).is_none() {
+        if node.isTattoo.get() && pattern::find(&node.dn.get(), "Runegraft", None, false).is_none()
+        {
             // L964
             if tooltip.is_some() {
                 // L965
@@ -1166,7 +1309,12 @@ fn get_tattoo_count(cx: &Cx, mut tooltip: Option<&mut Tooltip>) -> String {
         t.add_line(
             cx,
             16.0,
-            &format!("{}({}) ^7{}", cx.main.cc.COLD, pob_lua::tostring_num(mult), line),
+            &format!(
+                "{}({}) ^7{}",
+                cx.main.cc.COLD,
+                pob_lua::tostring_num(mult),
+                line
+            ),
         );
     }
     // L983
@@ -1200,7 +1348,9 @@ fn validate_tree_version(
     // Take the Major and Minor version numbers and confirm it is a valid tree version. The point release is also passed in but it is not used
     // Return: the passed in tree version as text or latestTreeVersion
     let alt = |a: Option<&str>| {
-        a.map_or_else(String::new, |a| format!("_{}", pob_ui_core::luastr::gsub(a, "-", "_")))
+        a.map_or_else(String::new, |a| {
+            format!("_{}", pob_ui_core::luastr::gsub(a, "-", "_"))
+        })
     };
     // L736
     if let (Some(major), Some(minor)) = (major, minor) {
@@ -1213,9 +1363,8 @@ fn validate_tree_version(
         let new_tree_version_num = pob_lua::tonumber(&pob_lua::lfmt!("%d.%02d", maj, min));
         let num = |v: &Name| gv.treeVersions.get(v).map_or(f64::NAN, |t| t.num);
         // L739
-        let n = new_tree_version_num.unwrap_or_else(|| {
-            lua_error!("attempt to compare nil with number")
-        });
+        let n = new_tree_version_num
+            .unwrap_or_else(|| lua_error!("attempt to compare nil with number"));
         if n >= num(&gv.defaultTreeVersion) && n <= num(&gv.latestTreeVersion) {
             // no leading 0 here
             // L741

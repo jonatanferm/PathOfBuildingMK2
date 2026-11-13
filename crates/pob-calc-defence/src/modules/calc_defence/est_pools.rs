@@ -8,7 +8,9 @@
 // Lua statement shapes kept verbatim (`x = x * y`, `s = s .. t`; STYLE §3.1 rule 3).
 #![allow(clippy::assign_op_pattern, clippy::string_add_assign)]
 
-use super::helpers::{allyLifePoolList, calcLifeHitPoolWithLossPrevention, dmgTypeList, isElemental};
+use super::helpers::{
+    allyLifePoolList, calcLifeHitPoolWithLossPrevention, dmgTypeList, isElemental,
+};
 use super::DefEstCtx;
 use crate::modules::calc_tools as calcLib;
 use crate::prelude::*;
@@ -38,11 +40,13 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         // L2157
         if modDB.Flag(None, nm!["StunThresholdBasedOnEnergyShieldInsteadOfLife"]) {
             // L2158
-            let stunThresholdMult = modDB.Sum(ModType::BASE, None, nm!["StunThresholdEnergyShieldPercent"]);
+            let stunThresholdMult =
+                modDB.Sum(ModType::BASE, None, nm!["StunThresholdEnergyShieldPercent"]);
             // L2159
             stunThresholdBase = output.num(n!("EnergyShield")) * stunThresholdMult / 100.0;
             // L2160
-            stunThresholdSource = concat(&[Val::Num(stunThresholdMult), "% of Energy Shield".into()]);
+            stunThresholdSource =
+                concat(&[Val::Num(stunThresholdMult), "% of Energy Shield".into()]);
         } else if modDB.Flag(None, nm!["StunThresholdBasedOnManaInsteadOfLife"]) {
             // L2161
             // L2162
@@ -89,8 +93,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             100.0 - m_min(modDB.Sum(ModType::BASE, None, nm!["AvoidStun"]), 100.0)
         };
         // L2181
-        if lt(&output.get(n!("totalTakenHit")), &output.get(n!("EnergyShield")))
-            && !env.modDB.get().Flag(None, nm!["EnergyShieldProtectsMana"])
+        if lt(
+            &output.get(n!("totalTakenHit")),
+            &output.get(n!("EnergyShield")),
+        ) && !env.modDB.get().Flag(None, nm!["EnergyShieldProtectsMana"])
         {
             // L2182
             notAvoidChance = notAvoidChance * 0.5;
@@ -103,14 +109,26 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L2187
             breakdown.set(
                 n!("StunThreshold"),
-                tbl![lfmt!("%d ^8(base from %s)", stunThresholdBase, fa(&stunThresholdSource))],
+                tbl![lfmt!(
+                    "%d ^8(base from %s)",
+                    stunThresholdBase,
+                    fa(&stunThresholdSource)
+                )],
             );
             // L2188
             if StunThresholdMod != 1.0 {
                 // L2189
-                t_insert(breakdown, n!("StunThreshold"), lfmt!("* %.2f ^8(increased threshold)", StunThresholdMod));
+                t_insert(
+                    breakdown,
+                    n!("StunThreshold"),
+                    lfmt!("* %.2f ^8(increased threshold)", StunThresholdMod),
+                );
                 // L2190
-                t_insert(breakdown, n!("StunThreshold"), lfmt!("= %d", fa(&output.get(n!("StunThreshold")))));
+                t_insert(
+                    breakdown,
+                    n!("StunThreshold"),
+                    lfmt!("= %d", fa(&output.get(n!("StunThreshold")))),
+                );
             }
             // L2192
             breakdown.set(
@@ -147,31 +165,51 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L2209
             output.set(
                 n!("StunDuration"),
-                m_ceil(baseStunDuration * stunDuration / stunRecovery * misc.ServerTickRate) / misc.ServerTickRate,
+                m_ceil(baseStunDuration * stunDuration / stunRecovery * misc.ServerTickRate)
+                    / misc.ServerTickRate,
             );
             // L2210
             output.set(
                 n!("BlockDuration"),
-                m_ceil(baseStunDuration * stunDuration / stunAndBlockRecovery * misc.ServerTickRate)
-                    / misc.ServerTickRate,
+                m_ceil(
+                    baseStunDuration * stunDuration / stunAndBlockRecovery * misc.ServerTickRate,
+                ) / misc.ServerTickRate,
             );
             // L2211
             if let Some(breakdown) = &breakdown {
                 // L2212
-                breakdown.set(n!("StunDuration"), tbl![lfmt!("%.2fs ^8(base)", baseStunDuration)]);
+                breakdown.set(
+                    n!("StunDuration"),
+                    tbl![lfmt!("%.2fs ^8(base)", baseStunDuration)],
+                );
                 // L2213
-                breakdown.set(n!("BlockDuration"), tbl![lfmt!("%.2fs ^8(base)", baseStunDuration)]);
+                breakdown.set(
+                    n!("BlockDuration"),
+                    tbl![lfmt!("%.2fs ^8(base)", baseStunDuration)],
+                );
                 // L2214
                 if stunDuration != 1.0 {
                     // L2215
-                    t_insert(breakdown, n!("StunDuration"), lfmt!("* %.2f ^8(increased duration)", stunDuration));
+                    t_insert(
+                        breakdown,
+                        n!("StunDuration"),
+                        lfmt!("* %.2f ^8(increased duration)", stunDuration),
+                    );
                     // L2216
-                    t_insert(breakdown, n!("BlockDuration"), lfmt!("* %.2f ^8(increased duration)", stunDuration));
+                    t_insert(
+                        breakdown,
+                        n!("BlockDuration"),
+                        lfmt!("* %.2f ^8(increased duration)", stunDuration),
+                    );
                 }
                 // L2218
                 if stunRecovery != 1.0 {
                     // L2219
-                    t_insert(breakdown, n!("StunDuration"), lfmt!("/ %.2f ^8(increased/reduced recovery)", stunRecovery));
+                    t_insert(
+                        breakdown,
+                        n!("StunDuration"),
+                        lfmt!("/ %.2f ^8(increased/reduced recovery)", stunRecovery),
+                    );
                 }
                 // L2221
                 if stunAndBlockRecovery != 1.0 {
@@ -179,43 +217,74 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                     t_insert(
                         breakdown,
                         n!("BlockDuration"),
-                        lfmt!("/ %.2f ^8(increased/reduced block recovery)", stunAndBlockRecovery),
+                        lfmt!(
+                            "/ %.2f ^8(increased/reduced block recovery)",
+                            stunAndBlockRecovery
+                        ),
                     );
                 }
                 // L2224
-                t_insert(breakdown, n!("StunDuration"), lfmt!("rounded up to nearest server tick"));
+                t_insert(
+                    breakdown,
+                    n!("StunDuration"),
+                    lfmt!("rounded up to nearest server tick"),
+                );
                 // L2225
-                t_insert(breakdown, n!("StunDuration"), lfmt!("= %.2fs", fa(&output.get(n!("StunDuration")))));
+                t_insert(
+                    breakdown,
+                    n!("StunDuration"),
+                    lfmt!("= %.2fs", fa(&output.get(n!("StunDuration")))),
+                );
 
                 // L2227
-                t_insert(breakdown, n!("BlockDuration"), lfmt!("rounded up to nearest server tick"));
+                t_insert(
+                    breakdown,
+                    n!("BlockDuration"),
+                    lfmt!("rounded up to nearest server tick"),
+                );
                 // L2228
-                t_insert(breakdown, n!("BlockDuration"), lfmt!("= %.2fs", fa(&output.get(n!("BlockDuration")))));
+                t_insert(
+                    breakdown,
+                    n!("BlockDuration"),
+                    lfmt!("= %.2fs", fa(&output.get(n!("BlockDuration")))),
+                );
             }
         }
         // L2231
         output.set(
             n!("InterruptStunAvoidChance"),
-            m_min(modDB.Sum(ModType::BASE, None, nm!["AvoidInterruptStun"]), 100.0),
+            m_min(
+                modDB.Sum(ModType::BASE, None, nm!["AvoidInterruptStun"]),
+                100.0,
+            ),
         );
         // L2232
-        let mut effectiveEnemyDamage = output.num(n!("totalTakenHit")) + output.num(n!("PhysicalTakenHit")) * 0.25;
+        let mut effectiveEnemyDamage =
+            output.num(n!("totalTakenHit")) + output.num(n!("PhysicalTakenHit")) * 0.25;
         // L2233
         if damageCategoryConfig != n!("Average") {
             // L2234
-            effectiveEnemyDamage = effectiveEnemyDamage * (1.0 + misc.StunNotMeleeDamageMult * 3.0) / 4.0;
+            effectiveEnemyDamage =
+                effectiveEnemyDamage * (1.0 + misc.StunNotMeleeDamageMult * 3.0) / 4.0;
         } else if damageCategoryConfig != n!("Melee") {
             // L2235
             // L2236
             effectiveEnemyDamage = effectiveEnemyDamage * misc.StunNotMeleeDamageMult;
         }
         // L2238
-        let baseStunChance =
-            m_min(misc.StunBaseMult * effectiveEnemyDamage / output.num(n!("StunThreshold")), 100.0);
+        let baseStunChance = m_min(
+            misc.StunBaseMult * effectiveEnemyDamage / output.num(n!("StunThreshold")),
+            100.0,
+        );
         // L2239
         output.set(
             n!("SelfStunChance"),
-            (if baseStunChance > misc.MinStunChanceNeeded { baseStunChance } else { 0.0 }) * notAvoidChance / 100.0,
+            (if baseStunChance > misc.MinStunChanceNeeded {
+                baseStunChance
+            } else {
+                0.0
+            }) * notAvoidChance
+                / 100.0,
         );
         // L2240
         if let Some(breakdown) = &breakdown {
@@ -224,19 +293,32 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 n!("SelfStunChance"),
                 tbl![
                     lfmt!("%d%% ^8(stun multiplier)", misc.StunBaseMult),
-                    lfmt!("* %.1f ^8(effective enemy stun damage)", effectiveEnemyDamage),
-                    lfmt!("/ %d ^8(stun threshold)", fa(&output.get(n!("StunThreshold")))),
+                    lfmt!(
+                        "* %.1f ^8(effective enemy stun damage)",
+                        effectiveEnemyDamage
+                    ),
+                    lfmt!(
+                        "/ %d ^8(stun threshold)",
+                        fa(&output.get(n!("StunThreshold")))
+                    ),
                 ],
             );
             // L2246
             if baseStunChance < misc.MinStunChanceNeeded {
                 // L2247
-                t_insert(breakdown, n!("SelfStunChance"), lfmt!("= %.2f%%", baseStunChance));
+                t_insert(
+                    breakdown,
+                    n!("SelfStunChance"),
+                    lfmt!("= %.2f%%", baseStunChance),
+                );
                 // L2248
                 t_insert(
                     breakdown,
                     n!("SelfStunChance"),
-                    lfmt!("Stun Chance has to be more than %d%% to stun.", misc.MinStunChanceNeeded),
+                    lfmt!(
+                        "Stun Chance has to be more than %d%% to stun.",
+                        misc.MinStunChanceNeeded
+                    ),
                 );
             } else {
                 // L2250
@@ -245,11 +327,18 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                     t_insert(
                         breakdown,
                         n!("SelfStunChance"),
-                        lfmt!("* %.2f ^8(1 - chance to avoid stun)", notAvoidChance / 100.0),
+                        lfmt!(
+                            "* %.2f ^8(1 - chance to avoid stun)",
+                            notAvoidChance / 100.0
+                        ),
                     );
                 }
                 // L2253
-                t_insert(breakdown, n!("SelfStunChance"), lfmt!("= %.2f%%", fa(&output.get(n!("SelfStunChance")))));
+                t_insert(
+                    breakdown,
+                    n!("SelfStunChance"),
+                    lfmt!("= %.2f%%", fa(&output.get(n!("SelfStunChance")))),
+                );
             }
         }
     }
@@ -263,12 +352,17 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         output.set(
             n!("LifeRecoverable"),
             m_min(
-                output.num(n!("Life")) * output.num_or(n!("LowLifePercentage"), misc.LowPoolThreshold) / 100.0,
+                output.num(n!("Life"))
+                    * output.num_or(n!("LowLifePercentage"), misc.LowPoolThreshold)
+                    / 100.0,
                 output.num(n!("LifeUnreserved")),
             ),
         );
         // L2262
-        if lt(&output.get(n!("LifeRecoverable")), &output.get(n!("LifeUnreserved"))) {
+        if lt(
+            &output.get(n!("LifeRecoverable")),
+            &output.get(n!("LifeUnreserved")),
+        ) {
             // L2263
             output.set(n!("CappingLife"), true);
         }
@@ -285,7 +379,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
     }
 
     // L2272
-    output.set(n!("LifeRecoverable"), m_max(output.num(n!("LifeRecoverable")), 1.0));
+    output.set(
+        n!("LifeRecoverable"),
+        m_max(output.num(n!("LifeRecoverable")), 1.0),
+    );
 
     // -- Prevented life loss taken over 4 seconds (and Petrified Blood)
     // L2275
@@ -293,11 +390,15 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         // L2276
         let recoverable = output.num(n!("LifeRecoverable"));
         // L2277
-        let preventedLifeLoss = m_min(modDB.Sum(ModType::BASE, None, nm!["LifeLossPrevented"]), 100.0);
+        let preventedLifeLoss = m_min(
+            modDB.Sum(ModType::BASE, None, nm!["LifeLossPrevented"]),
+            100.0,
+        );
         // L2278
         output.set(n!("preventedLifeLoss"), preventedLifeLoss);
         // L2279
-        let initialLifeLossBelowHalfPrevented = modDB.Sum(ModType::BASE, None, nm!["LifeLossBelowHalfPrevented"]);
+        let initialLifeLossBelowHalfPrevented =
+            modDB.Sum(ModType::BASE, None, nm!["LifeLossBelowHalfPrevented"]);
         // L2280
         output.set(
             n!("preventedLifeLossBelowHalf"),
@@ -313,7 +414,8 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L2285
             output.set(
                 n!("preventedLifeLossTotal"),
-                output.num(n!("preventedLifeLoss")) + output.num(n!("preventedLifeLossBelowHalf")) * portionLife,
+                output.num(n!("preventedLifeLoss"))
+                    + output.num(n!("preventedLifeLossBelowHalf")) * portionLife,
             );
         } else {
             // L2287
@@ -365,7 +467,11 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                         k,
                         lfmt!(
                             "%s%.2f ^8(initial portion taken by petrified blood)",
-                            if output.num(n!("preventedLifeLoss")) != 0.0 { "+ " } else { "" },
+                            if output.num(n!("preventedLifeLoss")) != 0.0 {
+                                "+ "
+                            } else {
+                                ""
+                            },
                             initialLifeLossBelowHalfPrevented / 100.0
                         ),
                     );
@@ -382,7 +488,11 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                         );
                     }
                     // L2307
-                    t_insert(breakdown, k, lfmt!("* %.2f ^8(portion of life on low life)", portionLife));
+                    t_insert(
+                        breakdown,
+                        k,
+                        lfmt!("* %.2f ^8(portion of life on low life)", portionLife),
+                    );
                     // L2308
                     t_insert(
                         breakdown,
@@ -401,9 +511,17 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                         k,
                         lfmt!(
                             "%s%.2f ^8(%s taken by petrified blood)",
-                            if output.num(n!("preventedLifeLoss")) != 0.0 { "+ " } else { "" },
+                            if output.num(n!("preventedLifeLoss")) != 0.0 {
+                                "+ "
+                            } else {
+                                ""
+                            },
                             initialLifeLossBelowHalfPrevented / 100.0,
-                            if output.num(n!("preventedLifeLoss")) != 0.0 { "initial portion" } else { "portion" }
+                            if output.num(n!("preventedLifeLoss")) != 0.0 {
+                                "initial portion"
+                            } else {
+                                "portion"
+                            }
                         ),
                     );
                     // L2312
@@ -433,7 +551,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             t_insert(
                 breakdown,
                 k,
-                lfmt!("%.2f ^8(portion taken from life)", 1.0 - output.num(n!("preventedLifeLossTotal")) / 100.0),
+                lfmt!(
+                    "%.2f ^8(portion taken from life)",
+                    1.0 - output.num(n!("preventedLifeLossTotal")) / 100.0
+                ),
             );
         }
     }
@@ -481,7 +602,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         // L2342
         output.set(kBypass, m_max(m_min(output.num(kBypass), 100.0), 0.0));
         // L2343
-        output.set(n!("MinimumBypass"), m_min(output.num(n!("MinimumBypass")), output.num(kBypass)));
+        output.set(
+            n!("MinimumBypass"),
+            m_min(output.num(n!("MinimumBypass")), output.num(kBypass)),
+        );
     }
 
     // L2346
@@ -494,7 +618,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
     // L2350
     output.set(
         n!("sharedMindOverMatter"),
-        m_min(modDB.Sum(ModType::BASE, None, nm!["DamageTakenFromManaBeforeLife"]), 100.0),
+        m_min(
+            modDB.Sum(ModType::BASE, None, nm!["DamageTakenFromManaBeforeLife"]),
+            100.0,
+        ),
     );
     // L2351-2363: `local function calcMoMEBPool` is [`calcMoMEBPool`].
     // L2364
@@ -505,14 +632,26 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         let esBypass = output.num(n!("MinimumBypass")) / 100.0;
 
         // L2368
-        let (sharedMoMPool, breakdownMaxMana, breakdownMana, breakdownES) =
-            calcMoMEBPool(&modDB, &output, output.num(n!("LifeRecoverable")), MindOverMatter, esBypass);
+        let (sharedMoMPool, breakdownMaxMana, breakdownMana, breakdownES) = calcMoMEBPool(
+            &modDB,
+            &output,
+            output.num(n!("LifeRecoverable")),
+            MindOverMatter,
+            esBypass,
+        );
         // L2369
         output.set(n!("sharedManaEffectiveLife"), sharedMoMPool);
         // L2370
         output.set(
             n!("sharedMoMHitPool"),
-            calcMoMEBPool(&modDB, &output, output.num(n!("LifeHitPool")), MindOverMatter, esBypass).0,
+            calcMoMEBPool(
+                &modDB,
+                &output,
+                output.num(n!("LifeHitPool")),
+                MindOverMatter,
+                esBypass,
+            )
+            .0,
         );
 
         // L2372
@@ -539,7 +678,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                             if breakdownMana == breakdownMaxMana {
                                 String::new()
                             } else {
-                                lfmt!(" (%d mana shadowed by energy shield)", breakdownMaxMana - breakdownMana)
+                                lfmt!(
+                                    " (%d mana shadowed by energy shield)",
+                                    breakdownMaxMana - breakdownMana
+                                )
                             }
                             .as_str()
                         ),
@@ -570,7 +712,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         }
     } else {
         // L2387
-        output.set(n!("sharedManaEffectiveLife"), output.get(n!("LifeRecoverable")));
+        output.set(
+            n!("sharedManaEffectiveLife"),
+            output.get(n!("LifeRecoverable")),
+        );
         // L2388
         output.set(n!("sharedMoMHitPool"), output.get(n!("LifeHitPool")));
     }
@@ -583,7 +728,11 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         output.set(
             kMoM,
             m_min(
-                modDB.Sum(ModType::BASE, None, &[cat!(damageType, "DamageTakenFromManaBeforeLife")]),
+                modDB.Sum(
+                    ModType::BASE,
+                    None,
+                    &[cat!(damageType, "DamageTakenFromManaBeforeLife")],
+                ),
                 100.0 - output.num(n!("sharedMindOverMatter")),
             ),
         );
@@ -599,19 +748,32 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L2395
             output.set(n!("OnlySharedMindOverMatter"), false);
             // L2396
-            let MindOverMatter = (output.num(kMoM) + output.num(n!("sharedMindOverMatter"))) / 100.0;
+            let MindOverMatter =
+                (output.num(kMoM) + output.num(n!("sharedMindOverMatter"))) / 100.0;
             // L2397
             let esBypass = output.num(kBypass) / 100.0;
 
             // L2399
-            let (typedMoMPool, breakdownMaxMana, breakdownMana, breakdownES) =
-                calcMoMEBPool(&modDB, &output, output.num(n!("LifeRecoverable")), MindOverMatter, esBypass);
+            let (typedMoMPool, breakdownMaxMana, breakdownMana, breakdownES) = calcMoMEBPool(
+                &modDB,
+                &output,
+                output.num(n!("LifeRecoverable")),
+                MindOverMatter,
+                esBypass,
+            );
             // L2400
             output.set(cat!(damageType, "ManaEffectiveLife"), typedMoMPool);
             // L2401
             output.set(
                 cat!(damageType, "MoMHitPool"),
-                calcMoMEBPool(&modDB, &output, output.num(n!("LifeHitPool")), MindOverMatter, esBypass).0,
+                calcMoMEBPool(
+                    &modDB,
+                    &output,
+                    output.num(n!("LifeHitPool")),
+                    MindOverMatter,
+                    esBypass,
+                )
+                .0,
             );
 
             // L2403
@@ -619,8 +781,8 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 // L2404
                 if output.truthy(kMoM) {
                     // L2405
-                    let lifeProtected =
-                        (breakdownMana + breakdownES) / MindOverMatter - (breakdownMana + breakdownES);
+                    let lifeProtected = (breakdownMana + breakdownES) / MindOverMatter
+                        - (breakdownMana + breakdownES);
                     // L2406
                     breakdown.set(
                         kMoM,
@@ -637,7 +799,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                                 if breakdownMana == breakdownMaxMana {
                                     String::new()
                                 } else {
-                                    lfmt!(" (%d mana shadowed by energy shield)", breakdownMaxMana - breakdownMana)
+                                    lfmt!(
+                                        " (%d mana shadowed by energy shield)",
+                                        breakdownMaxMana - breakdownMana
+                                    )
                                 }
                                 .as_str()
                             ),
@@ -668,9 +833,15 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             }
         } else {
             // L2418
-            output.set(cat!(damageType, "ManaEffectiveLife"), output.get(n!("sharedManaEffectiveLife")));
+            output.set(
+                cat!(damageType, "ManaEffectiveLife"),
+                output.get(n!("sharedManaEffectiveLife")),
+            );
             // L2419
-            output.set(cat!(damageType, "MoMHitPool"), output.get(n!("sharedMoMHitPool")));
+            output.set(
+                cat!(damageType, "MoMHitPool"),
+                output.get(n!("sharedMoMHitPool")),
+            );
         }
     }
 
@@ -680,16 +851,23 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
     // L2425
     output.set(
         n!("sharedGuardAbsorbRate"),
-        m_min(modDB.Sum(ModType::BASE, None, nm!["GuardAbsorbRate"]), 100.0),
+        m_min(
+            modDB.Sum(ModType::BASE, None, nm!["GuardAbsorbRate"]),
+            100.0,
+        ),
     );
     // L2426
     if output.num(n!("sharedGuardAbsorbRate")) > 0.0 {
         // L2427
         output.set(n!("OnlySharedGuard"), true);
         // L2428
-        output.set(n!("sharedGuardAbsorb"), calcLib::val(&modDB, n!("GuardAbsorbLimit"), None));
+        output.set(
+            n!("sharedGuardAbsorb"),
+            calcLib::val(&modDB, n!("GuardAbsorbLimit"), None),
+        );
         // L2429
-        let lifeProtected = output.num(n!("sharedGuardAbsorb")) / (output.num(n!("sharedGuardAbsorbRate")) / 100.0)
+        let lifeProtected = output.num(n!("sharedGuardAbsorb"))
+            / (output.num(n!("sharedGuardAbsorbRate")) / 100.0)
             * (1.0 - output.num(n!("sharedGuardAbsorbRate")) / 100.0);
         // L2430
         if let Some(breakdown) = &breakdown {
@@ -698,8 +876,14 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 n!("sharedGuardAbsorb"),
                 tbl![
                     lfmt!("Total life protected:"),
-                    lfmt!("%d ^8(guard limit)", fa(&output.get(n!("sharedGuardAbsorb")))),
-                    lfmt!("/ %.2f ^8(portion taken from guard)", output.num(n!("sharedGuardAbsorbRate")) / 100.0),
+                    lfmt!(
+                        "%d ^8(guard limit)",
+                        fa(&output.get(n!("sharedGuardAbsorb")))
+                    ),
+                    lfmt!(
+                        "/ %.2f ^8(portion taken from guard)",
+                        output.num(n!("sharedGuardAbsorbRate")) / 100.0
+                    ),
                     lfmt!(
                         "x %.2f ^8(portion taken from life and energy shield)",
                         1.0 - output.num(n!("sharedGuardAbsorbRate")) / 100.0
@@ -715,7 +899,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         let kRate = cat!(damageType, "GuardAbsorbRate");
         let kAbsorb = cat!(damageType, "GuardAbsorb");
         // L2441
-        output.set(kRate, m_min(modDB.Sum(ModType::BASE, None, &[kRate]), 100.0));
+        output.set(
+            kRate,
+            m_min(modDB.Sum(ModType::BASE, None, &[kRate]), 100.0),
+        );
         // L2442
         if output.num(kRate) > 0.0 {
             // L2443
@@ -725,10 +912,13 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L2445
             output.set(n!("OnlySharedGuard"), false);
             // L2446
-            output.set(kAbsorb, calcLib::val(&modDB, cat!(damageType, "GuardAbsorbLimit"), None));
+            output.set(
+                kAbsorb,
+                calcLib::val(&modDB, cat!(damageType, "GuardAbsorbLimit"), None),
+            );
             // L2447
-            let lifeProtected =
-                output.num(kAbsorb) / (output.num(kRate) / 100.0) * (1.0 - output.num(kRate) / 100.0);
+            let lifeProtected = output.num(kAbsorb) / (output.num(kRate) / 100.0)
+                * (1.0 - output.num(kRate) / 100.0);
             // L2448
             if let Some(breakdown) = &breakdown {
                 // L2449
@@ -737,7 +927,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                     tbl![
                         lfmt!("Total life protected:"),
                         lfmt!("%d ^8(guard limit)", fa(&output.get(kAbsorb))),
-                        lfmt!("/ %.2f ^8(portion taken from guard)", output.num(kRate) / 100.0),
+                        lfmt!(
+                            "/ %.2f ^8(portion taken from guard)",
+                            output.num(kRate) / 100.0
+                        ),
                         lfmt!(
                             "x %.2f ^8(portion taken from life and energy shield)",
                             1.0 - output.num(kRate) / 100.0
@@ -753,9 +946,15 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
     // L2461
     output.set(n!("AnyAegis"), false);
     // L2462
-    output.set(n!("sharedAegis"), modDB.Max(None, nm!["AegisValue"]).unwrap_or(0.0));
+    output.set(
+        n!("sharedAegis"),
+        modDB.Max(None, nm!["AegisValue"]).unwrap_or(0.0),
+    );
     // L2463
-    output.set(n!("sharedElementalAegis"), modDB.Max(None, nm!["ElementalAegisValue"]).unwrap_or(0.0));
+    output.set(
+        n!("sharedElementalAegis"),
+        modDB.Max(None, nm!["ElementalAegisValue"]).unwrap_or(0.0),
+    );
     // L2464
     if output.num(n!("sharedAegis")) > 0.0 {
         // L2465
@@ -773,7 +972,9 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         let damageType = Name::from(damageType);
         let kAegis = cat!(damageType, "Aegis");
         // L2472
-        let aegisValue = modDB.Max(None, &[cat!(damageType, "AegisValue")]).unwrap_or(0.0);
+        let aegisValue = modDB
+            .Max(None, &[cat!(damageType, "AegisValue")])
+            .unwrap_or(0.0);
         // L2473
         if aegisValue > 0.0 {
             // L2474
@@ -801,7 +1002,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
     {
         // -- frost shield
         // L2488
-        output.set(n!("FrostShieldLife"), modDB.Sum(ModType::BASE, None, nm!["FrostGlobeHealth"]));
+        output.set(
+            n!("FrostShieldLife"),
+            modDB.Sum(ModType::BASE, None, nm!["FrostGlobeHealth"]),
+        );
         // L2489
         output.set(
             n!("FrostShieldDamageMitigation"),
@@ -819,7 +1023,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 n!("FrostShieldLife"),
                 tbl![
                     lfmt!("Total life protected:"),
-                    lfmt!("%d ^8(frost shield limit)", fa(&output.get(n!("FrostShieldLife")))),
+                    lfmt!(
+                        "%d ^8(frost shield limit)",
+                        fa(&output.get(n!("FrostShieldLife")))
+                    ),
                     lfmt!(
                         "/ %.2f ^8(portion taken from frost shield)",
                         output.num(n!("FrostShieldDamageMitigation")) / 100.0
@@ -869,7 +1076,9 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                     // L2515
                     output.set(
                         allyLife,
-                        lor(Val::from_value(&modDB.Override(None, &[allyLife])), || Val::Num(life)),
+                        lor(Val::from_value(&modDB.Override(None, &[allyLife])), || {
+                            Val::Num(life)
+                        }),
                     );
                 }
             }
@@ -904,7 +1113,8 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 // L2531
                 output.set(
                     n!("MinionAllyDamageMitigation"),
-                    output.num(n!("MinionAllyDamageMitigation")) + output.num_or(allyMitigation, 0.0),
+                    output.num(n!("MinionAllyDamageMitigation"))
+                        + output.num_or(allyMitigation, 0.0),
                 );
                 // L2532
                 output.set(allyMitigation, 0.0);
@@ -944,7 +1154,9 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 // L2547
                 let r#override = lor(Val::from_value(&modDB.Override(None, &[allyLife])), || {
                     land(Val::Bool(ally.life == "TotalMinionLife"), || {
-                        land(sharedMinionLifeOverride.clone(), || output.get(n!("TotalMinionLife")))
+                        land(sharedMinionLifeOverride.clone(), || {
+                            output.get(n!("TotalMinionLife"))
+                        })
                     })
                 });
                 // L2548
@@ -954,7 +1166,11 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                     // L2550
                     if r#override.truthy() {
                         // L2551
-                        t_insert(breakdown, allyLife, lfmt!("%d ^8(from config)", fa(&output.get(allyLife))));
+                        t_insert(
+                            breakdown,
+                            allyLife,
+                            lfmt!("%d ^8(from config)", fa(&output.get(allyLife))),
+                        );
                     } else {
                         // L2553
                         let lifeList = match lifeList.table() {
@@ -1003,7 +1219,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
             };
             output.set(
                 n!("AlliedEnergyShield"),
-                parent.output.get().num_or(n!("EnergyShieldRecoveryCap"), 0.0),
+                parent
+                    .output
+                    .get()
+                    .num_or(n!("EnergyShieldRecoveryCap"), 0.0),
             );
         } else {
             // L2566
@@ -1020,7 +1239,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 };
                 output.set(
                     n!("AlliedEnergyShield"),
-                    partyMembers.output.get().num_or(n!("EnergyShieldRecoveryCap"), 0.0),
+                    partyMembers
+                        .output
+                        .get()
+                        .num_or(n!("EnergyShieldRecoveryCap"), 0.0),
                 );
             }
         }
@@ -1037,7 +1259,10 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
         // L2576
         output.set(
             n!("VaalArcticArmourMitigation"),
-            m_min(-modDB.Sum(ModType::MORE, None, nm!["VaalArcticArmourMitigation"]) / 100.0, 1.0),
+            m_min(
+                -modDB.Sum(ModType::MORE, None, nm!["VaalArcticArmourMitigation"]) / 100.0,
+                1.0,
+            ),
         );
     }
 
@@ -1072,26 +1297,37 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                     output.set(
                         kPool,
                         m_max(output.num(kPool) - poolProtected, 0.0)
-                            + m_min(output.num(kPool), poolProtected) / (output.num(kBypass) / 100.0),
+                            + m_min(output.num(kPool), poolProtected)
+                                / (output.num(kBypass) / 100.0),
                     );
                     // L2591
                     output.set(
                         kHitPool,
                         m_max(output.num(kHitPool) - poolProtected, 0.0)
-                            + m_min(output.num(kHitPool), poolProtected) / (output.num(kBypass) / 100.0),
+                            + m_min(output.num(kHitPool), poolProtected)
+                                / (output.num(kBypass) / 100.0),
                     );
                 } else {
                     // L2593
-                    output.set(kPool, output.num(kPool) + output.num(n!("EnergyShieldRecoveryCap")));
+                    output.set(
+                        kPool,
+                        output.num(kPool) + output.num(n!("EnergyShieldRecoveryCap")),
+                    );
                     // L2594
-                    output.set(kHitPool, output.num(kHitPool) + output.num(n!("EnergyShieldRecoveryCap")));
+                    output.set(
+                        kHitPool,
+                        output.num(kHitPool) + output.num(n!("EnergyShieldRecoveryCap")),
+                    );
                 }
             }
         }
         // L2598
         if let Some(breakdown) = &breakdown {
             // L2599
-            breakdown.set(kPool, tbl![lfmt!("Life: %d", fa(&output.get(n!("LifeRecoverable"))))]);
+            breakdown.set(
+                kPool,
+                tbl![lfmt!("Life: %d", fa(&output.get(n!("LifeRecoverable"))))],
+            );
             // L2602
             if !output.get(kMEL).raw_eq(&output.get(n!("LifeRecoverable"))) {
                 // L2603
@@ -1111,11 +1347,18 @@ pub fn seg(ctx: &mut DefEstCtx) -> Flow {
                 t_insert(
                     breakdown,
                     kPool,
-                    lfmt!("Non-bypassed Energy Shield: %d", output.num(kPool) - output.num(kMEL)),
+                    lfmt!(
+                        "Non-bypassed Energy Shield: %d",
+                        output.num(kPool) - output.num(kMEL)
+                    ),
                 );
             }
             // L2608
-            t_insert(breakdown, kPool, lfmt!("TotalPool: %d", fa(&output.get(kPool))));
+            t_insert(
+                breakdown,
+                kPool,
+                lfmt!("TotalPool: %d", fa(&output.get(kPool))),
+            );
         }
     }
 
@@ -1135,7 +1378,11 @@ fn calcMoMEBPool(
     // L2352
     let mana = m_max(output.num_or(n!("ManaUnreserved"), 0.0), 0.0);
     // L2353
-    let maxMoMPool = if MoMEffect < 1.0 { lifePool / (1.0 - MoMEffect) - lifePool } else { m_huge };
+    let maxMoMPool = if MoMEffect < 1.0 {
+        lifePool / (1.0 - MoMEffect) - lifePool
+    } else {
+        m_huge
+    };
     // L2354
     let maxManaUsable = m_floor(m_min(mana, maxMoMPool));
     // L2355
@@ -1143,7 +1390,8 @@ fn calcMoMEBPool(
         m_floor(m_min_n(&[
             output.num(n!("EnergyShieldRecoveryCap")),
             maxMoMPool * (1.0 - esBypass),
-            (lifePool + maxManaUsable) / (1.0 - (1.0 - esBypass) * MoMEffect) - (lifePool + maxManaUsable),
+            (lifePool + maxManaUsable) / (1.0 - (1.0 - esBypass) * MoMEffect)
+                - (lifePool + maxManaUsable),
         ]))
     } else {
         0.0
@@ -1151,7 +1399,12 @@ fn calcMoMEBPool(
     // L2361
     let manaUsed = m_floor(m_min(maxMoMPool - maxESUsable, maxManaUsable));
     // L2362
-    (lifePool + manaUsed + maxESUsable, maxManaUsable, manaUsed, maxESUsable)
+    (
+        lifePool + manaUsed + maxESUsable,
+        maxManaUsable,
+        manaUsed,
+        maxESUsable,
+    )
 }
 
 // ---- Rust-only plumbing ----------------------------------------------------------------------------
@@ -1160,7 +1413,10 @@ fn calcMoMEBPool(
 fn t_insert(breakdown: &Breakdown, k: Name, s: String) {
     match breakdown.get(k) {
         Val::Table(t) => t.push(s),
-        other => lua_error!("bad argument #1 to 'insert' (table expected, got {})", other.lua_type()),
+        other => lua_error!(
+            "bad argument #1 to 'insert' (table expected, got {})",
+            other.lua_type()
+        ),
     }
 }
 
@@ -1172,7 +1428,10 @@ fn fa(v: &Val) -> pob_lua::format::FmtArg<'_> {
         Val::Bool(b) => FmtArg::Bool(*b),
         Val::Num(x) => FmtArg::Num(*x),
         Val::Str(s) => FmtArg::Str(s),
-        other => lua_error!("bad argument to 'format' (number expected, got {})", other.lua_type()),
+        other => lua_error!(
+            "bad argument to 'format' (number expected, got {})",
+            other.lua_type()
+        ),
     }
 }
 

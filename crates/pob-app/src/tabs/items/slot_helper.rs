@@ -89,7 +89,14 @@ pub struct ItemsTabHooks {
     /// model build whose ItemsTab is meant (the open build's, or a comparison entry's: FUP6,
     /// CCR-0122 §2); `slot` is the ItemSlotControl's model table
     pub add_item_tooltip: Rc<
-        dyn Fn(&mut Cx, &model::BuildRef, &mut Tooltip, &model::ItemRef, Option<&model::Table>, bool),
+        dyn Fn(
+            &mut Cx,
+            &model::BuildRef,
+            &mut Tooltip,
+            &model::ItemRef,
+            Option<&model::Table>,
+            bool,
+        ),
     >,
     /// `itemsTab:AddUndoState()` (UndoHandler.lua:31-40 with ItemsTab:CreateUndoState,
     /// L5021-5036)

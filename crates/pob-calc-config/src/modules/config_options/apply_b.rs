@@ -8843,9 +8843,11 @@ pub(crate) fn opt_670_apply(
         // L2311 (`DamageType` is a required field of the schema: always truthy)
         {
             // L2312
-            build
-                .configTab
-                .SelByValue(n!("enemyDamageType"), &Val::from(bossData.DamageType), n!("val"));
+            build.configTab.SelByValue(
+                n!("enemyDamageType"),
+                &Val::from(bossData.DamageType),
+                n!("val"),
+            );
             // L2313
             build
                 .configTab

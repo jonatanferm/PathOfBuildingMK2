@@ -214,24 +214,80 @@ impl InfluenceInfo {
 // L15-34: Info table for all types of item influence
 /// `itemLib.influenceInfo.all`.
 pub const influenceInfo_all: [InfluenceInfo; 8] = [
-    InfluenceInfo { key: "shaper", display: "Shaper", color: "SHAPER" },
-    InfluenceInfo { key: "elder", display: "Elder", color: "ELDER" },
-    InfluenceInfo { key: "adjudicator", display: "Warlord", color: "ADJUDICATOR" },
-    InfluenceInfo { key: "basilisk", display: "Hunter", color: "BASILISK" },
-    InfluenceInfo { key: "crusader", display: "Crusader", color: "CRUSADER" },
-    InfluenceInfo { key: "eyrie", display: "Redeemer", color: "EYRIE" },
-    InfluenceInfo { key: "cleansing", display: "Searing Exarch", color: "CLEANSING" },
-    InfluenceInfo { key: "tangle", display: "Eater of Worlds", color: "TANGLE" },
+    InfluenceInfo {
+        key: "shaper",
+        display: "Shaper",
+        color: "SHAPER",
+    },
+    InfluenceInfo {
+        key: "elder",
+        display: "Elder",
+        color: "ELDER",
+    },
+    InfluenceInfo {
+        key: "adjudicator",
+        display: "Warlord",
+        color: "ADJUDICATOR",
+    },
+    InfluenceInfo {
+        key: "basilisk",
+        display: "Hunter",
+        color: "BASILISK",
+    },
+    InfluenceInfo {
+        key: "crusader",
+        display: "Crusader",
+        color: "CRUSADER",
+    },
+    InfluenceInfo {
+        key: "eyrie",
+        display: "Redeemer",
+        color: "EYRIE",
+    },
+    InfluenceInfo {
+        key: "cleansing",
+        display: "Searing Exarch",
+        color: "CLEANSING",
+    },
+    InfluenceInfo {
+        key: "tangle",
+        display: "Eater of Worlds",
+        color: "TANGLE",
+    },
 ];
 
 /// `itemLib.influenceInfo.default`.
 pub const influenceInfo_default: [InfluenceInfo; 6] = [
-    InfluenceInfo { key: "shaper", display: "Shaper", color: "SHAPER" },
-    InfluenceInfo { key: "elder", display: "Elder", color: "ELDER" },
-    InfluenceInfo { key: "adjudicator", display: "Warlord", color: "ADJUDICATOR" },
-    InfluenceInfo { key: "basilisk", display: "Hunter", color: "BASILISK" },
-    InfluenceInfo { key: "crusader", display: "Crusader", color: "CRUSADER" },
-    InfluenceInfo { key: "eyrie", display: "Redeemer", color: "EYRIE" },
+    InfluenceInfo {
+        key: "shaper",
+        display: "Shaper",
+        color: "SHAPER",
+    },
+    InfluenceInfo {
+        key: "elder",
+        display: "Elder",
+        color: "ELDER",
+    },
+    InfluenceInfo {
+        key: "adjudicator",
+        display: "Warlord",
+        color: "ADJUDICATOR",
+    },
+    InfluenceInfo {
+        key: "basilisk",
+        display: "Hunter",
+        color: "BASILISK",
+    },
+    InfluenceInfo {
+        key: "crusader",
+        display: "Crusader",
+        color: "CRUSADER",
+    },
+    InfluenceInfo {
+        key: "eyrie",
+        display: "Redeemer",
+        color: "EYRIE",
+    },
 ];
 
 /// Apply value scalars to the first n numbers present
@@ -256,8 +312,9 @@ pub fn applyValueScalar(
     // L44
     let scaleValue = |num: &[u8]| -> String {
         // L45
-        let mut value = pob_lua::format::tonumber_bytes(num)
-            .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on local 'value' (a nil value)"));
+        let mut value = pob_lua::format::tonumber_bytes(num).unwrap_or_else(|| {
+            lua_error!("attempt to perform arithmetic on local 'value' (a nil value)")
+        });
         // L46
         if let Some(b) = baseValueScalar.filter(|b| *b != 1.0) {
             // L47
@@ -274,7 +331,12 @@ pub fn applyValueScalar(
     // L51
     if precision.is_some() {
         // L52
-        return gsub_fn_bytes(line, "(%d+%.?%d*)", |c| scaleValue(cap_bytes(c, 0)).into_bytes(), n);
+        return gsub_fn_bytes(
+            line,
+            "(%d+%.?%d*)",
+            |c| scaleValue(cap_bytes(c, 0)).into_bytes(),
+            n,
+        );
     }
     // L54
     gsub_fn_bytes(
@@ -379,7 +441,12 @@ fn antonymFunc_bytes(num: &[u8], word: &[u8]) -> Vec<u8> {
 
 /// `gsub(p, antonymFunc)` (both captures).
 fn gsub_antonym(s: &str, p: &str) -> String {
-    gsub_fn_bytes(s, p, |c| antonymFunc_bytes(cap_bytes(c, 0), cap_bytes(c, 1)), None)
+    gsub_fn_bytes(
+        s,
+        p,
+        |c| antonymFunc_bytes(cap_bytes(c, 0), cap_bytes(c, 1)),
+        None,
+    )
 }
 
 /// @pob Modules/ItemTools.lua:88-90 h=40feee29
@@ -512,7 +579,8 @@ pub fn applyRange(
                 // L139
                 for &i in indices.iter() {
                     // L140
-                    modifiedLine = replaceNthInstance(&modifiedLine, &values[i - 1], i - substituted);
+                    modifiedLine =
+                        replaceNthInstance(&modifiedLine, &values[i - 1], i - substituted);
                     // L141
                     substituted += 1;
                 }
@@ -790,7 +858,11 @@ pub fn applyRange(
                         precisionSame = false;
                     }
                     // L315
-                    let mut out = if minPrecision < 0.0 { Vec::new() } else { plus.to_vec() };
+                    let mut out = if minPrecision < 0.0 {
+                        Vec::new()
+                    } else {
+                        plus.to_vec()
+                    };
                     out.extend_from_slice(tostring_num(minPrecision).as_bytes());
                     out
                 },
@@ -862,7 +934,11 @@ pub fn applyRange(
                     (min + arith(range, "local 'range'") * (cap_num(c, 2) - min)) * power + 0.5,
                 ) / power;
                 // L346
-                let mut out = if numVal < 0.0 { Vec::new() } else { plus.to_vec() };
+                let mut out = if numVal < 0.0 {
+                    Vec::new()
+                } else {
+                    plus.to_vec()
+                };
                 out.extend_from_slice(tostring_num(numVal).as_bytes());
                 out
             },
@@ -879,7 +955,13 @@ pub fn applyRange(
         }
 
         // L354
-        applyValueScalar(&line, valueScalar, baseValueScalar, Some(numbers), precision)
+        applyValueScalar(
+            &line,
+            valueScalar,
+            baseValueScalar,
+            Some(numbers),
+            precision,
+        )
     }
 }
 
@@ -887,7 +969,8 @@ pub fn applyRange(
 /// @pob Modules/ItemTools.lua:357-359 h=49fbc3b8
 pub fn isModLineScalable(line: &str, range: &Val, valueScalar: Option<f64>) -> bool {
     // L358
-    applyRange(line, range, valueScalar, Some(1.0)) != applyRange(line, range, valueScalar, Some(2.0))
+    applyRange(line, range, valueScalar, Some(1.0))
+        != applyRange(line, range, valueScalar, Some(2.0))
 }
 
 /// @pob Modules/ItemTools.lua:361-382 h=57921347
@@ -948,7 +1031,10 @@ pub fn formatModLine(modLine: &Table, dbMode: bool) -> Option<String> {
             let e = match &extra {
                 Val::Str(s) => s.to_string(),
                 Val::Num(n) => tostring_num(*n),
-                other => lua_error!("attempt to concatenate field 'extra' (a {} value)", other.lua_type()),
+                other => lua_error!(
+                    "attempt to concatenate field 'extra' (a {} value)",
+                    other.lua_type()
+                ),
             };
             line = format!("{line}   ^1'{e}'");
         }

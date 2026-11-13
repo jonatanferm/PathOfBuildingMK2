@@ -65,7 +65,6 @@ use pob_ui_oracle::lua_calc::LuaCalcBridge;
 use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
 
 fn inputs() -> Option<PathBuf> {
@@ -288,7 +287,15 @@ fn compare_entry(cx: &mut Cx, xml: Option<&str>, label: Option<&str>) -> Option<
     let xml = xml?;
     init::flush_window_titles(cx);
     let m = pob_calc::model::Build::new(pob_gamedata::data());
-    let closed = pob_calc::model::build_xml::Init_model(&m, None, Some(&label), Some(xml), false, None, false);
+    let closed = pob_calc::model::build_xml::Init_model(
+        &m,
+        None,
+        Some(&label),
+        Some(xml),
+        false,
+        None,
+        false,
+    );
     DROP_TITLES.with(|d| d.set(true));
     init::flush_window_titles(cx);
     DROP_TITLES.with(|d| d.set(false));
@@ -307,7 +314,8 @@ fn compare_entry(cx: &mut Cx, xml: Option<&str>, label: Option<&str>) -> Option<
 
 /// `self.controls[key]` of the tab.
 fn c(cx: &Cx, me: CtrlId, key: &'static str) -> CtrlId {
-    cx.child(me, key).unwrap_or_else(|| panic!("controls.{key}"))
+    cx.child(me, key)
+        .unwrap_or_else(|| panic!("controls.{key}"))
 }
 
 fn at(cx: &mut Cx, id: CtrlId, x: f64, y: f64) {
@@ -337,17 +345,32 @@ fn draw_compare(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
     at(cx, anchor, vp.x + 4.0, vp.y + 96.0);
     if !ci::st(cx, me).compareEntries.is_empty() {
         cx.sg.set_draw_color(0.25, 0.25, 0.25);
-        cx.sg.draw_image(None, vp.x + 4.0, vp.y + 32.0, vp.width - 8.0, 2.0);
-        cx.sg.draw_image(None, vp.x + 4.0, vp.y + 88.0, vp.width - 8.0, 2.0);
-        cx.sg.draw_image(None, vp.x + 4.0, vp.y + 122.0, vp.width - 8.0, 2.0);
+        cx.sg
+            .draw_image(None, vp.x + 4.0, vp.y + 32.0, vp.width - 8.0, 2.0);
+        cx.sg
+            .draw_image(None, vp.x + 4.0, vp.y + 88.0, vp.width - 8.0, 2.0);
+        cx.sg
+            .draw_image(None, vp.x + 4.0, vp.y + 122.0, vp.width - 8.0, 2.0);
     }
     let (x, y, w, h) = (vp.x, vp.y + 126.0, vp.width, vp.height - 126.0);
     let entry = CompareTab::GetActiveCompare(cx, me);
     let mode = ci::st(cx, me).compareViewMode;
     if let Some(entry) = &entry {
-        CompareTab::PopulateSetDropdown(cx, SetTab::Skills(&entry.model.skillsTab), c(cx, me, "compareSkillSetSelect"));
-        CompareTab::PopulateSetDropdown(cx, SetTab::Items(&entry.model.itemsTab), c(cx, me, "compareItemSetSelect"));
-        CompareTab::PopulateSetDropdown(cx, SetTab::Config(&entry.model.configTab), c(cx, me, "compareConfigSetSelect"));
+        CompareTab::PopulateSetDropdown(
+            cx,
+            SetTab::Skills(&entry.model.skillsTab),
+            c(cx, me, "compareSkillSetSelect"),
+        );
+        CompareTab::PopulateSetDropdown(
+            cx,
+            SetTab::Items(&entry.model.itemsTab),
+            c(cx, me, "compareItemSetSelect"),
+        );
+        CompareTab::PopulateSetDropdown(
+            cx,
+            SetTab::Config(&entry.model.configTab),
+            c(cx, me, "compareConfigSetSelect"),
+        );
         match mode {
             "CONFIG" => {
                 let s = ci::st(cx, me);
@@ -411,8 +434,14 @@ fn draw_compare(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
         None => {
             cx.sg.set_viewport(x, y, w, h);
             cx.sg.set_draw_color(1.0, 1.0, 1.0);
-            cx.sg
-                .draw_string(0.0, 40.0, Align::Center, 20.0, Font::Var, "^7No comparison build loaded.");
+            cx.sg.draw_string(
+                0.0,
+                40.0,
+                Align::Center,
+                20.0,
+                Font::Var,
+                "^7No comparison build loaded.",
+            );
             let pos = cx.main.cc.POSITIVE.clone();
             cx.sg.draw_string(
                 0.0,
@@ -458,7 +487,10 @@ fn draw_compare(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
                 }
             } else if mode == "ITEMS" {
                 for j in CompareTab::GetJewelComparisonSlots(cx, entry) {
-                    let name = |i: &Option<pob_app::model::ItemRef>| i.as_ref().map_or("-".to_owned(), |i| i.name.get().to_string());
+                    let name = |i: &Option<pob_app::model::ItemRef>| {
+                        i.as_ref()
+                            .map_or("-".to_owned(), |i| i.name.get().to_string())
+                    };
                     lines.push(format!(
                         "J {} {} {}/{} {} {} {}",
                         j.label,
@@ -473,7 +505,8 @@ fn draw_compare(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
             }
             let mut line = y + 110.0;
             for l in lines {
-                cx.sg.draw_string(x + 10.0, line, Align::Left, 14.0, Font::Var, &l);
+                cx.sg
+                    .draw_string(x + 10.0, line, Align::Left, 14.0, Font::Var, &l);
                 line += 16.0;
             }
         }
@@ -494,15 +527,21 @@ fn rust_stubs() {
                 .add(
                     me,
                     "u46CopyItem",
-                    ButtonControl::new(Anchor::NONE, rect(0, 0, 120, 20), "u46 copy ring", move |cx| {
-                        if let Some(entry) = CompareTab::GetActiveCompare(cx, me) {
-                            CompareTab::CopyCompareItemToPrimary(cx, "Ring 1", &entry, true);
-                        }
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(0, 0, 120, 20),
+                        "u46 copy ring",
+                        move |cx| {
+                            if let Some(entry) = CompareTab::GetActiveCompare(cx, me) {
+                                CompareTab::CopyCompareItemToPrimary(cx, "Ring 1", &entry, true);
+                            }
+                        },
+                    ),
                 )
                 .id();
             cx.base_mut(b).shown = Prop::f(move |cx, _| {
-                ci::st(cx, me).compareViewMode == "ITEMS" && CompareTab::GetActiveCompare(cx, me).is_some()
+                ci::st(cx, me).compareViewMode == "ITEMS"
+                    && CompareTab::GetActiveCompare(cx, me).is_some()
             });
             me
         });
@@ -515,7 +554,10 @@ fn rust_stubs() {
             cx.add(
                 me,
                 "comparePowerReportList",
-                New::new(Base::new(Anchor::NONE, rect(0, 0, 750, 250)), ci::PendingPowerReportList),
+                New::new(
+                    Base::new(Anchor::NONE, rect(0, 0, 750, 250)),
+                    ci::PendingPowerReportList,
+                ),
             )
             .id()
         });
@@ -627,14 +669,18 @@ impl pob_sg::Platform for RecordingPlatform {
         self.inner.time_ms()
     }
     fn copy(&mut self, text: &str) {
-        self.effects.borrow_mut().push(SideEffect::Copy(text.to_owned()));
+        self.effects
+            .borrow_mut()
+            .push(SideEffect::Copy(text.to_owned()));
         self.inner.copy(text);
     }
     fn paste(&mut self) -> Option<String> {
         self.inner.paste()
     }
     fn open_url(&mut self, url: &str) {
-        self.effects.borrow_mut().push(SideEffect::OpenUrl(url.to_owned()));
+        self.effects
+            .borrow_mut()
+            .push(SideEffect::OpenUrl(url.to_owned()));
         self.inner.open_url(url);
     }
     fn set_window_title(&mut self, title: &str) {
@@ -790,7 +836,10 @@ impl ScenarioApp for RustSide {
 // ---- T4 (the rules are u20's; see its module notes) ----
 
 fn unordered_children(elem: &str) -> bool {
-    matches!(elem, "Calcs" | "ConfigSet" | "ItemSet" | "Sockets" | "Overrides")
+    matches!(
+        elem,
+        "Calcs" | "ConfigSet" | "ItemSet" | "Sockets" | "Overrides"
+    )
 }
 
 /// The UI-only savers compared separately (a difference is reported, not failed).
@@ -804,7 +853,8 @@ struct T4Notes {
 }
 
 fn ambiguous_variant(node: &XmlNode) -> bool {
-    let (Some(game_id), Some(skill_id)) = (node.attrib.get("gemId"), node.attrib.get("skillId")) else {
+    let (Some(game_id), Some(skill_id)) = (node.attrib.get("gemId"), node.attrib.get("skillId"))
+    else {
         return false;
     };
     let n = pob_gamedata::data()
@@ -819,14 +869,19 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
     let mut attrs: Vec<(String, String)> = Vec::new();
     for (k, v) in &node.attrib {
         let rust_default = match (&*node.elem, &**k) {
-            ("Gem", "enableGlobal1" | "enableGlobal2") | ("Skill", "includeInFullDPS") => Some("false"),
+            ("Gem", "enableGlobal1" | "enableGlobal2") | ("Skill", "includeInFullDPS") => {
+                Some("false")
+            }
             ("Skill", "mainActiveSkill" | "mainActiveSkillCalcs") => Some("0"),
             _ => None,
         };
         if let Some(d) = rust_default.filter(|_| &**v == "nil") {
             notes.gem_nil_bools += 1;
             attrs.push((k.to_string(), d.to_owned()));
-        } else if &*node.elem == "Gem" && matches!(&**k, "variantId" | "nameSpec") && ambiguous_variant(node) {
+        } else if &*node.elem == "Gem"
+            && matches!(&**k, "variantId" | "nameSpec")
+            && ambiguous_variant(node)
+        {
             if k.as_ref() == "variantId" {
                 notes.ambiguous_variants += 1;
             }
@@ -882,7 +937,9 @@ fn compare_t4(what: &str, lua: &str, rust: &str, notes: &mut T4Notes) -> Result<
     let mut local = T4Notes::default();
     let section = |root: &XmlNode, elem: &str, lua: bool| {
         root.children.iter().find_map(|ch| match ch {
-            XmlChild::Node(n) if *n.elem == *elem => Some(normalise(n, false, lua, &mut T4Notes::default())),
+            XmlChild::Node(n) if *n.elem == *elem => {
+                Some(normalise(n, false, lua, &mut T4Notes::default()))
+            }
             _ => None,
         })
     };
@@ -979,10 +1036,15 @@ fn run_sides(
     let src = std::fs::canonicalize(root.join("src")).unwrap_or_else(|_| root.join("src"));
     let mut rust_side = RustSide::new(PlatformParts { sg, sys }, src);
     let mut d = Driver::new(screen, handles, user.path.clone());
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runner::drive(&mut rust_side, script, &mut d)));
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runner::drive(&mut rust_side, script, &mut d)
+    }));
     let (mut frames, error) = match res {
         Ok((frames, r)) => (frames, r.err().map(|e| e.to_string())),
-        Err(p) => (Vec::new(), Some(format!("panicked: {}", pob_host::panic_message(&*p)))),
+        Err(p) => (
+            Vec::new(),
+            Some(format!("panicked: {}", pob_host::panic_message(&*p))),
+        ),
     };
     if std::env::var_os("U46_DUMP_POS").is_some() {
         dump_positions(&rust_side.app.cx);
@@ -1031,25 +1093,69 @@ fn dump_positions(cx: &Cx) {
 }
 
 const DUMP_KEYS: &[&str] = &[
-    "subTabSummary", "subTabTree", "subTabSkills", "subTabItems", "subTabCalcs", "subTabConfig",
-    "compareBuildLabel", "compareBuildSelect", "importBtn", "reimportBtn", "removeBtn",
-    "compareSpecSelect", "compareSkillSetSelect", "compareItemSetSelect", "compareConfigSetSelect",
-    "cmpSocketGroup", "copyConfigBtn", "configToggleBtn", "configSearchEdit", "configPrimarySetSelect",
-    "leftSpecSelect", "leftVersionSelect", "rightSpecSelect", "rightVersionSelect", "copySpecBtn",
-    "copySpecUseBtn", "treeOverlayCheck", "overlayTreeSearch", "leftTreeSearch", "rightTreeSearch",
-    "itemsExpandedCheck", "primaryItemSetSelect", "compareItemSetSelect2", "primaryTreeSetSelect",
-    "compareTreeSetSelect", "u46CopyItem", "comparePowerStatSelect", "comparePowerTreeCheck",
-    "comparePowerConfigCheck", "calcsShowOnlyDifferencesCheck",
+    "subTabSummary",
+    "subTabTree",
+    "subTabSkills",
+    "subTabItems",
+    "subTabCalcs",
+    "subTabConfig",
+    "compareBuildLabel",
+    "compareBuildSelect",
+    "importBtn",
+    "reimportBtn",
+    "removeBtn",
+    "compareSpecSelect",
+    "compareSkillSetSelect",
+    "compareItemSetSelect",
+    "compareConfigSetSelect",
+    "cmpSocketGroup",
+    "copyConfigBtn",
+    "configToggleBtn",
+    "configSearchEdit",
+    "configPrimarySetSelect",
+    "leftSpecSelect",
+    "leftVersionSelect",
+    "rightSpecSelect",
+    "rightVersionSelect",
+    "copySpecBtn",
+    "copySpecUseBtn",
+    "treeOverlayCheck",
+    "overlayTreeSearch",
+    "leftTreeSearch",
+    "rightTreeSearch",
+    "itemsExpandedCheck",
+    "primaryItemSetSelect",
+    "compareItemSetSelect2",
+    "primaryTreeSetSelect",
+    "compareTreeSetSelect",
+    "u46CopyItem",
+    "comparePowerStatSelect",
+    "comparePowerTreeCheck",
+    "comparePowerConfigCheck",
+    "calcsShowOnlyDifferencesCheck",
 ];
 
 const POPUP_KEYS: &[&str] = &[
-    "label", "input", "name", "state", "go", "importFolder", "cancel", "searchText", "sort",
-    "buildList", "open", "close",
+    "label",
+    "input",
+    "name",
+    "state",
+    "go",
+    "importFolder",
+    "cancel",
+    "searchText",
+    "sort",
+    "buildList",
+    "open",
+    "close",
 ];
 
 fn out_dir() -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR")
-        .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"), PathBuf::from)
+        .map_or_else(
+            || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"),
+            PathBuf::from,
+        )
         .join("ui-parity")
 }
 
@@ -1058,7 +1164,14 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
     frames
         .iter()
         .flat_map(|f| &f.calls)
-        .filter(|c| matches!(c.call, ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }))
+        .filter(|c| {
+            matches!(
+                c.call,
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
+            )
+        })
         .count()
 }
 
@@ -1101,7 +1214,11 @@ fn t4(lua: &Side, rust: &Side, notes: &mut T4Notes) -> Result<(usize, usize), Ve
     let mut errs = Vec::new();
     let (mut n, mut same) = (0, 0);
     if lua.snapshots.len() != rust.snapshots.len() {
-        errs.push(format!("snapshots: lua {} rust {}", lua.snapshots.len(), rust.snapshots.len()));
+        errs.push(format!(
+            "snapshots: lua {} rust {}",
+            lua.snapshots.len(),
+            rust.snapshots.len()
+        ));
     }
     for ((ln, lx), (_, rx)) in lua.snapshots.iter().zip(&rust.snapshots) {
         n += 1;
@@ -1130,7 +1247,10 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
     }
     for d in directives(text, "u46-expect-snapshot") {
         let (name, want) = d.split_once(' ').unwrap_or((d.as_str(), ""));
-        let found = lua.snapshots.iter().any(|(n, x)| n == name && x.contains(want));
+        let found = lua
+            .snapshots
+            .iter()
+            .any(|(n, x)| n == name && x.contains(want));
         if !found {
             errs.push(format!("Lua snapshot {name} does not contain {want:?}"));
         }
@@ -1168,7 +1288,10 @@ fn u46_scenarios() {
             continue;
         }
         let (script, _) = runner::load_script(&path).unwrap();
-        let own_screen = matches!(script.steps.first(), Some(pob_host::script::Step::Screen { .. }));
+        let own_screen = matches!(
+            script.steps.first(),
+            Some(pob_host::script::Step::Screen { .. })
+        );
         let screens: Vec<(i32, i32, f32)> = if own_screen {
             vec![(1280, 800, 1.0)]
         } else {
@@ -1192,7 +1315,12 @@ fn u46_scenarios() {
             } else {
                 format!("u46_{stem}@{w}x{h}@{s}")
             };
-            let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s)) {
+            let (lua, rust) = match run_sides(
+                &root,
+                &script,
+                fx.user_dir.as_deref(),
+                runner::screen(w, h, s),
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     out.failures.push(format!("{tag}: {e:#}"));

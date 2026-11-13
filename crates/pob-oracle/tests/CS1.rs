@@ -125,7 +125,13 @@ fn ensure_oracle(
         src,
         &text,
         // the probe options live in this file, the prelude in runner.rs
-        &["CS1 oracle_run 1", stem, CS1_LUA, include_str!("CS1.rs"), include_str!("../src/runner.rs")],
+        &[
+            "CS1 oracle_run 1",
+            stem,
+            CS1_LUA,
+            include_str!("CS1.rs"),
+            include_str!("../src/runner.rs"),
+        ],
         |dir| oracle_run(src, xml, stem, dir).map(|_| ()),
     )?;
     let info: J = std::fs::read_to_string(dir.join("cs1.json"))
@@ -774,8 +780,8 @@ fn cs1_l4_initEnv_488_to_800() {
     let stages = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/CS1/stages.toml");
     // TP1: the shared patched copy (every worktree keys the oracle cache by the same tree)
     let _ = &pob_src;
-    let patched = pob_oracle::testkit::shared_patch(Some(&stages))
-        .unwrap_or_else(|e| panic!("patch: {e}"));
+    let patched =
+        pob_oracle::testkit::shared_patch(Some(&stages)).unwrap_or_else(|e| panic!("patch: {e}"));
     let (mut pairs, mut ok, mut bad_order, mut bad_order_failed) = (0, 0, 0, 0);
     let mut failures: Vec<String> = Vec::new();
     let mut oracle_failures = Vec::new();
@@ -788,7 +794,8 @@ fn cs1_l4_initEnv_488_to_800() {
     type BuildRun = Result<(usize, Vec<Checked>, BTreeMap<&'static str, usize>, usize), String>;
     let run_build = |xml: &PathBuf| -> BuildRun {
         let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
-        let (dir, n) = ensure_oracle(&patched.src, xml, &stem).map_err(|e| format!("{stem}: {e}"))?;
+        let (dir, n) =
+            ensure_oracle(&patched.src, xml, &stem).map_err(|e| format!("{stem}: {e}"))?;
         let info: J = std::fs::read_to_string(dir.join("cs1.json"))
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -806,61 +813,65 @@ fn cs1_l4_initEnv_488_to_800() {
     };
     let mut merged_filtered: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut merged_limited = 0usize;
-    pob_oracle::testkit::par_for_each(&corpus, |_, xml| run_build(xml), |_, xml, r| {
-        let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
-        let (n, checked, filtered, limited) = match r {
-            Ok(x) => x,
-            Err(e) => {
-                oracle_failures.push(e);
-                return;
-            }
-        };
-        for (k, v) in filtered {
-            *merged_filtered.entry(k).or_default() += v;
-        }
-        merged_limited += limited;
-        let mut build_ok = 0;
-        for (k, (shape, checked)) in (1..=n).zip(checked) {
-            pairs += 1;
-            let e = shapes.entry(shape.clone()).or_default();
-            e.0 += 1;
-            match checked {
-                Ok((mm, order_ok)) => {
-                    if !order_ok {
-                        bad_order += 1;
-                    }
-                    if mm.is_empty() {
-                        ok += 1;
-                        build_ok += 1;
-                        e.1 += 1;
-                    } else {
-                        if !order_ok {
-                            bad_order_failed += 1;
-                        }
-                        failures.push(format!(
-                            "{stem} #{k} ({shape}{}): {} mismatches",
-                            if order_ok {
-                                ""
-                            } else {
-                                ", order not reproduced"
-                            },
-                            mm.len()
-                        ));
-                        for m in mm.iter().take(if verbose { usize::MAX } else { 12 }) {
-                            failures.push(format!("      {m}"));
-                        }
-                    }
+    pob_oracle::testkit::par_for_each(
+        &corpus,
+        |_, xml| run_build(xml),
+        |_, xml, r| {
+            let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
+            let (n, checked, filtered, limited) = match r {
+                Ok(x) => x,
+                Err(e) => {
+                    oracle_failures.push(e);
+                    return;
                 }
-                Err(e) => failures.push(format!("{stem} #{k} ({shape}): {e}")),
+            };
+            for (k, v) in filtered {
+                *merged_filtered.entry(k).or_default() += v;
             }
-        }
-        if verbose {
-            eprintln!(
-                "{stem}: {build_ok}/{n} pairs identical ({:.0}s)",
-                t0.elapsed().as_secs_f64()
-            );
-        }
-    });
+            merged_limited += limited;
+            let mut build_ok = 0;
+            for (k, (shape, checked)) in (1..=n).zip(checked) {
+                pairs += 1;
+                let e = shapes.entry(shape.clone()).or_default();
+                e.0 += 1;
+                match checked {
+                    Ok((mm, order_ok)) => {
+                        if !order_ok {
+                            bad_order += 1;
+                        }
+                        if mm.is_empty() {
+                            ok += 1;
+                            build_ok += 1;
+                            e.1 += 1;
+                        } else {
+                            if !order_ok {
+                                bad_order_failed += 1;
+                            }
+                            failures.push(format!(
+                                "{stem} #{k} ({shape}{}): {} mismatches",
+                                if order_ok {
+                                    ""
+                                } else {
+                                    ", order not reproduced"
+                                },
+                                mm.len()
+                            ));
+                            for m in mm.iter().take(if verbose { usize::MAX } else { 12 }) {
+                                failures.push(format!("      {m}"));
+                            }
+                        }
+                    }
+                    Err(e) => failures.push(format!("{stem} #{k} ({shape}): {e}")),
+                }
+            }
+            if verbose {
+                eprintln!(
+                    "{stem}: {build_ok}/{n} pairs identical ({:.0}s)",
+                    t0.elapsed().as_secs_f64()
+                );
+            }
+        },
+    );
     // the workers' counts (and, serially, this thread's own) into this thread's counters
     FILTERED.with(|f| {
         let mut f = f.borrow_mut();

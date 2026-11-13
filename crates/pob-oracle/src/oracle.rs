@@ -367,7 +367,9 @@ fn de_mods<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Vec<Mod>, D::
             .map_err(serde::de::Error::custom),
         J::Object(m) if m.is_empty() => Ok(Vec::new()),
         J::Null => Ok(Vec::new()),
-        other => Err(serde::de::Error::custom(format!("expected a mod list, got {other}"))),
+        other => Err(serde::de::Error::custom(format!(
+            "expected a mod list, got {other}"
+        ))),
     }
 }
 

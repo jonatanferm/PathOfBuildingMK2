@@ -646,12 +646,19 @@ fn pob_run(src: &Path, xml: &str, name: &str) -> Result<PobRun, String> {
     let text = pob_oracle::testkit::oracle_query(
         src,
         xml.as_bytes(),
-        &["BM-A pob_run 1", name, QUIET_PRELUDE, ORACLE_LUA, BMA_LUA, &POB_RUN_CALLS.join("\n")],
+        &[
+            "BM-A pob_run 1",
+            name,
+            QUIET_PRELUDE,
+            ORACLE_LUA,
+            BMA_LUA,
+            &POB_RUN_CALLS.join("\n"),
+        ],
         || pob_run_texts(src, xml, name).map(|t| serde_json::Value::from(t.to_vec()).to_string()),
     )?;
     let t: Vec<String> = serde_json::from_str(&text).map_err(|e| format!("cached pob_run: {e}"))?;
-    let [pre, preSave, post, outputs] = <[String; 4]>::try_from(t)
-        .map_err(|t| format!("cached pob_run: {} parts", t.len()))?;
+    let [pre, preSave, post, outputs] =
+        <[String; 4]>::try_from(t).map_err(|t| format!("cached pob_run: {} parts", t.len()))?;
     Ok(PobRun {
         pre: parse_lines(&pre),
         preSave,
@@ -871,7 +878,12 @@ fn compare_saves(
 }
 
 /// One build: its tally and its report lines (printed by the caller in corpus order).
-fn run_build(src: &Path, data: &'static Data, path: &Path, saveDir: Option<&Path>) -> (Tally, String) {
+fn run_build(
+    src: &Path,
+    data: &'static Data,
+    path: &Path,
+    saveDir: Option<&Path>,
+) -> (Tally, String) {
     let mut t = Tally::default();
     let mut log = String::new();
     // each build from a clean (thread-local) GlobalCache, as PoB's fresh process per build: under

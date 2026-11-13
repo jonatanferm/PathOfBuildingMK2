@@ -1231,8 +1231,7 @@ fn oracle_records(src: &Path, xml: &Path, stem: &str) -> Result<J, String> {
         text.as_bytes(),
         &["CS0 oracle_records 1", stem, &pre, DRIVE],
         || {
-            let mut pob =
-                JitPob::boot_oracle(src, Some(&pre)).map_err(|e| format!("boot: {e}"))?;
+            let mut pob = JitPob::boot_oracle(src, Some(&pre)).map_err(|e| format!("boot: {e}"))?;
             pob.load_build_xml(&text, stem)
                 .map_err(|e| format!("load: {e}"))?;
             let r = pob.run(DRIVE).map_err(|e| format!("drive: {e}"))?;
@@ -1322,8 +1321,8 @@ fn cs0_function_probes() {
     // TP1: the patched copy is the shared one (every worktree boots, and so keys the query
     // cache by, the same tree)
     let _ = &pob_src;
-    let patched = pob_oracle::testkit::shared_patch(Some(&stages))
-        .unwrap_or_else(|e| panic!("patch: {e}"));
+    let patched =
+        pob_oracle::testkit::shared_patch(Some(&stages)).unwrap_or_else(|e| panic!("patch: {e}"));
     let ids = [
         "initModDB",
         "buildModListForNodeList",

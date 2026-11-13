@@ -286,7 +286,14 @@ fn add_extra_radius_nodes(env: &Env, nodesInRadius: Option<Table>, index: &Val) 
 }
 
 /// `{ nodes = …, func = …, type = …, item = item, nodeId = …, attributes = …, data = { } }`.
-fn radius_entry(nodes: Val, func: Val, r#type: Val, item: &ItemRef, nodeId: f64, attributes: Val) -> Table {
+fn radius_entry(
+    nodes: Val,
+    func: Val,
+    r#type: Val,
+    item: &ItemRef,
+    nodeId: f64,
+    attributes: Val,
+) -> Table {
     let t = Table::new();
     t.set(n!("nodes"), nodes);
     t.set(n!("func"), func);
@@ -334,7 +341,6 @@ fn combined(srcList: &[ModRef]) -> ModList {
     }
     combinedList
 }
-
 
 /// `slot.slotName` (a string).
 fn slot_name(slot: &Table) -> Name {

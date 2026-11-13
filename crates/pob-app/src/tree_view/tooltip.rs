@@ -56,7 +56,9 @@ use super::compare::compare_jewels_equal;
 use super::PassiveTreeView;
 use crate::app::CxApp;
 use crate::build::stats::add_stat_compares_to_tooltip;
-use crate::controls::gem_tooltip::{add_gem_tooltip, GemTooltipOptions, TooltipGemData, TooltipGemInstance};
+use crate::controls::gem_tooltip::{
+    add_gem_tooltip, GemTooltipOptions, TooltipGemData, TooltipGemInstance,
+};
 use crate::model::{Node, NodeRef, Output, Override, Table, Val};
 use crate::tabs::items::slot_helper::items_hooks;
 
@@ -79,7 +81,10 @@ fn str_list(node: &Node, k: &str) -> Option<Vec<String>> {
             .map(|(_, v)| match v {
                 Val::Str(s) => s.to_string(),
                 Val::Num(x) => pob_lua::tostring(x),
-                other => lua_error!("attempt to concatenate local 'line' (a {} value)", other.lua_type()),
+                other => lua_error!(
+                    "attempt to concatenate local 'line' (a {} value)",
+                    other.lua_type()
+                ),
             })
             .collect()
     })
@@ -119,7 +124,10 @@ fn remove_node_id(node_id: f64) -> Rc<Override> {
 }
 
 /// `calcFunc(override)` on the desktop facade (always Ready; module notes for wasm).
-fn call(calc_func: &Rc<dyn crate::calc::facade::MiscCalc>, ov: Option<Rc<Override>>) -> Option<Output> {
+fn call(
+    calc_func: &Rc<dyn crate::calc::facade::MiscCalc>,
+    ov: Option<Rc<Override>>,
+) -> Option<Output> {
     match calc_func.call(ov, None) {
         Poll::Ready(o) => Some(o),
         Poll::Pending => None,
@@ -138,12 +146,22 @@ impl PassiveTreeView {
     /// lua: PassiveTreeView.lua:1476-1770 `PassiveTreeView:AddNodeTooltip(tooltip, node, build,
     /// returnEarly)`
     /// @pob Classes/PassiveTreeView.lua:1476-1770 h=2bd0fcbf
-    pub fn add_node_tooltip(&mut self, cx: &mut Cx, tooltip: &mut Tooltip, node: &NodeRef, return_early: bool) {
+    pub fn add_node_tooltip(
+        &mut self,
+        cx: &mut Cx,
+        tooltip: &mut Tooltip,
+        node: &NodeRef,
+        return_early: bool,
+    ) {
         let fs = Some(Font::Fontin);
         let build = cx.build().model.clone();
         let cc = cx.main.cc.clone();
         // L1477
-        let font_size_big = if cx.main.show_flavour_text { 18.0 } else { 16.0 };
+        let font_size_big = if cx.main.show_flavour_text {
+            18.0
+        } else {
+            16.0
+        };
         // L1478
         self.skill_tooltip.clear(false);
         // L1479
@@ -152,38 +170,49 @@ impl PassiveTreeView {
         tooltip.max_width = Some(800.0);
         // Appends the compare spec's jewel tooltip if it has a jewel in this allocated socket.
         // L1482-1494 local function addCompareJewelSection(socket, withLabel)
-        let add_compare_jewel_section =
-            |view: &PassiveTreeView, cx: &mut Cx, tooltip: &mut Tooltip, socket: Option<&Table>, with_label: bool| -> bool {
-                // L1483
-                let c_jewel = view.compare_spec.as_ref().and_then(|_| view.get_compare_jewel(node.id));
-                // L1484
-                let c_allocated = view
-                    .compare_spec
-                    .as_ref()
-                    .is_some_and(|cs| cs.allocNodes.with(|m| m.get(node.id as i64)).is_some());
-                // L1485
-                let Some(c_jewel) = c_jewel.filter(|_| c_allocated) else {
-                    // L1486
-                    return false;
-                };
-                // L1488
-                if with_label {
-                    // L1489
-                    tooltip.add_separator(cx, Some(14.0));
-                    // L1490
-                    tooltip.add_line(cx, 14.0, &format!("{}Compared build:", cx.main.cc.DEXTERITY));
-                }
-                // L1492 (`self.compareSpec.build`: the compare spec's own build, FUP6)
-                let c_build = view
-                    .compare_spec
-                    .as_ref()
-                    .and_then(|cs| cs.build.upgrade())
-                    .unwrap_or_else(|| lua_error!("attempt to index field 'build' (a nil value)"));
-                let h = items_hooks().add_item_tooltip;
-                h(cx, &c_build, tooltip, &c_jewel, socket, false);
-                // L1493
-                true
+        let add_compare_jewel_section = |view: &PassiveTreeView,
+                                         cx: &mut Cx,
+                                         tooltip: &mut Tooltip,
+                                         socket: Option<&Table>,
+                                         with_label: bool|
+         -> bool {
+            // L1483
+            let c_jewel = view
+                .compare_spec
+                .as_ref()
+                .and_then(|_| view.get_compare_jewel(node.id));
+            // L1484
+            let c_allocated = view
+                .compare_spec
+                .as_ref()
+                .is_some_and(|cs| cs.allocNodes.with(|m| m.get(node.id as i64)).is_some());
+            // L1485
+            let Some(c_jewel) = c_jewel.filter(|_| c_allocated) else {
+                // L1486
+                return false;
             };
+            // L1488
+            if with_label {
+                // L1489
+                tooltip.add_separator(cx, Some(14.0));
+                // L1490
+                tooltip.add_line(
+                    cx,
+                    14.0,
+                    &format!("{}Compared build:", cx.main.cc.DEXTERITY),
+                );
+            }
+            // L1492 (`self.compareSpec.build`: the compare spec's own build, FUP6)
+            let c_build = view
+                .compare_spec
+                .as_ref()
+                .and_then(|cs| cs.build.upgrade())
+                .unwrap_or_else(|| lua_error!("attempt to index field 'build' (a nil value)"));
+            let h = items_hooks().add_item_tooltip;
+            h(cx, &c_build, tooltip, &c_jewel, socket, false);
+            // L1493
+            true
+        };
 
         let ty = node.r#type.get();
         // Special case for sockets
@@ -220,7 +249,11 @@ impl PassiveTreeView {
                 // L1509
                 tooltip.add_separator(cx, Some(14.0));
                 // L1510
-                tooltip.add_line(cx, 16.0, &format!("{}Compared build: ^7(empty socket)", cc.WARNING));
+                tooltip.add_line(
+                    cx,
+                    16.0,
+                    &format!("{}Compared build: ^7(empty socket)", cc.WARNING),
+                );
             }
             // L1512
             if let Some(d) = node.distanceToClassStart.get().filter(|d| *d > 0.0) {
@@ -244,7 +277,11 @@ impl PassiveTreeView {
                 );
             }
             // L1520
-            tooltip.add_line(cx, 14.0, &format!("{}Tip: Hold Shift or Ctrl to hide this tooltip.", cc.TIP));
+            tooltip.add_line(
+                cx,
+                14.0,
+                &format!("{}Tip: Hold Shift or Ctrl to hide this tooltip.", cc.TIP),
+            );
             // L1521
             return;
         }
@@ -257,7 +294,11 @@ impl PassiveTreeView {
             // L1527
             if add_compare_jewel_section(self, cx, tooltip, socket.as_ref(), false) {
                 // L1528
-                tooltip.add_line(cx, 14.0, &format!("{}Tip: Hold Shift or Ctrl to hide this tooltip.", cc.TIP));
+                tooltip.add_line(
+                    cx,
+                    14.0,
+                    &format!("{}Tip: Hold Shift or Ctrl to hide this tooltip.", cc.TIP),
+                );
                 // L1529
                 return;
             }
@@ -289,61 +330,75 @@ impl PassiveTreeView {
         }
 
         // L1543-1566 local function addModInfoToTooltip(node, i, line)
-        let add_mod_info_to_tooltip = |cx: &mut Cx, tooltip: &mut Tooltip, node: &Node, i: usize, line: String| {
-            let mods = node.mods.get();
-            // L1544
-            let Some(m) = mods.with(|v| v.get(i - 1).cloned()) else {
-                return;
+        let add_mod_info_to_tooltip =
+            |cx: &mut Cx, tooltip: &mut Tooltip, node: &Node, i: usize, line: String| {
+                let mods = node.mods.get();
+                // L1544
+                let Some(m) = mods.with(|v| v.get(i - 1).cloned()) else {
+                    return;
+                };
+                let mut line = line;
+                let list = m.get(n!("list"));
+                let extra = m.get(n!("extra"));
+                // L1545
+                if dev_mode_alt && list.truthy() {
+                    // Modifier debugging info
+                    // L1547
+                    let mut mod_str: Option<String> = None;
+                    // L1548 (ORDER: module notes)
+                    let entries = list.table().map(|t| t.ipairs()).unwrap_or_default();
+                    for (_, md) in entries {
+                        let text = match &md {
+                            Val::Mod(md) => crate::model::gamedata::mod_tools::formatMod(md),
+                            other => lua_error!(
+                                "modLib.formatMod: a {} value in node.mods[i].list",
+                                other.lua_type()
+                            ),
+                        };
+                        // L1549
+                        mod_str = Some(format!(
+                            "{}{text}",
+                            mod_str.map_or_else(|| "^2".to_owned(), |s| format!("{s}, "))
+                        ));
+                    }
+                    // L1551
+                    if extra.truthy() {
+                        // L1552
+                        mod_str = Some(format!(
+                            "{}{}{}",
+                            mod_str.map_or_else(String::new, |s| format!("{s}  ")),
+                            cx.main.cc.NEGATIVE,
+                            concat_val(&extra)
+                        ));
+                    }
+                    // L1554
+                    if let Some(mod_str) = mod_str {
+                        // L1555
+                        line = format!("{line}  {mod_str}");
+                    }
+                }
+                // L1558
+                if line != " " && (extra.truthy() || !list.truthy()) {
+                    // L1559
+                    let mut line = format!("{}{line}", cx.main.cc.UNSUPPORTED);
+                    // L1560
+                    if cx.main.not_supported_mod_tooltips {
+                        line = format!("{line}{}", cx.app().main.not_supported_tooltip_text);
+                    }
+                    // L1561
+                    tooltip.add_line_ex(cx, font_size_big, &line, fs, None, None);
+                } else {
+                    // L1563
+                    tooltip.add_line_ex(
+                        cx,
+                        font_size_big,
+                        &format!("{}{line}", cx.main.cc.MAGIC),
+                        fs,
+                        None,
+                        None,
+                    );
+                }
             };
-            let mut line = line;
-            let list = m.get(n!("list"));
-            let extra = m.get(n!("extra"));
-            // L1545
-            if dev_mode_alt && list.truthy() {
-                // Modifier debugging info
-                // L1547
-                let mut mod_str: Option<String> = None;
-                // L1548 (ORDER: module notes)
-                let entries = list.table().map(|t| t.ipairs()).unwrap_or_default();
-                for (_, md) in entries {
-                    let text = match &md {
-                        Val::Mod(md) => crate::model::gamedata::mod_tools::formatMod(md),
-                        other => lua_error!("modLib.formatMod: a {} value in node.mods[i].list", other.lua_type()),
-                    };
-                    // L1549
-                    mod_str = Some(format!("{}{text}", mod_str.map_or_else(|| "^2".to_owned(), |s| format!("{s}, "))));
-                }
-                // L1551
-                if extra.truthy() {
-                    // L1552
-                    mod_str = Some(format!(
-                        "{}{}{}",
-                        mod_str.map_or_else(String::new, |s| format!("{s}  ")),
-                        cx.main.cc.NEGATIVE,
-                        concat_val(&extra)
-                    ));
-                }
-                // L1554
-                if let Some(mod_str) = mod_str {
-                    // L1555
-                    line = format!("{line}  {mod_str}");
-                }
-            }
-            // L1558
-            if line != " " && (extra.truthy() || !list.truthy()) {
-                // L1559
-                let mut line = format!("{}{line}", cx.main.cc.UNSUPPORTED);
-                // L1560
-                if cx.main.not_supported_mod_tooltips {
-                    line = format!("{line}{}", cx.app().main.not_supported_tooltip_text);
-                }
-                // L1561
-                tooltip.add_line_ex(cx, font_size_big, &line, fs, None, None);
-            } else {
-                // L1563
-                tooltip.add_line_ex(cx, font_size_big, &format!("{}{line}", cx.main.cc.MAGIC), fs, None, None);
-            }
-        };
 
         // If node is a Mastery node, check if compare tree is on
         // If so, check if the left hand tree is unallocated, but the right hand tree is allocated.
@@ -395,7 +450,10 @@ impl PassiveTreeView {
         }
 
         // L1596
-        let is_runegraft = m_node.overrideType.get().is_some_and(|t| &*t == "AlternateMastery");
+        let is_runegraft = m_node
+            .overrideType
+            .get()
+            .is_some_and(|t| &*t == "AlternateMastery");
         let m_sd = m_node.sd.get().snapshot();
         // L1597
         if !m_sd.is_empty() && m_node.allMasteryOptions.get() && !is_runegraft {
@@ -407,10 +465,9 @@ impl PassiveTreeView {
             tooltip.add_line(cx, 6.0, "");
             // L1601
             let mut line_count = 0usize;
-            let effects = m_node
-                .masteryEffects
-                .get()
-                .unwrap_or_else(|| lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"));
+            let effects = m_node.masteryEffects.get().unwrap_or_else(|| {
+                lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)")
+            });
             let n_effects = effects.len();
             let spec = build.spec.get();
             // L1602
@@ -432,7 +489,10 @@ impl PassiveTreeView {
                 // L1607 (`tree.masteryEffects[id]` is the effect's node table, PassiveTree.lua:561,
                 // so `effectData.sd` is that node's `sd`)
                 let Some(effect_data) = effect_data.obj::<Node>() else {
-                    lua_error!("attempt to index local 'effectData' (a {} value)", effect_data.lua_type())
+                    lua_error!(
+                        "attempt to index local 'effectData' (a {} value)",
+                        effect_data.lua_type()
+                    )
                 };
                 for line in effect_data.sd.get().snapshot() {
                     // L1608
@@ -461,11 +521,20 @@ impl PassiveTreeView {
             // L1623
             for (i, line) in m_sd.iter().enumerate() {
                 // L1624
-                add_mod_info_to_tooltip(cx, tooltip, &m_node, i + 1, format!("{mastery_color}{line}"));
+                add_mod_info_to_tooltip(
+                    cx,
+                    tooltip,
+                    &m_node,
+                    i + 1,
+                    format!("{mastery_color}{line}"),
+                );
             }
             // add child tooltip for skills
             // L1627
-            let list = m_node.finalModList.get().unwrap_or_else(|| m_node.modList.get());
+            let list = m_node
+                .finalModList
+                .get()
+                .unwrap_or_else(|| m_node.modList.get());
             for md in list.ipairs() {
                 // L1628
                 if md.name == n!("ExtraSkill") || md.name == n!("ExtraSupport") {
@@ -499,7 +568,13 @@ impl PassiveTreeView {
                             display_effect: None,
                         };
                         // L1643
-                        add_gem_tooltip(cx, &mut self.skill_tooltip, &build, &gem_inst, Some(options));
+                        add_gem_tooltip(
+                            cx,
+                            &mut self.skill_tooltip,
+                            &build,
+                            &gem_inst,
+                            Some(options),
+                        );
                     }
                 }
             }
@@ -553,7 +628,8 @@ impl PassiveTreeView {
                 || pob_lua::lmatch(&s, "+30 to Intelligence", None).is_some()
         };
         if (node.isTattoo.get()
-            || (&*ty == "Normal" && (&*dn == "Strength" || &*dn == "Dexterity" || &*dn == "Intelligence"))
+            || (&*ty == "Normal"
+                && (&*dn == "Strength" || &*dn == "Dexterity" || &*dn == "Intelligence"))
             || (&*ty == "Notable" && !sd.is_empty() && sd1_matches())
             || &*ty == "Keystone"
             || &*ty == "Mastery")
@@ -562,12 +638,19 @@ impl PassiveTreeView {
             // L1677
             tooltip.add_separator(cx, Some(14.0));
             // L1678
-            let node_edit_type = if &*ty == "Mastery" { "runegraft" } else { "tattoo" };
+            let node_edit_type = if &*ty == "Mastery" {
+                "runegraft"
+            } else {
+                "tattoo"
+            };
             // L1679
             tooltip.add_line(
                 cx,
                 14.0,
-                &format!("{}Tip: Right click to edit the {node_edit_type} for this node", cc.TIP),
+                &format!(
+                    "{}Tip: Right click to edit the {node_edit_type} for this node",
+                    cc.TIP
+                ),
             );
         }
 
@@ -585,7 +668,10 @@ impl PassiveTreeView {
             tooltip.add_line(
                 cx,
                 14.0,
-                &format!("{}Tip: Press Ctrl+D to disable the display of stat differences.", cc.TIP),
+                &format!(
+                    "{}Tip: Press Ctrl+D to disable the display of stat differences.",
+                    cc.TIP
+                ),
             );
         } else {
             // L1732
@@ -594,7 +680,10 @@ impl PassiveTreeView {
             tooltip.add_line(
                 cx,
                 14.0,
-                &format!("{}Tip: Press Ctrl+D to enable the display of stat differences.", cc.TIP),
+                &format!(
+                    "{}Tip: Press Ctrl+D to enable the display of stat differences.",
+                    cc.TIP
+                ),
             );
         }
 
@@ -660,13 +749,21 @@ impl PassiveTreeView {
             // L1756
             tooltip.add_separator(cx, Some(14.0));
             // L1757
-            tooltip.add_line(cx, 14.0, &format!("^7{depends} points gained from unallocating these nodes"));
+            tooltip.add_line(
+                cx,
+                14.0,
+                &format!("^7{depends} points gained from unallocating these nodes"),
+            );
             // L1758
             let gold = pob_ui_core::luastr::format_num_sep_main(
                 &cx.main,
                 &pob_lua::tostring(depends as f64 * arith(gold_cost)),
             );
-            tooltip.add_line(cx, 14.0, &format!("^xFFD700{gold} Gold ^7required to unallocate these nodes"));
+            tooltip.add_line(
+                cx,
+                14.0,
+                &format!("^xFFD700{gold} Gold ^7required to unallocate these nodes"),
+            );
             // L1759
             tooltip.add_line(cx, 14.0, &cc.TIP);
         } else if node.alloc.get() {
@@ -675,19 +772,35 @@ impl PassiveTreeView {
                 &cx.main,
                 &pob_lua::tostring(depends as f64 * arith(gold_cost)),
             );
-            tooltip.add_line(cx, 14.0, &format!("^xFFD700{gold} Gold ^7required to unallocate this node"));
+            tooltip.add_line(
+                cx,
+                14.0,
+                &format!("^xFFD700{gold} Gold ^7required to unallocate this node"),
+            );
             // L1762
             tooltip.add_line(cx, 14.0, &cc.TIP);
         }
         // L1764
         if &*ty == "Socket" {
             // L1765
-            tooltip.add_line(cx, 14.0, &format!("{}Tip: Hold Shift or Ctrl to hide this tooltip.", cc.TIP));
+            tooltip.add_line(
+                cx,
+                14.0,
+                &format!("{}Tip: Hold Shift or Ctrl to hide this tooltip.", cc.TIP),
+            );
         } else {
             // L1767
-            tooltip.add_line(cx, 14.0, &format!("{}Tip: Hold Ctrl to hide this tooltip.", cc.TIP));
+            tooltip.add_line(
+                cx,
+                14.0,
+                &format!("{}Tip: Hold Ctrl to hide this tooltip.", cc.TIP),
+            );
             // L1768
-            tooltip.add_line(cx, 14.0, &format!("{}Tip: Press Ctrl+C to copy this node's text.", cc.TIP));
+            tooltip.add_line(
+                cx,
+                14.0,
+                &format!("{}Tip: Press Ctrl+C to copy this node's text.", cc.TIP),
+            );
         }
     }
 
@@ -741,11 +854,17 @@ impl PassiveTreeView {
             // L1696
             realloc = true;
             // L1697
-            node_output = call(calc_func, Some(add_nodes(node_set(std::slice::from_ref(node)))));
+            node_output = call(
+                calc_func,
+                Some(add_nodes(node_set(std::slice::from_ref(node)))),
+            );
         } else if alloc {
             // Calculate the differences caused by deallocating this node and its dependent nodes
             // L1700
-            node_output = call(calc_func, Some(remove_nodes(node_set(std::slice::from_ref(node)))));
+            node_output = call(
+                calc_func,
+                Some(remove_nodes(node_set(std::slice::from_ref(node)))),
+            );
             // L1701
             if path_length > 1 {
                 // L1702
@@ -769,7 +888,10 @@ impl PassiveTreeView {
                 node_output = call(calc_func, None);
             } else {
                 // L1713
-                node_output = call(calc_func, Some(add_nodes(node_set(std::slice::from_ref(node)))));
+                node_output = call(
+                    calc_func,
+                    Some(add_nodes(node_set(std::slice::from_ref(node)))),
+                );
             }
             // L1715
             if path_length > 1 {
@@ -790,7 +912,14 @@ impl PassiveTreeView {
         } else {
             "^7Allocating this node will give you:"
         };
-        let mut count = add_stat_compares_to_tooltip(cx, tooltip, calc_base, &output_or_raise(node_output), header, None);
+        let mut count = add_stat_compares_to_tooltip(
+            cx,
+            tooltip,
+            calc_base,
+            &output_or_raise(node_output),
+            header,
+            None,
+        );
         // L1720
         if path_length > 1 && !is_granted && (intuitive_leap_len(node) == 0 || alloc) {
             // L1721
@@ -813,7 +942,11 @@ impl PassiveTreeView {
             // L1724
             if is_granted {
                 // L1725
-                tooltip.add_line(cx, 14.0, "^7This node is granted by an item. Removing it will cause no changes");
+                tooltip.add_line(
+                    cx,
+                    14.0,
+                    "^7This node is granted by an item. Removing it will cause no changes",
+                );
             } else {
                 // L1727 (`node.intuitiveLeapLikesAffecting == 0`: module notes)
                 tooltip.add_line(
@@ -837,7 +970,11 @@ impl PassiveTreeView {
         let fs = Some(Font::Fontin);
         let cc = cx.main.cc.clone();
         // L1774
-        let font_size_big = if cx.main.show_flavour_text { 18.0 } else { 16.0 };
+        let font_size_big = if cx.main.show_flavour_text {
+            18.0
+        } else {
+            16.0
+        };
         // L1775
         tooltip.center = true;
         // L1776
@@ -869,7 +1006,11 @@ impl PassiveTreeView {
             // L1787
             tooltip.add_separator(cx, Some(14.0));
             // L1788
-            tooltip.add_line(cx, 14.0, &format!("{}This node is only in the compared build", cc.DEXTERITY));
+            tooltip.add_line(
+                cx,
+                14.0,
+                &format!("{}This node is only in the compared build", cc.DEXTERITY),
+            );
             // L1789
             return;
         }
@@ -894,14 +1035,35 @@ impl PassiveTreeView {
                     // L1801
                     if &**line != " " && (m.truthy(n!("extra")) || !m.truthy(n!("list"))) {
                         // L1802
-                        tooltip.add_line_ex(cx, font_size_big, &format!("{}{line}", cc.UNSUPPORTED), fs, None, None);
+                        tooltip.add_line_ex(
+                            cx,
+                            font_size_big,
+                            &format!("{}{line}", cc.UNSUPPORTED),
+                            fs,
+                            None,
+                            None,
+                        );
                     } else {
                         // L1804
-                        tooltip.add_line_ex(cx, font_size_big, &format!("{}{line}", cc.MAGIC), fs, None, None);
+                        tooltip.add_line_ex(
+                            cx,
+                            font_size_big,
+                            &format!("{}{line}", cc.MAGIC),
+                            fs,
+                            None,
+                            None,
+                        );
                     }
                 } else {
                     // L1807
-                    tooltip.add_line_ex(cx, font_size_big, &format!("{}{line}", cc.MAGIC), fs, None, None);
+                    tooltip.add_line_ex(
+                        cx,
+                        font_size_big,
+                        &format!("{}{line}", cc.MAGIC),
+                        fs,
+                        None,
+                        None,
+                    );
                 }
             }
         }
@@ -940,13 +1102,19 @@ impl PassiveTreeView {
         // L1828
         tooltip.add_separator(cx, Some(14.0));
         // L1829
-        tooltip.add_line(cx, 14.0, &format!("{}This node is only in the compared build", cc.DEXTERITY));
+        tooltip.add_line(
+            cx,
+            14.0,
+            &format!("{}This node is only in the compared build", cc.DEXTERITY),
+        );
     }
 }
 
 /// `x * ...` on `goldCost` (nil raises).
 fn arith(v: Option<f64>) -> f64 {
-    v.unwrap_or_else(|| lua_error!("attempt to perform arithmetic on local 'goldCost' (a nil value)"))
+    v.unwrap_or_else(|| {
+        lua_error!("attempt to perform arithmetic on local 'goldCost' (a nil value)")
+    })
 }
 
 /// A value in a `..` concatenation (strings and numbers; others raise).
@@ -957,4 +1125,3 @@ fn concat_val(v: &Val) -> String {
         other => lua_error!("attempt to concatenate a {} value", other.lua_type()),
     }
 }
-

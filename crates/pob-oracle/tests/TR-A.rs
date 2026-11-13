@@ -798,7 +798,8 @@ fn arm(key: &str, env: &EnvRef) -> Option<Option<TriggerConfig>> {
             } else {
                 for s in env.player.activeSkillList.get().with(|l| l.clone()) {
                     if ge_name(&s) == "Automation" {
-                        m.triggeredBy.get()
+                        m.triggeredBy
+                            .get()
                             .expect("triggeredBy")
                             .grantedEffect
                             .set(s.activeEffect.get().grantedEffect.get());
@@ -870,7 +871,10 @@ fn scaffold_triggers(env: &EnvRef, actor: Option<&ActorRef>, keys: &[String]) ->
     }
     let ge = mainSkill.activeEffect.get().grantedEffect.get();
     let skillName = ge.name;
-    let triggerName = mainSkill.triggeredBy.get().map(|tb| tb.grantedEffect.get().name);
+    let triggerName = mainSkill
+        .triggeredBy
+        .get()
+        .map(|tb| tb.grantedEffect.get().name);
     let uniqueName = if isTriggered(&mainSkill) {
         getUniqueItemTriggerName(&mainSkill)
     } else {
@@ -960,7 +964,12 @@ fn probe_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
         max_dumps: 200,
         provenance: false,
     };
-    testkit::probe_selection(Path::new(env!("CARGO_BIN_EXE_pob_oracle")), xml, None, &opts)
+    testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        None,
+        &opts,
+    )
 }
 
 /// A file of the probe run whose dumps are `state` (`hits.json`, a `hits.json` entry's

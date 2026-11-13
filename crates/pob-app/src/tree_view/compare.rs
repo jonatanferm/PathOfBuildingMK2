@@ -116,7 +116,10 @@ impl PassiveTreeView {
             Some(pick("JewelSocketActiveBlueAlt", "JewelSocketActiveBlue"))
         } else if base_name == Some("Prismatic Jewel") {
             // L139
-            Some(pick("JewelSocketActivePrismaticAlt", "JewelSocketActivePrismatic"))
+            Some(pick(
+                "JewelSocketActivePrismaticAlt",
+                "JewelSocketActivePrismatic",
+            ))
         } else if sub_type == Some("Abyss") {
             // L141
             Some(pick("JewelSocketActiveAbyssAlt", "JewelSocketActiveAbyss"))
@@ -136,7 +139,10 @@ impl PassiveTreeView {
             }
         } else if base_name == Some("Timeless Jewel") {
             // L151
-            Some(pick("JewelSocketActiveLegionAlt", "JewelSocketActiveLegion"))
+            Some(pick(
+                "JewelSocketActiveLegionAlt",
+                "JewelSocketActiveLegion",
+            ))
         } else if base_name == Some("Large Cluster Jewel") {
             // L153
             Some("JewelSocketActiveAltPurple")

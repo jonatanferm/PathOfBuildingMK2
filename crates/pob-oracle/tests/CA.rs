@@ -142,7 +142,9 @@ fn custom_corpus() -> bool {
 /// `.parity/builds/*.xml` (or `$CA_CORPUS_DIR/*.xml`), filtered by `CA_BUILDS` / `CA_LIMIT`.
 fn corpus(parity: &Path) -> Vec<PathBuf> {
     let dir = if custom_corpus() {
-        std::env::var_os("CA_CORPUS_DIR").map(PathBuf::from).unwrap_or_default()
+        std::env::var_os("CA_CORPUS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_default()
     } else {
         parity.join("builds")
     };
@@ -213,7 +215,11 @@ fn flat_table(t: &Table) -> BTreeMap<String, Leaf> {
                 Key::B(b) => b.to_string(),
                 Key::F(f) => tostring_num(f.get()),
             };
-            let path = if prefix.is_empty() { ks } else { format!("{prefix}.{ks}") };
+            let path = if prefix.is_empty() {
+                ks
+            } else {
+                format!("{prefix}.{ks}")
+            };
             match v {
                 Val::Num(x) => {
                     out.insert(path, Leaf::Num(x));
@@ -285,7 +291,9 @@ fn val_json(v: &Val) -> J {
     match v {
         Val::Nil => J::Null,
         Val::Bool(b) => J::Bool(*b),
-        Val::Num(x) => serde_json::Number::from_f64(*x).map_or_else(|| J::String(format!("{x}")), J::Number),
+        Val::Num(x) => {
+            serde_json::Number::from_f64(*x).map_or_else(|| J::String(format!("{x}")), J::Number)
+        }
         Val::Str(s) => J::String(s.to_string()),
         Val::Data(d) => pob_calc::probe::value_json(d),
         Val::Mod(m) => pob_calc::probe::mod_json(m, None),
@@ -300,7 +308,11 @@ fn used_rust(t: &Option<Table>) -> BTreeMap<String, Vec<String>> {
     for (k, v) in t.pairs() {
         let Key::S(k) = k else { continue };
         let mut mods: Vec<String> = match v {
-            Val::Table(l) => l.ipairs().into_iter().map(|(_, m)| canon(&val_json(&m))).collect(),
+            Val::Table(l) => l
+                .ipairs()
+                .into_iter()
+                .map(|(_, m)| canon(&val_json(&m)))
+                .collect(),
             Val::Bool(true) => Vec::new(),
             other => vec![format!("<{}>", other.lua_type())],
         };
@@ -343,11 +355,19 @@ fn take_compared() -> usize {
 }
 
 /// Differences between two used-tracking maps (key sets and per-key mod multisets).
-fn used_diff(name: &str, ours: &BTreeMap<String, Vec<String>>, pob: &BTreeMap<String, Vec<String>>, out: &mut Vec<String>) {
+fn used_diff(
+    name: &str,
+    ours: &BTreeMap<String, Vec<String>>,
+    pob: &BTreeMap<String, Vec<String>>,
+    out: &mut Vec<String>,
+) {
     bump(pob.values().map(|v| v.len() + 1).sum());
     for (k, pv) in pob {
         match ours.get(k) {
-            None => out.push(format!("{name}[{k}]: missing in Rust ({} mods in PoB)", pv.len())),
+            None => out.push(format!(
+                "{name}[{k}]: missing in Rust ({} mods in PoB)",
+                pv.len()
+            )),
             Some(ov) if ov != pv => {
                 let extra: Vec<&String> = ov.iter().filter(|m| !pv.contains(m)).take(1).collect();
                 let miss: Vec<&String> = pv.iter().filter(|m| !ov.contains(m)).take(1).collect();
@@ -371,13 +391,25 @@ fn used_diff(name: &str, ours: &BTreeMap<String, Vec<String>>, pob: &BTreeMap<St
 
 fn clip(s: &str) -> String {
     if s.len() > 220 {
-        format!("{}…", &s[..s.char_indices().take_while(|(i, _)| *i < 220).last().map_or(0, |(i, c)| i + c.len_utf8())])
+        format!(
+            "{}…",
+            &s[..s
+                .char_indices()
+                .take_while(|(i, _)| *i < 220)
+                .last()
+                .map_or(0, |(i, c)| i + c.len_utf8())]
+        )
     } else {
         s.to_owned()
     }
 }
 
-fn leaves_diff(name: &str, ours: &BTreeMap<String, Leaf>, pob: &BTreeMap<String, Leaf>, out: &mut Vec<String>) {
+fn leaves_diff(
+    name: &str,
+    ours: &BTreeMap<String, Leaf>,
+    pob: &BTreeMap<String, Leaf>,
+    out: &mut Vec<String>,
+) {
     bump(pob.len());
     for (k, pv) in pob {
         match ours.get(k) {
@@ -410,10 +442,9 @@ fn calcsTab_BuildOutput(build: &BuildRef) -> Vec<String> {
 /// configTab's GetMiscCalculator; Build.lua 1258-1273). → (build, stage errors of the last
 /// round).
 fn rust_load(xml: &str, rounds: usize) -> Result<(BuildRef, Vec<String>), String> {
-    let build = catch(|| {
-        pob_calc::model::build_xml::loadBuildModelFromXML(xml, pob_gamedata::data())
-    })?
-    .map_err(|e| format!("load: {e}"))?;
+    let build =
+        catch(|| pob_calc::model::build_xml::loadBuildModelFromXML(xml, pob_gamedata::data()))?
+            .map_err(|e| format!("load: {e}"))?;
     // Build:Init (Build.lua 693-697)
     wipeGlobalCache();
     build.outputRevision.set(1.0);
@@ -491,7 +522,9 @@ const LEVEL_COST_GEM_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 /// the gem's cost again.
 #[test]
 fn ca_level_cost_cleared() {
-    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if !init_data() {
         return skip("data/dump/data.bin not found");
     }
@@ -506,7 +539,10 @@ fn ca_level_cost_cleared() {
         let env = build.calcsTab.mainEnv.get().expect("main env");
         let skill = env.player.mainSkill.get().expect("main skill");
         let effect = skill.activeEffect.get();
-        let id = (effect.grantedEffect.get().id.to_string(), effect.level.get());
+        let id = (
+            effect.grantedEffect.get().id.to_string(),
+            effect.level.get(),
+        );
         let cost = env.player.output.get().num(n!("ManaCost"));
         lut::clear_timeless_jewel_luts(None);
         pob_calc::global_cache::clear_all();
@@ -528,12 +564,18 @@ fn ca_level_cost_cleared() {
     reset_level_cost_cleared();
     let (id, item_cost) = main_cost(LEVEL_COST_ITEM_CURSE_XML);
     assert_eq!(id, vuln1);
-    assert!(levelCostCleared(vuln, 1.0), "UpdateSocketGroups records the cleared level");
+    assert!(
+        levelCostCleared(vuln, 1.0),
+        "UpdateSocketGroups records the cleared level"
+    );
     assert_eq!(item_cost, 0.0, "the triggered item curse has no cost");
 
     // same process, no reset: PoB's data stays changed, so the gem is free too
     let (_, same_process) = main_cost(LEVEL_COST_GEM_XML);
-    assert_eq!(same_process, 0.0, "the cleared level persists for the process");
+    assert_eq!(
+        same_process, 0.0,
+        "the cleared level persists for the process"
+    );
 
     // after the per-build reset the gem has its cost again
     reset_level_cost_cleared();
@@ -582,7 +624,9 @@ Skills socketed in your Helmet are Supported by Level 20 High-Impact Mine
 /// data cost (`pools_charges.rs` `has_cost` / `cost_of` ignored `levelCostCleared`).
 #[test]
 fn ca_level_cost_cleared_reservation() {
-    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if !init_data() {
         return skip("data/dump/data.bin not found");
     }
@@ -595,12 +639,25 @@ fn ca_level_cost_cleared_reservation() {
     let env = build.calcsTab.mainEnv.get().expect("main env");
     let skill = env.player.mainSkill.get().expect("main skill");
     let effect = skill.activeEffect.get();
-    assert_eq!((effect.grantedEffect.get().id.as_str(), effect.level.get()), ("Fireball", 20.0));
+    assert_eq!(
+        (effect.grantedEffect.get().id.as_str(), effect.level.get()),
+        ("Fireball", 20.0)
+    );
     // the data level has a mana cost; PoB's process data no longer does
     let level = effect.grantedEffectLevel.get().expect("level");
-    assert!(level.cost.iter().any(|(k, c)| k.as_str() == "Mana" && *c > 0.0), "{:?}", level.cost);
+    assert!(
+        level
+            .cost
+            .iter()
+            .any(|(k, c)| k.as_str() == "Mana" && *c > 0.0),
+        "{:?}",
+        level.cost
+    );
     assert!(levelCostCleared(n!("Fireball"), 20.0));
-    assert!(skill.skillModList.get().Flag(Some(&*skill.skillCfg.get()), &[n!("ManaCostGainAsReservation")]));
+    assert!(skill.skillModList.get().Flag(
+        Some(&*skill.skillCfg.get()),
+        &[n!("ManaCostGainAsReservation")]
+    ));
     let out = env.player.output.get();
     // PoB's values (pob_headless, POB_ENGINE=jit, PoB v2.67.2, this XML: mainSkill Fireball level
     // 20, ManaCostGainAsReservation true, cost table 0 entries)
@@ -629,13 +686,19 @@ fn slice5_xmls() -> Vec<(String, String)> {
 
 #[test]
 fn ca_d13_fixed_point() {
-    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if !init_data() {
         return skip("data/dump/data.bin not found");
     }
     quiet_lua_errors();
     setup_luts();
-    let mut builds = if custom_corpus() { Vec::new() } else { slice5_xmls() };
+    let mut builds = if custom_corpus() {
+        Vec::new()
+    } else {
+        slice5_xmls()
+    };
     if let Some(parity) = find_parity_dir() {
         for p in corpus(&parity) {
             if let Ok(x) = std::fs::read_to_string(&p) {
@@ -650,12 +713,16 @@ fn ca_d13_fixed_point() {
     let mut failures = Vec::new();
     let mut warm_checked = 0;
     for (name, xml) in &builds {
-        let warm = D13_POB_WARM_CACHE.iter().find(|(b, _)| b == name).map(|(_, v)| *v);
+        let warm = D13_POB_WARM_CACHE
+            .iter()
+            .find(|(b, _)| b == name)
+            .map(|(_, v)| *v);
         // a fresh process per build, as for L6 (CCR-0133)
         pob_calc::model::skills_tab::reset_level_cost_cleared();
         let run = catch(|| {
-            let build = pob_calc::model::build_xml::loadBuildModelFromXML(xml, pob_gamedata::data())
-                .unwrap_or_else(|e| lua_error!("load: {e}"));
+            let build =
+                pob_calc::model::build_xml::loadBuildModelFromXML(xml, pob_gamedata::data())
+                    .unwrap_or_else(|e| lua_error!("load: {e}"));
             wipeGlobalCache();
             let e1 = buildOutput(&build, Mode::MAIN);
             let o1 = flat_table(&e1.player.output.get());
@@ -742,7 +809,11 @@ fn ca_d13_fixed_point() {
     assert!(failures.is_empty(), "D13 fixed point broken: {failures:#?}");
     assert!(ran > 0, "no build ran");
     // every build runs (INT-1: upstream_Dual_Savior's mirage raise is fixed, CCR-0113)
-    assert!(errored.is_empty(), "{} D13 runs raised: {errored:#?}", errored.len());
+    assert!(
+        errored.is_empty(),
+        "{} D13 runs raised: {errored:#?}",
+        errored.len()
+    );
 }
 
 /// Builds whose second `buildOutput` on a warm GlobalCache differs from the first in PoB itself
@@ -785,9 +856,7 @@ mod oracle_side {
     use super::*;
 
     use pob_calc::global_cache::{set_cachedData, CachedData};
-    use pob_calc::modules::calcs::{
-        buildOutput_calcs, buildOutput_costWarnings, buildOutput_main,
-    };
+    use pob_calc::modules::calcs::{buildOutput_calcs, buildOutput_costWarnings, buildOutput_main};
     use pob_calc::modules::common::cacheSkillUUID;
     use pob_oracle::jit::JitPob;
     use pob_oracle::oracle::ORACLE_LUA;
@@ -840,7 +909,11 @@ mod oracle_side {
         let stem = stem(xml);
         let patched = pob_oracle::testkit::shared_patch(Some(&stages_file()))?;
         let xml_text = std::fs::read_to_string(xml).map_err(|e| e.to_string())?;
-        let opts = ProbeOptions { select: vec!["ca:*".to_owned()], max_dumps: 40, provenance: false };
+        let opts = ProbeOptions {
+            select: vec!["ca:*".to_owned()],
+            max_dumps: 40,
+            provenance: false,
+        };
         let sel = format!("{} max {}", opts.select.join(","), opts.max_dumps);
         let entry = pob_oracle::testkit::oracle_dir(
             &patched.src,
@@ -880,7 +953,12 @@ mod oracle_side {
             let t = std::fs::read_to_string(entry.join(f)).map_err(|e| format!("{f}: {e}"))?;
             serde_json::from_str(&t).map_err(|e| format!("{f}: {e}"))
         };
-        Ok(PobRun { dir: entry.to_path_buf(), hits: j("hits.json")?, ca: j("ca.json")?, _entry: entry })
+        Ok(PobRun {
+            dir: entry.to_path_buf(),
+            hits: j("hits.json")?,
+            ca: j("ca.json")?,
+            _entry: entry,
+        })
     }
 
     // ---- pob-run end
@@ -890,7 +968,9 @@ mod oracle_side {
     /// `fetch_fresh_corpus.py --probe`). CK1: that directory is a report, never read here.
     pub(super) fn pob_run(xml: &Path) -> Result<PobRun, String> {
         let res = pob_run_cached(xml);
-        let report = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ca-probe").join(stem(xml));
+        let report = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join("ca-probe")
+            .join(stem(xml));
         let _ = std::fs::remove_dir_all(&report);
         if std::fs::create_dir_all(&report).is_ok() {
             let _ = match &res {
@@ -950,7 +1030,10 @@ mod oracle_side {
     fn skill_uuids(j: &J, out: &mut BTreeMap<u64, String>) {
         match j {
             J::Object(m) => {
-                if let (Some(id), Some(u)) = (m.get("$id").and_then(J::as_u64), m.get("$uuid").and_then(J::as_str)) {
+                if let (Some(id), Some(u)) = (
+                    m.get("$id").and_then(J::as_u64),
+                    m.get("$uuid").and_then(J::as_str),
+                ) {
                     out.insert(id, u.to_owned());
                 }
                 for v in m.values() {
@@ -973,7 +1056,10 @@ mod oracle_side {
     fn fill_socket_groups(dump: &StateDump, env: &EnvRef, known: &[String]) -> Vec<String> {
         let mut uuids = BTreeMap::new();
         skill_uuids(&dump.root, &mut uuids);
-        let list_json = dump.root["env"]["player"]["activeSkillList"].as_array().cloned().unwrap_or_default();
+        let list_json = dump.root["env"]["player"]["activeSkillList"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         let skills = env.player.activeSkillList.get().snapshot();
         let dumped = |i: usize| -> Option<String> {
             let e = list_json.get(i)?;
@@ -987,12 +1073,17 @@ mod oracle_side {
                 continue;
             }
             let ours = cacheSkillUUID(s, env).to_string();
-            let Some((prefix, _)) = ours.rsplit_once('_') else { continue };
+            let Some((prefix, _)) = ours.rsplit_once('_') else {
+                continue;
+            };
             let prefix = format!("{prefix}_");
             let cands: Vec<&String> = known
                 .iter()
                 .filter(|k| !used.contains(*k))
-                .filter(|k| k.strip_prefix(&prefix).is_some_and(|x| x.parse::<usize>().is_ok()))
+                .filter(|k| {
+                    k.strip_prefix(&prefix)
+                        .is_some_and(|x| x.parse::<usize>().is_ok())
+                })
                 .collect();
             if let [one] = cands[..] {
                 if !fallback.values().any(|v| v == one) {
@@ -1000,17 +1091,25 @@ mod oracle_side {
                 }
             }
         }
-        let pob_uuid = |i: usize| -> Option<String> { dumped(i).or_else(|| fallback.get(&i).cloned()) };
+        let pob_uuid =
+            |i: usize| -> Option<String> { dumped(i).or_else(|| fallback.get(&i).cloned()) };
         let mut slots: BTreeMap<usize, SocketGroupRef> = BTreeMap::new();
         for (i, s) in skills.iter().enumerate() {
-            let (Some(u), Some(g)) = (pob_uuid(i), s.socketGroup.get()) else { continue };
+            let (Some(u), Some(g)) = (pob_uuid(i), s.socketGroup.get()) else {
+                continue;
+            };
             if let Some(idx) = u.rsplit('_').next().and_then(|x| x.parse::<usize>().ok()) {
                 slots.entry(idx).or_insert(g);
             }
         }
         let n = slots.keys().max().copied().unwrap_or(0);
         let list: Vec<SocketGroupRef> = (1..=n)
-            .map(|i| slots.get(&i).cloned().unwrap_or_else(|| Rc::new(SocketGroup::default())))
+            .map(|i| {
+                slots
+                    .get(&i)
+                    .cloned()
+                    .unwrap_or_else(|| Rc::new(SocketGroup::default()))
+            })
             .collect();
         env.build.skillsTab.socketGroupList.set(Shared::new(list));
         let mut bad = Vec::new();
@@ -1101,7 +1200,11 @@ mod oracle_side {
             let one = |c: &'a J| -> J {
                 match self.deref(c) {
                     J::Array(a) => J::Array(a.iter().map(|x| self.deref(x).clone()).collect()),
-                    J::Object(m) => J::Object(m.iter().map(|(k, x)| (k.clone(), self.deref(x).clone())).collect()),
+                    J::Object(m) => J::Object(
+                        m.iter()
+                            .map(|(k, x)| (k.clone(), self.deref(x).clone()))
+                            .collect(),
+                    ),
                     other => other.clone(),
                 }
             };
@@ -1114,30 +1217,47 @@ mod oracle_side {
 
     fn is_warning_key(k: &str) -> bool {
         let top = k.split('.').next().unwrap_or_default();
-        top == "EnergyShieldProtectsMana" || top.ends_with("Warning") || top.ends_with("WarningList")
+        top == "EnergyShieldProtectsMana"
+            || top.ends_with("Warning")
+            || top.ends_with("WarningList")
     }
 
     /// GlobalCache.cachedData.MAIN as the cost-warning loop reads it after PoB's loop
     /// (`ca.json` costs). Entries whose env is the injected env are kept as injected.
     fn fill_cost_cache(inj: &Injected, costs: &J) -> usize {
-        let Some(costs) = costs.as_object() else { return 0 };
+        let Some(costs) = costs.as_object() else {
+            return 0;
+        };
         let skills = inj.env.player.activeSkillList.get().snapshot();
         let mut n = 0;
         for (uuid, c) in costs {
             let uuid = Name::from(uuid.as_str());
             let existing = pob_calc::global_cache::cachedData(Mode::MAIN, uuid);
-            if existing.as_ref().is_some_and(|e| Rc::ptr_eq(&e.Env, &inj.env)) {
+            if existing
+                .as_ref()
+                .is_some_and(|e| Rc::ptr_eq(&e.Env, &inj.env))
+            {
                 continue;
             }
             let Some(any) = existing
                 .as_ref()
                 .map(|e| e.ActiveSkill.clone())
-                .or_else(|| skills.iter().find(|s| cacheSkillUUID(s, &inj.env) == uuid).cloned())
+                .or_else(|| {
+                    skills
+                        .iter()
+                        .find(|s| cacheSkillUUID(s, &inj.env) == uuid)
+                        .cloned()
+                })
                 .or_else(|| skills.first().cloned())
             else {
                 continue;
             };
-            let env = Env::new(&inj.build, Mode::MAIN, Rc::new(Override::default()), inj.env.spec.get());
+            let env = Env::new(
+                &inj.build,
+                Mode::MAIN,
+                Rc::new(Override::default()),
+                inj.env.spec.get(),
+            );
             let out = Table::new();
             if let Some(o) = c["output"].as_object() {
                 for (k, v) in o {
@@ -1148,7 +1268,8 @@ mod oracle_side {
             }
             env.player.output.set(out);
             if c["hasMainSkill"].as_bool() == Some(true) {
-                let ms = ActiveSkill::new(any.activeEffect.get(), Shared::new(Vec::new()), Weak::new());
+                let ms =
+                    ActiveSkill::new(any.activeEffect.get(), Shared::new(Vec::new()), Weak::new());
                 let sd = Table::new();
                 if let Some(o) = c["skillData"].as_object() {
                     for (k, v) in o {
@@ -1186,7 +1307,8 @@ mod oracle_side {
     }
 
     fn cache_len() -> usize {
-        pob_calc::global_cache::GlobalCache.with(|g| g.borrow().cachedData[Mode::MAIN.index()].len())
+        pob_calc::global_cache::GlobalCache
+            .with(|g| g.borrow().cachedData[Mode::MAIN.index()].len())
     }
 
     #[derive(Default)]
@@ -1212,7 +1334,8 @@ mod oracle_side {
             match r {
                 Err(e) if e.starts_with(LIMITED) => {
                     eprintln!("LIMITED {stem} {what}: {}", &e[LIMITED.len()..]);
-                    self.limited.push(format!("{stem}: {}", &e[LIMITED.len()..]));
+                    self.limited
+                        .push(format!("{stem}: {}", &e[LIMITED.len()..]));
                 }
                 Ok(d) => {
                     self.compared += 1;
@@ -1239,11 +1362,15 @@ mod oracle_side {
         let din = load(run, main.get("ca:399").ok_or("no MAIN ca:399 dump")?)?;
         let dout = load(run, main.get("ca:437").ok_or("no MAIN ca:437 dump")?)?;
         let inj = inject(&din)?;
-        let known: Vec<String> =
-            run.ca["costs"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
+        let known: Vec<String> = run.ca["costs"]
+            .as_object()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default();
         let bad = fill_socket_groups(&din, &inj.env, &known);
         if !bad.is_empty() {
-            return Err(format!("{LIMITED}skill uuids not reproducible from the dump: {bad:?}"));
+            return Err(format!(
+                "{LIMITED}skill uuids not reproducible from the dump: {bad:?}"
+            ));
         }
         let mut d = Vec::new();
         fill_cost_cache(&inj, &run.ca["costs"]);
@@ -1264,19 +1391,27 @@ mod oracle_side {
             .map(|u| u.to_string())
             .collect();
         if !missing.is_empty() {
-            return Err(format!("{LIMITED}no MAIN cache entry in PoB after the loop for {missing:?}"));
+            return Err(format!(
+                "{LIMITED}no MAIN cache entry in PoB after the loop for {missing:?}"
+            ));
         }
         let before = cache_len();
         catch(|| buildOutput_costWarnings(&inj.env, Mode::MAIN, &inj.output))?;
         if cache_len() != before {
-            d.push(format!("the loop built {} skills PoB had cached (harness gap)", cache_len() - before));
+            d.push(format!(
+                "the loop built {} skills PoB had cached (harness gap)",
+                cache_len() - before
+            ));
         }
-        let ours: BTreeMap<String, Leaf> =
-            flat_table(&inj.output).into_iter().filter(|(k, _)| is_warning_key(k)).collect();
-        let pob: BTreeMap<String, Leaf> = flat_json(&Res::new(&dout.root).shallow(&["locals", "output"]))
+        let ours: BTreeMap<String, Leaf> = flat_table(&inj.output)
             .into_iter()
             .filter(|(k, _)| is_warning_key(k))
             .collect();
+        let pob: BTreeMap<String, Leaf> =
+            flat_json(&Res::new(&dout.root).shallow(&["locals", "output"]))
+                .into_iter()
+                .filter(|(k, _)| is_warning_key(k))
+                .collect();
         leaves_diff("output", &ours, &pob, &mut d);
         Ok(d)
     }
@@ -1321,8 +1456,10 @@ mod oracle_side {
         catch(|| buildOutput_main(&inj.env, &inj.output))?;
         let res = Res::new(&dout.root);
         let mut d = Vec::new();
-        let ours: BTreeMap<String, Leaf> =
-            flat_table(&inj.output).into_iter().filter(|(k, _)| is_spec_key(k)).collect();
+        let ours: BTreeMap<String, Leaf> = flat_table(&inj.output)
+            .into_iter()
+            .filter(|(k, _)| is_spec_key(k))
+            .collect();
         let theirs: BTreeMap<String, Leaf> = flat_json(&res.shallow(&["locals", "output"]))
             .into_iter()
             .filter(|(k, _)| is_spec_key(k))
@@ -1333,15 +1470,26 @@ mod oracle_side {
         // injected into the items' `*ModLines`; FUP3, FOLLOWUPS "CA" 3), so it is compared.
         for name in std::iter::once("skillsUsed").chain(USED) {
             let pob = res.shallow(&["env", name]);
-            used_diff(name, &used_rust(&env_used(&inj.env, name)), &used_pob(Some(&pob)), &mut d);
+            used_diff(
+                name,
+                &used_rust(&env_used(&inj.env, name)),
+                &used_pob(Some(&pob)),
+                &mut d,
+            );
         }
         Ok(d)
     }
 
     fn rows_rust(bd: Option<Breakdown>, key: &str) -> Vec<String> {
-        let Some(bd) = bd else { return vec!["<no breakdown>".to_owned()] };
-        let Some(t) = bd.table(Name::from(key)) else { return Vec::new() };
-        let Some(l) = t.table(n!("modList")) else { return vec!["<no modList>".to_owned()] };
+        let Some(bd) = bd else {
+            return vec!["<no breakdown>".to_owned()];
+        };
+        let Some(t) = bd.table(Name::from(key)) else {
+            return Vec::new();
+        };
+        let Some(l) = t.table(n!("modList")) else {
+            return vec!["<no modList>".to_owned()];
+        };
         l.ipairs()
             .into_iter()
             .map(|(_, r)| match r {
@@ -1357,7 +1505,11 @@ mod oracle_side {
     fn rows_diff(name: &str, ours: &[String], pob: &[String], out: &mut Vec<String>) {
         bump(pob.len());
         if ours != pob {
-            let i = ours.iter().zip(pob).position(|(a, b)| a != b).unwrap_or(ours.len().min(pob.len()));
+            let i = ours
+                .iter()
+                .zip(pob)
+                .position(|(a, b)| a != b)
+                .unwrap_or(ours.len().min(pob.len()));
             out.push(format!(
                 "{name}: {} rows vs PoB {}; first difference at row {}: Rust {:?} / PoB {:?}",
                 ours.len(),
@@ -1372,7 +1524,12 @@ mod oracle_side {
     fn is_list_key(k: &str) -> bool {
         matches!(
             k,
-            "BuffList" | "CombatList" | "CurseList" | "Minion.BuffList" | "Minion.CombatList" | "Minion.CurseList"
+            "BuffList"
+                | "CombatList"
+                | "CurseList"
+                | "Minion.BuffList"
+                | "Minion.CombatList"
+                | "Minion.CurseList"
         )
     }
 
@@ -1382,7 +1539,12 @@ mod oracle_side {
         let dout = load(run, calcs.get("ca:869").ok_or("no CALCS ca:869 dump")?)?;
         let inj = inject(&din)?;
         // calcsTab.mainEnv (Calcs.lua 635-650 read its multipliersUsed)
-        let mainEnv = Env::new(&inj.build, Mode::MAIN, Rc::new(Override::default()), inj.env.spec.get());
+        let mainEnv = Env::new(
+            &inj.build,
+            Mode::MAIN,
+            Rc::new(Override::default()),
+            inj.env.spec.get(),
+        );
         let mu = Table::new();
         if let Some(m) = run.ca["mainUsed"]["multipliersUsed"].as_object() {
             for k in m.keys() {
@@ -1394,16 +1556,23 @@ mod oracle_side {
         catch(|| buildOutput_calcs(&inj.build, &inj.env, &inj.output))?;
         let res = Res::new(&dout.root);
         let mut d = Vec::new();
-        let ours: BTreeMap<String, Leaf> =
-            flat_table(&inj.output).into_iter().filter(|(k, _)| is_list_key(k)).collect();
+        let ours: BTreeMap<String, Leaf> = flat_table(&inj.output)
+            .into_iter()
+            .filter(|(k, _)| is_list_key(k))
+            .collect();
         let mut out = res.shallow(&["locals", "output"]);
         if let J::Object(o) = &mut out {
             if o.contains_key("Minion") {
-                o.insert("Minion".to_owned(), res.shallow(&["locals", "output", "Minion"]));
+                o.insert(
+                    "Minion".to_owned(),
+                    res.shallow(&["locals", "output", "Minion"]),
+                );
             }
         }
-        let theirs: BTreeMap<String, Leaf> =
-            flat_json(&out).into_iter().filter(|(k, _)| is_list_key(k)).collect();
+        let theirs: BTreeMap<String, Leaf> = flat_json(&out)
+            .into_iter()
+            .filter(|(k, _)| is_list_key(k))
+            .collect();
         leaves_diff("output", &ours, &theirs, &mut d);
         let rows = |actor: &str, key: &str| -> Vec<String> {
             let bd = res.at(&["env", actor, "breakdown"]);
@@ -1427,11 +1596,21 @@ mod oracle_side {
             }
         };
         for key in ["SkillBuffs", "SkillDebuffs"] {
-            rows_diff(&format!("player.breakdown.{key}"), &rows_rust(inj.env.player.breakdown.get(), key), &rows("player", key), &mut d);
+            rows_diff(
+                &format!("player.breakdown.{key}"),
+                &rows_rust(inj.env.player.breakdown.get(), key),
+                &rows("player", key),
+                &mut d,
+            );
         }
         if let Some(m) = inj.env.minion.get() {
             for key in ["SkillBuffs", "SkillDebuffs"] {
-                rows_diff(&format!("minion.breakdown.{key}"), &rows_rust(m.breakdown.get(), key), &rows("minion", key), &mut d);
+                rows_diff(
+                    &format!("minion.breakdown.{key}"),
+                    &rows_rust(m.breakdown.get(), key),
+                    &rows("minion", key),
+                    &mut d,
+                );
             }
         }
         Ok(d)
@@ -1439,8 +1618,12 @@ mod oracle_side {
 
     #[test]
     fn ca_l5_post() {
-        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(parity) = find_parity_dir() else { return skip(".parity not found") };
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(parity) = find_parity_dir() else {
+            return skip(".parity not found");
+        };
         if find_pob_src().is_none() {
             return skip("PoB checkout (.PathOfBuilding/src) not found");
         }
@@ -1452,7 +1635,8 @@ mod oracle_side {
         if builds.is_empty() {
             return skip(".parity/builds/*.xml not found");
         }
-        let (mut cost, mut main, mut calcs) = (Block::default(), Block::default(), Block::default());
+        let (mut cost, mut main, mut calcs) =
+            (Block::default(), Block::default(), Block::default());
         let mut pob_failed = Vec::new();
         for xml in &builds {
             let stem = stem(xml);
@@ -1480,7 +1664,11 @@ mod oracle_side {
             pob_calc::global_cache::clear_all();
             pob_calc::probe::registry_reset();
         }
-        for (name, b) in [("cost warnings (400-435)", &cost), ("used-tracking (437-600)", &main), ("CALCS lists (601-866)", &calcs)] {
+        for (name, b) in [
+            ("cost warnings (400-435)", &cost),
+            ("used-tracking (437-600)", &main),
+            ("CALCS lists (601-866)", &calcs),
+        ] {
             eprintln!(
                 "CA L5 {name}: {} compared ({} PoB values), {} clean, {} failed, {} harness-limited, {} without dumps",
                 b.compared,
@@ -1491,14 +1679,23 @@ mod oracle_side {
                 b.not_run.len()
             );
         }
-        eprintln!("CA L5: {} builds, {} PoB runs failed", builds.len(), pob_failed.len());
+        eprintln!(
+            "CA L5: {} builds, {} PoB runs failed",
+            builds.len(),
+            pob_failed.len()
+        );
         assert!(pob_failed.is_empty(), "PoB runs failed: {pob_failed:#?}");
         let full = std::env::var_os("CA_BUILDS").is_none()
             && std::env::var_os("CA_LIMIT").is_none()
             && !custom_corpus()
             && !pob_testpaths::quick_corpus();
-        for ((name, b), max_limited) in
-            [("cost warnings", &cost), ("used-tracking", &main), ("CALCS lists", &calcs)].into_iter().zip(L5_MAX_LIMITED)
+        for ((name, b), max_limited) in [
+            ("cost warnings", &cost),
+            ("used-tracking", &main),
+            ("CALCS lists", &calcs),
+        ]
+        .into_iter()
+        .zip(L5_MAX_LIMITED)
         {
             assert!(b.failed.is_empty(), "CA L5 {name}: {:#?}", b.failed);
             assert!(b.compared > 0, "CA L5 {name}: nothing compared");
@@ -1551,10 +1748,22 @@ mod oracle_side {
     /// (`stem block key rust pob`; a missing side is `nil`).
     fn l6_diff(stem: &str, block: &str, key: &str, ours: &str, pob: &str) {
         use std::io::Write as _;
-        let Some(path) = std::env::var_os("CA_L6_DIFFS") else { return };
+        let Some(path) = std::env::var_os("CA_L6_DIFFS") else {
+            return;
+        };
         let clean = |s: &str| s.replace(['\t', '\n'], " ");
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(f, "{stem}\t{block}\t{}\t{}\t{}", clean(key), clean(ours), clean(pob));
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(
+                f,
+                "{stem}\t{block}\t{}\t{}\t{}",
+                clean(key),
+                clean(ours),
+                clean(pob)
+            );
         }
     }
 
@@ -1601,7 +1810,8 @@ mod oracle_side {
         fn load(parity: &Path, stem: &str) -> Self {
             let path = parity.join("nondet").join(format!("{stem}.json"));
             let rec = path.is_file().then(|| {
-                pob_oracle::nondet::NondetRecord::load(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+                pob_oracle::nondet::NondetRecord::load(&path)
+                    .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
             });
             let mut m = BTreeMap::new();
             for (k, vals) in rec.map(|r| r.outputs).unwrap_or_default() {
@@ -1622,7 +1832,9 @@ mod oracle_side {
         /// produced there (calc doc §9.5: the diff accepts any of them). A record that does not
         /// hold this run's PoB value does not describe the run and accepts nothing.
         fn accepts(&self, key: &str, ours: Option<&Leaf>, pob: &Leaf) -> bool {
-            let Some(vals) = self.0.get(key) else { return false };
+            let Some(vals) = self.0.get(key) else {
+                return false;
+            };
             let Some(ours) = ours else { return false };
             vals.iter().any(|v| leaf_eq(v, pob)) && vals.iter().any(|v| leaf_eq(v, ours))
         }
@@ -1630,8 +1842,12 @@ mod oracle_side {
 
     #[test]
     fn ca_l6_corpus() {
-        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(parity) = find_parity_dir() else { return skip(".parity not found") };
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(parity) = find_parity_dir() else {
+            return skip(".parity not found");
+        };
         if find_pob_src().is_none() {
             return skip("PoB checkout (.PathOfBuilding/src) not found");
         }
@@ -1668,7 +1884,13 @@ mod oracle_side {
                 Ok((b, errors)) => {
                     for e in errors {
                         eprintln!("L6 {stem}: Rust {e}");
-                        l6_diff(stem, "error", e.split(':').next().unwrap_or_default(), &e, "");
+                        l6_diff(
+                            stem,
+                            "error",
+                            e.split(':').next().unwrap_or_default(),
+                            &e,
+                            "",
+                        );
                         let stage = e.split(':').next().unwrap_or_default().to_owned();
                         *t.stage_errors.entry(stage).or_default() += 1;
                         t.rust_errors.push(format!("{stem}: {e}"));
@@ -1684,7 +1906,12 @@ mod oracle_side {
                     continue;
                 }
             };
-            let ours = build.calcsTab.mainOutput.get().map(|o| flat_table(&o)).unwrap_or_default();
+            let ours = build
+                .calcsTab
+                .mainOutput
+                .get()
+                .map(|o| flat_table(&o))
+                .unwrap_or_default();
             let pob = flat_json(&run.ca["main"]);
             let nondet = Nondet::load(&parity, stem);
             // headline keys
@@ -1715,7 +1942,11 @@ mod oracle_side {
                     exact += 1;
                 } else if nondet.accepts(k, ours.get(k), pv) {
                     exact += 1;
-                    let msg = format!("{stem} {k}: Rust {} vs PoB {} (§9.5 nondeterministic)", fmt_leaf(ours.get(k)), fmt_leaf(Some(pv)));
+                    let msg = format!(
+                        "{stem} {k}: Rust {} vs PoB {} (§9.5 nondeterministic)",
+                        fmt_leaf(ours.get(k)),
+                        fmt_leaf(Some(pv))
+                    );
                     eprintln!("L6 {msg}");
                     t.nondet_accepted.push(msg);
                 } else {
@@ -1729,7 +1960,12 @@ mod oracle_side {
             t.keys += pob.len() + extra;
             t.keys_exact += exact;
             // CALCS lists
-            let oc = build.calcsTab.calcsOutput.get().map(|o| flat_table(&o)).unwrap_or_default();
+            let oc = build
+                .calcsTab
+                .calcsOutput
+                .get()
+                .map(|o| flat_table(&o))
+                .unwrap_or_default();
             let pc = flat_json(&run.ca["calcs"]);
             for k in ["BuffList", "CombatList", "CurseList"] {
                 t.calcs_lists += 1;
@@ -1744,7 +1980,11 @@ mod oracle_side {
                 for name in USED {
                     t.used_tables += 1;
                     let o: BTreeSet<String> = env_used(&me, name)
-                        .map(|t| t.pairs().filter_map(|(k, _)| k.name().map(|n| n.to_string())).collect())
+                        .map(|t| {
+                            t.pairs()
+                                .filter_map(|(k, _)| k.name().map(|n| n.to_string()))
+                                .collect()
+                        })
                         .unwrap_or_default();
                     let p: BTreeSet<String> = run.ca["mainUsed"][name]
                         .as_object()
@@ -1754,7 +1994,10 @@ mod oracle_side {
                         t.used_tables_equal += 1;
                     } else {
                         let only = |left: &BTreeSet<String>, right: &BTreeSet<String>| {
-                            left.difference(right).cloned().collect::<Vec<_>>().join(",")
+                            left.difference(right)
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join(",")
                         };
                         l6_diff(stem, "used", name, &only(&o, &p), &only(&p, &o));
                     }
@@ -1784,11 +2027,21 @@ mod oracle_side {
                     let p = flat_json(&run.ca["misc"][which]);
                     for (k, pv) in &p {
                         t.misc += 1;
-                        if ours.as_ref().and_then(|o| o.get(k)).is_some_and(|ov| leaf_eq(ov, pv)) {
+                        if ours
+                            .as_ref()
+                            .and_then(|o| o.get(k))
+                            .is_some_and(|ov| leaf_eq(ov, pv))
+                        {
                             t.misc_exact += 1;
                         } else {
                             let ov = ours.as_ref().and_then(|o| o.get(k));
-                            l6_diff(stem, &format!("misc.{which}"), k, &fmt_leaf(ov), &fmt_leaf(Some(pv)));
+                            l6_diff(
+                                stem,
+                                &format!("misc.{which}"),
+                                k,
+                                &fmt_leaf(ov),
+                                &fmt_leaf(Some(pv)),
+                            );
                         }
                     }
                 }
@@ -1796,11 +2049,21 @@ mod oracle_side {
             eprintln!(
                 "L6 {stem}: keys {exact}/{} exact ({extra} Rust-only); headline {}",
                 pob.len(),
-                if line.is_empty() { "exact".to_owned() } else { line.join("; ") }
+                if line.is_empty() {
+                    "exact".to_owned()
+                } else {
+                    line.join("; ")
+                }
             );
             pob_calc::global_cache::clear_all();
         }
-        let pct = |a: usize, b: usize| if b == 0 { 0.0 } else { 100.0 * a as f64 / b as f64 };
+        let pct = |a: usize, b: usize| {
+            if b == 0 {
+                0.0
+            } else {
+                100.0 * a as f64 / b as f64
+            }
+        };
         eprintln!(
             "CA L6: {} builds ({} PoB runs failed), {} Rust runs raised; headline {}/{} exact ({:.1}%), \
              {} builds with every headline key exact; all keys {}/{} exact ({:.2}%); CALCS lists {}/{}; \
@@ -1839,11 +2102,22 @@ mod oracle_side {
         assert!(pob_failed.is_empty(), "PoB runs failed: {pob_failed:#?}");
         // L6 is met on every build (INT-1, docs/port/parity/INT-1-triage.md): every compared
         // value is exact and no Rust stage raises, on any subset of the corpus.
-        assert!(t.rust_errors.is_empty(), "{} Rust errors: {:#?}", t.rust_errors.len(), t.rust_errors);
+        assert!(
+            t.rust_errors.is_empty(),
+            "{} Rust errors: {:#?}",
+            t.rust_errors.len(),
+            t.rust_errors
+        );
         assert_eq!(t.headline_exact, t.headline, "headline keys not exact");
-        assert_eq!(t.keys_exact, t.keys, "main-output keys not exact (Rust-only keys count as not exact)");
+        assert_eq!(
+            t.keys_exact, t.keys,
+            "main-output keys not exact (Rust-only keys count as not exact)"
+        );
         assert_eq!(t.calcs_lists_exact, t.calcs_lists, "CALCS lists not exact");
-        assert_eq!(t.used_tables_equal, t.used_tables, "used-tracking key sets differ");
+        assert_eq!(
+            t.used_tables_equal, t.used_tables,
+            "used-tracking key sets differ"
+        );
         assert_eq!(t.misc_exact, t.misc, "misc calculator values not exact");
         // On a full corpus (all57, or the whole fresh corpus) the compared totals are pinned too,
         // so a value that goes missing on both sides (or a build that stops reaching mainEnv /
@@ -1864,14 +2138,19 @@ mod oracle_side {
             assert_eq!(t.headline, p.headline, "headline keys compared");
             assert_eq!(t.keys, p.keys, "main-output keys compared");
             assert_eq!(t.calcs_lists, p.calcs_lists, "CALCS lists compared");
-            assert_eq!(t.used_tables, p.used_tables, "used-tracking tables compared");
+            assert_eq!(
+                t.used_tables, p.used_tables,
+                "used-tracking tables compared"
+            );
             assert_eq!(t.misc, p.misc, "misc calculator values compared");
         }
     }
 
     /// `CA_CORPUS_DIR` is the INT-1-FRESH corpus, `.parity/fresh` (docs/port/parity/fresh-corpus.md).
     fn fresh_corpus(parity: &Path) -> bool {
-        let dir = std::env::var_os("CA_CORPUS_DIR").map(PathBuf::from).unwrap_or_default();
+        let dir = std::env::var_os("CA_CORPUS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_default();
         match (dir.canonicalize(), parity.join("fresh").canonicalize()) {
             (Ok(a), Ok(b)) => a == b,
             _ => false,

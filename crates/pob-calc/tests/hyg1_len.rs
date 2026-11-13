@@ -63,7 +63,17 @@ enum K {
 const NAMES: [&str; 6] = ["a", "b", "c", "Life", "x1", "k"];
 
 /// FUP1: float keys (`929.1` is the statOrder of the crafted flask in IT-B).
-const FLOATS: [f64; 9] = [0.5, 1.5, 2.25, 929.1, -0.5, 2.0, -0.0, 1e300, 9_007_199_254_740_992.0];
+const FLOATS: [f64; 9] = [
+    0.5,
+    1.5,
+    2.25,
+    929.1,
+    -0.5,
+    2.0,
+    -0.0,
+    1e300,
+    9_007_199_254_740_992.0,
+];
 
 impl K {
     fn lua(self) -> String {

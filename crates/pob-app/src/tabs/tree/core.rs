@@ -83,8 +83,8 @@ use pob_lua::{n, pattern, tostring_num};
 use pob_sg::{Font, Key};
 use pob_ui_core::controls::drop_down::{DropTipArgs, DropTipMode};
 use pob_ui_core::controls::{
-    ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl,
-    LabelControl, ScrollBarControl,
+    ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl,
+    ScrollBarControl,
 };
 use pob_ui_core::input::{EventKind, InputEvents};
 use pob_ui_core::luastr::format_num_sep_main;
@@ -176,7 +176,8 @@ pub type JumpFn = Rc<dyn Fn(&mut Cx, Option<f64>, Option<f64>)>;
 
 /// The TreeTab methods and controls of U26/U27 that U25's code calls (module docs).
 #[derive(Clone)]
-pub struct TreeTabHooks { // CCR-0123 §6
+pub struct TreeTabHooks {
+    // CCR-0123 §6
     /// `self:SetPowerCalc(powerStat)` (TreeTab.lua:1047-1061, U26)
     pub set_power_calc: Rc<dyn Fn(&mut Cx, CtrlId, Option<Table>)>,
     /// `self.controls.powerReportList = new("PowerReportListControl"):PowerReportListControl(
@@ -285,7 +286,10 @@ pub fn spec_reset_undo(cx: &mut Cx, me: CtrlId, spec: &PassiveSpecRef) {
         }
         _ => spec.CreateUndoState(),
     };
-    cx.w_mut::<TreeTab>(me).core.spec_undo[i].1.undo.push_front(s);
+    cx.w_mut::<TreeTab>(me).core.spec_undo[i]
+        .1
+        .undo
+        .push_front(s);
 }
 
 /// `self.spec.modFlag` (UndoHandler.lua:37).
@@ -348,7 +352,8 @@ fn raw(p: &Prop<f64>) -> f64 {
 }
 
 /// `self.build.itemsTab.controls.specSelect` (U33's control; module docs).
-pub fn items_spec_select(cx: &Cx) -> Option<CtrlId> { // CCR-0123 §7
+pub fn items_spec_select(cx: &Cx) -> Option<CtrlId> {
+    // CCR-0123 §7
     let items = cx.app().build.as_ref()?.tabs.items.id();
     if items == CtrlId::default() {
         return None;
@@ -409,18 +414,20 @@ impl TreeTab {
                     Anchor::new(Left, anchor, Right),
                     rect(0, 0, 190, 20),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _v: Option<&DropItem>| {
-                        // L44
-                        if spec_at(cx, index as f64).is_some() {
-                            // L45
-                            cx.build_mut().mod_flag = true;
-                            // L46
-                            Self::SetActiveSpec(cx, me, index as f64);
-                        } else {
-                            // L48
-                            Self::OpenSpecManagePopup(cx, me);
-                        }
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _v: Option<&DropItem>| {
+                            // L44
+                            if spec_at(cx, index as f64).is_some() {
+                                // L45
+                                cx.build_mut().mod_flag = true;
+                                // L46
+                                Self::SetActiveSpec(cx, me, index as f64);
+                            } else {
+                                // L48
+                                Self::OpenSpecManagePopup(cx, me);
+                            }
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -489,16 +496,18 @@ impl TreeTab {
                     Anchor::new(Left, compare_check, Right),
                     rect(8, 0, 190, 20),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _v: Option<&DropItem>| {
-                        // L123
-                        if spec_at(cx, index as f64).is_some() {
-                            // L124
-                            Self::SetCompareSpec(cx, me, index as f64);
-                        } else {
-                            // L126
-                            Self::OpenSpecManagePopup(cx, me);
-                        }
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _v: Option<&DropItem>| {
+                            // L123
+                            if spec_at(cx, index as f64).is_some() {
+                                // L124
+                                Self::SetCompareSpec(cx, me, index as f64);
+                            } else {
+                                // L126
+                                Self::OpenSpecManagePopup(cx, me);
+                            }
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -541,7 +550,11 @@ impl TreeTab {
             .add(
                 me,
                 "versionText",
-                LabelControl::new(Anchor::new(Left, reset, Right), rect(8, 0, 0, 16), "^7Version:"),
+                LabelControl::new(
+                    Anchor::new(Left, reset, Right),
+                    rect(8, 0, 0, 16),
+                    "^7Version:",
+                ),
             )
             .id();
         // L170-174
@@ -553,16 +566,20 @@ impl TreeTab {
                     Anchor::new(Left, version_text, Right),
                     rect(8, 0, 100, 20),
                     tree_versions,
-                    Some(Rc::new(move |cx: &mut Cx, _index: usize, selected: Option<&DropItem>| {
-                        let selected = selected
-                            .and_then(|s| s.get::<Name>().copied())
-                            .unwrap_or_else(|| lua_error!("attempt to index local 'selected' (a nil value)"));
-                        // L171
-                        if selected != cx.build().model.spec.get().treeVersion.get() {
-                            // L172
-                            Self::OpenVersionConvertPopup(cx, me, selected, true);
-                        }
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, _index: usize, selected: Option<&DropItem>| {
+                            let selected = selected
+                                .and_then(|s| s.get::<Name>().copied())
+                                .unwrap_or_else(|| {
+                                    lua_error!("attempt to index local 'selected' (a nil value)")
+                                });
+                            // L171
+                            if selected != cx.build().model.spec.get().treeVersion.get() {
+                                // L172
+                                Self::OpenVersionConvertPopup(cx, me, selected, true);
+                            }
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -583,7 +600,11 @@ impl TreeTab {
 
         // Tree Search Textbox
         // L182-185
-        let search_width = if cx.app().main.portrait_mode { 200 } else { 300 };
+        let search_width = if cx.app().main.portrait_mode {
+            200
+        } else {
+            300
+        };
         let tree_search = cx
             .add(
                 me,
@@ -699,9 +720,11 @@ impl TreeTab {
                     Anchor::new(Left, tree_heat_map, Right),
                     rect(8, 0, 55, 20),
                     depth_list,
-                    Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                        Self::node_power_max_depth_sel(cx, me, value);
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                            Self::node_power_max_depth_sel(cx, me, value);
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -754,14 +777,16 @@ impl TreeTab {
                     Anchor::new(Left, depth_select, Right),
                     rect(8, 0, 150, 20),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                        // L257
-                        let stat = value
-                            .and_then(|v| v.get::<PowerStatRef>().copied())
-                            .map(power_stat_table);
-                        let f = tree_tab_hooks().set_power_calc;
-                        f(cx, me, stat);
-                    })),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                            // L257
+                            let stat = value
+                                .and_then(|v| v.get::<PowerStatRef>().copied())
+                                .map(power_stat_table);
+                            let f = tree_tab_hooks().set_power_calc;
+                            f(cx, me, stat);
+                        },
+                    )),
                     None,
                     false,
                 ),
@@ -891,8 +916,11 @@ impl TreeTab {
                         8.0.into(),
                         0.0.into(),
                         Prop::f(|cx, _| {
-                            cx.sg.draw_string_width(16.0, Font::Var, &build_convert_button_label(cx))
-                                + 20.0
+                            cx.sg.draw_string_width(
+                                16.0,
+                                Font::Var,
+                                &build_convert_button_label(cx),
+                            ) + 20.0
                         }),
                         20.0.into(),
                     ],
@@ -915,8 +943,11 @@ impl TreeTab {
                     8.0.into(),
                     0.0.into(),
                     Prop::f(|cx, _| {
-                        cx.sg.draw_string_width(16.0, Font::Var, &build_convert_all_button_label(cx))
-                            + 20.0
+                        cx.sg.draw_string_width(
+                            16.0,
+                            Font::Var,
+                            &build_convert_all_button_label(cx),
+                        ) + 20.0
                     }),
                     20.0.into(),
                 ],
@@ -964,7 +995,11 @@ impl TreeTab {
             })
         };
         // L61-63
-        tooltip.add_line(cx, 16.0, &format!("Class: {}", name(spec.curClassName.get())));
+        tooltip.add_line(
+            cx,
+            16.0,
+            &format!("Class: {}", name(spec.curClassName.get())),
+        );
         tooltip.add_line(
             cx,
             16.0,
@@ -974,7 +1009,11 @@ impl TreeTab {
         // L64
         if sockets > 0.0 {
             // L65
-            tooltip.add_line(cx, 16.0, &format!("Jewel sockets: {}", tostring_num(sockets)));
+            tooltip.add_line(
+                cx,
+                16.0,
+                &format!("Jewel sockets: {}", tostring_num(sockets)),
+            );
         }
         // L67
         if sel_index.map(|i| i as f64) != Some(m.treeTab.activeSpec.get()) {
@@ -1036,7 +1075,12 @@ impl TreeTab {
                     // L89 (`build.characterLevel`: the constructor's `build` argument)
                     let level = m.characterLevel.get();
                     let gold_cost = (level >= 1.0 && level.fract() == 0.0)
-                        .then(|| model::data().goldRespecPrices.get(level as usize - 1).copied())
+                        .then(|| {
+                            model::data()
+                                .goldRespecPrices
+                                .get(level as usize - 1)
+                                .copied()
+                        })
                         .flatten()
                         .unwrap_or_else(|| {
                             lua_error!(
@@ -1062,7 +1106,11 @@ impl TreeTab {
                             "Passive nodes to be refunded"
                         };
                         // L95
-                        tooltip.add_line(cx, 16.0, &pob_lua::lfmt!("^7\t%d %s.", respec, node_word));
+                        tooltip.add_line(
+                            cx,
+                            16.0,
+                            &pob_lua::lfmt!("^7\t%d %s.", respec, node_word),
+                        );
                     }
                     // L97
                     if respec_ascendancy > 0.0 {
@@ -1084,7 +1132,11 @@ impl TreeTab {
         }
         // L104
         let tv = spec.treeVersion.get();
-        tooltip.add_line(cx, 16.0, &format!("^7Game Version: {}", tree_version_display(&tv)));
+        tooltip.add_line(
+            cx,
+            16.0,
+            &format!("^7Game Version: {}", tree_version_display(&tv)),
+        );
     }
 
     /// The nodePowerMaxDepthSelect selFunc (L212-241).
@@ -1235,10 +1287,15 @@ impl TreeTab {
                 cx.add(
                     p,
                     "cancel",
-                    ButtonControl::new(Anchor::NONE, rect(130, button_y, 100, 20), "Cancel", |cx| {
-                        // L155
-                        popups::close_popup(cx);
-                    }),
+                    ButtonControl::new(
+                        Anchor::NONE,
+                        rect(130, button_y, 100, 20),
+                        "Cancel",
+                        |cx| {
+                            // L155
+                            popups::close_popup(cx);
+                        },
+                    ),
                 );
             },
             PopupOpts {
@@ -1369,7 +1426,11 @@ impl TreeTab {
         let right_margin = 10.0;
         let (is_comparing, is_custom_max_depth, show_heat_map) = {
             let s = st(cx, me);
-            (s.is_comparing, s.is_custom_max_depth, s.viewer.show_heat_map)
+            (
+                s.is_comparing,
+                s.is_custom_max_depth,
+                s.viewer.show_heat_map,
+            )
         };
         // L397-402
         let width_first_line_controls = bw(cx, spec_select)
@@ -1414,35 +1475,85 @@ impl TreeTab {
         let xy = |x: f64, y: f64| Some((Prop::Val(x), Prop::Val(y)));
         // Check first line
         // L413
-        if view_port.width >= width_first_line_controls + width_second_line_controls + right_margin {
+        if view_port.width >= width_first_line_controls + width_second_line_controls + right_margin
+        {
             // L414
             lines_height = 0.0;
             // L415
-            cx.set_anchor(tree_search, Left, Some(version_select), Right, xy(8.0, 0.0), false);
+            cx.set_anchor(
+                tree_search,
+                Left,
+                Some(version_select),
+                Right,
+                xy(8.0, 0.0),
+                false,
+            );
             // L416
             let y = bh(cx, spec_select) + 6.0;
-            cx.set_anchor(power_report_list, TopLeft, Some(spec_select), BottomLeft, xy(0.0, y), false);
+            cx.set_anchor(
+                power_report_list,
+                TopLeft,
+                Some(spec_select),
+                BottomLeft,
+                xy(0.0, y),
+                false,
+            );
         } else {
             // L418
-            cx.set_anchor(tree_search, TopLeft, Some(spec_select), BottomLeft, xy(0.0, 4.0), false);
+            cx.set_anchor(
+                tree_search,
+                TopLeft,
+                Some(spec_select),
+                BottomLeft,
+                xy(0.0, 4.0),
+                false,
+            );
             // L419
             let y = bh(cx, tree_search) + 6.0;
-            cx.set_anchor(power_report_list, TopLeft, Some(tree_search), BottomLeft, xy(0.0, y), false);
+            cx.set_anchor(
+                power_report_list,
+                TopLeft,
+                Some(tree_search),
+                BottomLeft,
+                xy(0.0, y),
+                false,
+            );
         }
 
         // Check second line
         // L423
         if view_port.width >= width_second_line_controls + right_margin {
             // L424
-            cx.set_anchor(tree_heat_map, Left, Some(find_timeless), Right, xy(130.0, 0.0), false);
+            cx.set_anchor(
+                tree_heat_map,
+                Left,
+                Some(find_timeless),
+                Right,
+                xy(130.0, 0.0),
+                false,
+            );
         } else {
             // L426
             lines_height *= 2.0;
             // L427
-            cx.set_anchor(tree_heat_map, TopLeft, Some(tree_search), BottomLeft, xy(124.0, 4.0), false);
+            cx.set_anchor(
+                tree_heat_map,
+                TopLeft,
+                Some(tree_search),
+                BottomLeft,
+                xy(124.0, 4.0),
+                false,
+            );
             // L428
             let y = bh(cx, tree_heat_map) + 6.0;
-            cx.set_anchor(power_report_list, TopLeft, Some(tree_heat_map), BottomLeft, xy(-124.0, y), false);
+            cx.set_anchor(
+                power_report_list,
+                TopLeft,
+                Some(tree_heat_map),
+                BottomLeft,
+                xy(-124.0, y),
+                false,
+            );
         }
 
         // determine positions for convert line of controls
@@ -1454,14 +1565,42 @@ impl TreeTab {
             // L435
             convert_two_line_height = 0.0;
             // L436
-            cx.set_anchor(spec_convert, Left, Some(spec_convert_text), Right, xy(8.0, 0.0), false);
+            cx.set_anchor(
+                spec_convert,
+                Left,
+                Some(spec_convert_text),
+                Right,
+                xy(8.0, 0.0),
+                false,
+            );
             // L437
-            cx.set_anchor(spec_convert_text, BottomLeft, Some(spec_select), TopLeft, xy(0.0, -14.0), false);
+            cx.set_anchor(
+                spec_convert_text,
+                BottomLeft,
+                Some(spec_select),
+                TopLeft,
+                xy(0.0, -14.0),
+                false,
+            );
         } else {
             // L439
-            cx.set_anchor(spec_convert, TopLeft, Some(spec_convert_text), BottomLeft, xy(0.0, 4.0), false);
+            cx.set_anchor(
+                spec_convert,
+                TopLeft,
+                Some(spec_convert_text),
+                BottomLeft,
+                xy(0.0, 4.0),
+                false,
+            );
             // L440
-            cx.set_anchor(spec_convert_text, BottomLeft, Some(spec_select), TopLeft, xy(0.0, -38.0), false);
+            cx.set_anchor(
+                spec_convert_text,
+                BottomLeft,
+                Some(spec_select),
+                TopLeft,
+                xy(0.0, -38.0),
+                false,
+            );
         }
 
         // L443 (the raw `shown` field: a boolean)
@@ -1491,9 +1630,13 @@ impl TreeTab {
         if st(cx, me).jump_to_node {
             let (x, y) = (st(cx, me).jump_to_x, st(cx, me).jump_to_y);
             // L448
-            cx.lend::<TreeTab, _, _>(me, |w| &mut w.core.viewer, |cx, v| {
-                v.focus(cx, x, y, &tree_view_port);
-            });
+            cx.lend::<TreeTab, _, _>(
+                me,
+                |w| &mut w.core.viewer,
+                |cx, v| {
+                    v.focus(cx, x, y, &tree_view_port);
+                },
+            );
             // L449
             st_mut(cx, me).jump_to_node = false;
         }
@@ -1505,9 +1648,13 @@ impl TreeTab {
         };
         st_mut(cx, me).viewer.compare_spec = compare_spec;
         // L452
-        cx.lend::<TreeTab, _, _>(me, |w| &mut w.core.viewer, |cx, v| {
-            v.draw(cx, &tree_view_port, input_events);
-        });
+        cx.lend::<TreeTab, _, _>(
+            me,
+            |w| &mut w.core.viewer,
+            |cx, v| {
+                v.draw(cx, &tree_view_port, input_events);
+            },
+        );
 
         // L454
         let new_spec_list = Self::GetSpecList(cx);

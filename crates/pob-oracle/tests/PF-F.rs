@@ -216,7 +216,9 @@ fn run_build(xml: &Path) -> Outcome {
     let env = inj.env.clone().expect("perform:2997 dump has an env");
     let mut locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
     // CCR-0079 §1: the closures' upvalues from the same perform run's line dumps (when probed)
-    let same_env = |h: &str| load(&dirs, h).filter(|x| x.env_id == din.env_id && testkit::same_run(din, x).is_ok());
+    let same_env = |h: &str| {
+        load(&dirs, h).filter(|x| x.env_id == din.env_id && testkit::same_run(din, x).is_ok())
+    };
     let (up1691, up1862) = (same_env("perform:1691"), same_env("perform:1862"));
     let seeded = testkit::seed_merge_closures(&mut locals, up1691.as_ref(), up1862.as_ref());
     pob_calc::stub::stub_reset();
@@ -269,7 +271,12 @@ fn run_build(xml: &Path) -> Outcome {
     }
     for (name, group, a, b) in [
         ("mergeFlasks", FLASK_GROUP, d3118, d3125),
-        ("defenceForConditionals+doActorCharges+doActorMisc", TAIL_GROUP, d3484, dout),
+        (
+            "defenceForConditionals+doActorCharges+doActorMisc",
+            TAIL_GROUP,
+            d3484,
+            dout,
+        ),
     ] {
         let hit_all = group.iter().all(|s| stubs.iter().any(|x| x == s));
         let hit_any = group.iter().any(|s| stubs.iter().any(|x| x == s));
@@ -391,7 +398,13 @@ fn pff_l4_perform_2997_3497() {
             o.blockers,
             o.note
         );
-        let show = if verbose { usize::MAX } else if o.verdict == Verdict::Fail { 15 } else { 0 };
+        let show = if verbose {
+            usize::MAX
+        } else if o.verdict == Verdict::Fail {
+            15
+        } else {
+            0
+        };
         for m in o.mismatches.iter().take(show) {
             eprintln!(
                 "    {} {:?} pob={} ours={}",
@@ -536,7 +549,10 @@ fn strip_at(v: &J) -> J {
 fn clip(v: Option<&serde_json::Value>) -> String {
     let s = v.map_or_else(|| "-".to_owned(), ToString::to_string);
     if s.len() > 160 {
-        format!("{}…", &s[..s.char_indices().nth(160).map_or(s.len(), |(i, _)| i)])
+        format!(
+            "{}…",
+            &s[..s.char_indices().nth(160).map_or(s.len(), |(i, _)| i)]
+        )
     } else {
         s
     }

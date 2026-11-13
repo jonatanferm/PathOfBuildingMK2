@@ -134,10 +134,10 @@ mod imp {
         StoreKind, StoreMods,
     };
     use crate::env::{Accelerate, Env, EnvRef, ExplodeSource, Mode, Override, SpecEnv};
-    use crate::modules::calc_perform_shared::{FlaskUpvalues, TinctureUpvalues};
     use crate::global_cache::{CachedData, GlobalCache};
     use crate::lua_table::{IndexMeta, Key, LStr, Table, Val};
     use crate::model::{Build, BuildRef, GemInstance, GemInstanceRef, SocketGroup, SocketGroupRef};
+    use crate::modules::calc_perform_shared::{FlaskUpvalues, TinctureUpvalues};
 
     // =====================================================================================
     // Kinds and leaf objects
@@ -320,7 +320,10 @@ mod imp {
             self.side_extra.entry(ptr).or_default().push((key, v));
         }
         pub fn push_obj_key(&mut self, t: &Table, k: Val, v: Val) {
-            self.obj_keys.entry(t.as_ptr() as usize).or_default().push((k, v));
+            self.obj_keys
+                .entry(t.as_ptr() as usize)
+                .or_default()
+                .push((k, v));
         }
         pub fn set_meta_fn(&mut self, t: &Table, marker: J) {
             self.meta_fn.insert(t.as_ptr() as usize, marker);
@@ -973,7 +976,9 @@ mod imp {
                 self.set(None);
                 return true;
             }
-            let Some(d) = v.obj::<DataRef>() else { return false };
+            let Some(d) = v.obj::<DataRef>() else {
+                return false;
+            };
             match life_tables().into_iter().find(|(p, _)| *p == d.path) {
                 Some((_, t)) => {
                     self.set(Some(t));
@@ -1649,7 +1654,9 @@ mod imp {
                             let mut m = Members::default();
                             struct_members(&mut m, &*c, rc_ptr(&c));
                             m.entries.iter().all(|(_, v)| match v {
-                                PV::V(x) => !matches!(x, Val::Obj(_) | Val::Table(_)) && val_is_default(x),
+                                PV::V(x) => {
+                                    !matches!(x, Val::Obj(_) | Val::Table(_)) && val_is_default(x)
+                                }
                                 PV::O(_) => false,
                             })
                         }
@@ -1861,8 +1868,7 @@ mod imp {
                 }
             }
             PObj::CacheMode(mode) => {
-                let entries =
-                    GlobalCache.with(|g| g.borrow().cachedData[mode.index()].clone());
+                let entries = GlobalCache.with(|g| g.borrow().cachedData[mode.index()].clone());
                 for (k, e) in entries {
                     m.s(k.as_str(), Val::Obj(e));
                 }
@@ -1980,7 +1986,11 @@ mod imp {
                     return Some(m);
                 }
                 if let Some(n) = o.downcast_ref::<Node>() {
-                    let tag = if n.tree.is_some() { "$node" } else { "$treeNode" };
+                    let tag = if n.tree.is_some() {
+                        "$node"
+                    } else {
+                        "$treeNode"
+                    };
                     let mut map = Map::new();
                     map.insert(tag.to_owned(), jnum(n.id));
                     return Some(J::Object(map));
@@ -2161,7 +2171,10 @@ mod imp {
             }
         }
         if !m.tags.is_empty() {
-            o.insert("$seq".into(), J::Array(m.tags.iter().map(tag_json).collect()));
+            o.insert(
+                "$seq".into(),
+                J::Array(m.tags.iter().map(tag_json).collect()),
+            );
         }
         if !num.is_empty() {
             o.insert("$num".into(), J::Object(num));
@@ -2202,7 +2215,8 @@ mod imp {
                     if let Some(d) = o.downcast_ref::<DataRef>() {
                         return format!("@{}", d.path);
                     }
-                    if o.downcast_ref::<Marker>().is_some_and(|m| m.0.get("$fn").is_some())
+                    if o.downcast_ref::<Marker>()
+                        .is_some_and(|m| m.0.get("$fn").is_some())
                         || closure_marker(&**o).is_some()
                     {
                         return "function".into();
@@ -2259,7 +2273,10 @@ mod imp {
         }
         s_parts.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
         n_parts.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let mut parts: Vec<String> = s_parts.into_iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let mut parts: Vec<String> = s_parts
+            .into_iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
         parts.extend(
             n_parts
                 .into_iter()
@@ -2281,7 +2298,10 @@ mod imp {
             }
         }
         s_parts.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
-        let mut parts: Vec<String> = s_parts.into_iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let mut parts: Vec<String> = s_parts
+            .into_iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
         for (i, t) in m.tags.iter().enumerate() {
             parts.push(format!("[{}]={}", i + 1, json_label(&tag_json(t), depth)));
         }
@@ -2317,9 +2337,7 @@ mod imp {
     fn json_label(v: &J, depth: i32) -> String {
         match v {
             J::String(s) => jstr(s),
-            J::Number(n) => n
-                .as_f64()
-                .map_or_else(|| n.to_string(), jnum_text),
+            J::Number(n) => n.as_f64().map_or_else(|| n.to_string(), jnum_text),
             J::Bool(b) => b.to_string(),
             J::Null => "nil".into(),
             J::Array(a) => {
@@ -2370,7 +2388,11 @@ mod imp {
                     if let Some(d) = o.downcast_ref::<DataRef>() {
                         return format!("2:{}", d.path);
                     }
-                    if let Some(m) = o.downcast_ref::<Marker>().map(|m| m.0.clone()).or_else(|| closure_marker(&**o)) {
+                    if let Some(m) = o
+                        .downcast_ref::<Marker>()
+                        .map(|m| m.0.clone())
+                        .or_else(|| closure_marker(&**o))
+                    {
                         if let Some(f) = m.get("$fn").and_then(J::as_str) {
                             return format!("5:{f}");
                         }
@@ -2380,7 +2402,9 @@ mod imp {
                 match PObj::from_val(v) {
                     Some(PObj::Item(it)) => format!(
                         "3:{}:{}",
-                        it.id.get().map_or_else(|| "nil".to_owned(), lua_tostring_num),
+                        it.id
+                            .get()
+                            .map_or_else(|| "nil".to_owned(), lua_tostring_num),
                         it.name.get()
                     ),
                     Some(o) => match o.class() {
@@ -2573,7 +2597,9 @@ mod imp {
                     let uuid = REG.with(|r| r.borrow().uuid.get(&rc_ptr(s)).cloned());
                     let uuid = uuid.or_else(|| {
                         self.env.as_ref().map(|e| {
-                            crate::modules::common::cacheSkillUUID(s, e).as_str().to_owned()
+                            crate::modules::common::cacheSkillUUID(s, e)
+                                .as_str()
+                                .to_owned()
                         })
                     });
                     if let Some(u) = uuid {
@@ -2714,11 +2740,9 @@ mod imp {
                 }
                 J::Object(o)
             }
-            StoreMods::List { list, .. } => J::Array(
-                list.iter()
-                    .map(|m| mod_json(m, at(m).as_deref()))
-                    .collect(),
-            ),
+            StoreMods::List { list, .. } => {
+                J::Array(list.iter().map(|m| mod_json(m, at(m).as_deref())).collect())
+            }
         }
     }
 
@@ -3139,7 +3163,8 @@ mod imp {
     /// Receives every `runSkillFunc(name)` call of the offence segments (CalcOffence.lua:509)
     /// before the Rust body runs: `true` means the call was handled (e.g. the hook's recorded
     /// `runSkillFunc:in → :out` delta was applied) and the Rust body is skipped.
-    pub type SkillHookHandler = Box<dyn FnMut(&ActiveSkillRef, crate::data_fns_types::SkillHook) -> bool>;
+    pub type SkillHookHandler =
+        Box<dyn FnMut(&ActiveSkillRef, crate::data_fns_types::SkillHook) -> bool>;
 
     thread_local! {
         static SKILL_HOOK_HANDLER: RefCell<Option<SkillHookHandler>> = RefCell::new(None);
@@ -3152,7 +3177,10 @@ mod imp {
 
     /// Offer a `runSkillFunc` call to the installed handler (false when none is installed).
     /// The handler is taken out while it runs, so it may call into the calc freely.
-    pub fn skill_hook_handled(skill: &ActiveSkillRef, name: crate::data_fns_types::SkillHook) -> bool {
+    pub fn skill_hook_handled(
+        skill: &ActiveSkillRef,
+        name: crate::data_fns_types::SkillHook,
+    ) -> bool {
         let Some(mut h) = SKILL_HOOK_HANDLER.with(|s| s.borrow_mut().take()) else {
             return false;
         };
@@ -3182,9 +3210,7 @@ mod imp {
             if !names.contains(&k.as_str()) {
                 continue;
             }
-            let is_fn = v
-                .obj::<Marker>()
-                .is_some_and(|m| m.0.get("$fn").is_some());
+            let is_fn = v.obj::<Marker>().is_some_and(|m| m.0.get("$fn").is_some());
             if !c.probe_set(k, v) && !table_list_set(c, k, v) && !is_fn {
                 bad.push(format!("{k} = {}", v.lua_type()));
             }
@@ -3192,7 +3218,10 @@ mod imp {
         if bad.is_empty() {
             Ok(())
         } else {
-            Err(format!("injected locals of the wrong type: {}", bad.join(", ")))
+            Err(format!(
+                "injected locals of the wrong type: {}",
+                bad.join(", ")
+            ))
         }
     }
 

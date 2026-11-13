@@ -379,10 +379,7 @@ mod tests {
             );
         }));
         let p = r.expect_err("must panic");
-        let msg = p
-            .downcast_ref::<String>()
-            .cloned()
-            .unwrap_or_default();
+        let msg = p.downcast_ref::<String>().cloned().unwrap_or_default();
         assert!(msg.contains("boom 7"), "{msg}");
         assert_eq!(seen, (0..7).collect::<Vec<_>>());
     }
@@ -405,7 +402,10 @@ mod tests {
             );
         }));
         assert!(r.is_err());
-        assert!(ran.load(Ordering::SeqCst) < 5 + 2 * window(3), "workers kept going");
+        assert!(
+            ran.load(Ordering::SeqCst) < 5 + 2 * window(3),
+            "workers kept going"
+        );
     }
 
     /// `par_for_each_windowed` with a window of 2: never more than two items claimed and not
@@ -436,7 +436,11 @@ mod tests {
             },
         );
         assert_eq!(seen, items);
-        assert!(max.load(Ordering::SeqCst) <= 2, "{} in flight", max.load(Ordering::SeqCst));
+        assert!(
+            max.load(Ordering::SeqCst) <= 2,
+            "{} in flight",
+            max.load(Ordering::SeqCst)
+        );
     }
 
     /// `init` runs once per worker, on that worker.

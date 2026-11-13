@@ -43,14 +43,16 @@ fn skip(why: &str) {
 /// closures.json `{id → sha256}` of the act_int hooks.
 fn manifest() -> Option<BTreeMap<String, String>> {
     let path = pob_oracle::oracle::find_up("data/dump/closures.json")?;
-    let j: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
     let mut out = BTreeMap::new();
     for c in j["closures"].as_array()? {
         let src = c["src"].as_str().unwrap_or_default();
         if src.starts_with(&format!("{LUA_FILE}:")) {
             assert!(
-                c["family"].as_str().unwrap_or_default().starts_with("skill-hook:"),
+                c["family"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .starts_with("skill-hook:"),
                 "{c}"
             );
             let prev = out.insert(
@@ -71,8 +73,14 @@ fn ska_rows_cover_act_int() {
     assert_eq!(want.len(), 68, "act_int hook count (calc doc §8)");
     let mut have = BTreeMap::new();
     for r in skills_act_int::ROWS {
-        assert!(have.insert(r.id.to_owned(), r.hash.to_owned()).is_none(), "duplicate row {}", r.id);
-        let row = SKILL_FUNCS.get(r.id).unwrap_or_else(|| panic!("{} not in SKILL_FUNCS", r.id));
+        assert!(
+            have.insert(r.id.to_owned(), r.hash.to_owned()).is_none(),
+            "duplicate row {}",
+            r.id
+        );
+        let row = SKILL_FUNCS
+            .get(r.id)
+            .unwrap_or_else(|| panic!("{} not in SKILL_FUNCS", r.id));
         assert!(std::ptr::eq(*row, r), "{} resolves to another row", r.id);
     }
     assert_eq!(have, want, "ROWS ids/hashes vs closures.json");
@@ -81,7 +89,10 @@ fn ska_rows_cover_act_int() {
         .filter(|l| l.trim_start().starts_with("unported!("))
         .collect();
     assert!(stubs.is_empty(), "stub bodies left: {stubs:?}");
-    eprintln!("SK-A rows: {} ids, hashes equal, no stub bodies", have.len());
+    eprintln!(
+        "SK-A rows: {} ids, hashes equal, no stub bodies",
+        have.len()
+    );
 }
 
 // ---- the oracle diff ------------------------------------------------------------------------------
@@ -121,7 +132,9 @@ mod oracle {
         let mut v: Vec<PathBuf> = Vec::new();
         let own = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/SK-A/builds");
         let mut add_dir = |dir: &Path, filter: bool| {
-            let Ok(rd) = std::fs::read_dir(dir) else { return };
+            let Ok(rd) = std::fs::read_dir(dir) else {
+                return;
+            };
             let mut files: Vec<PathBuf> = rd
                 .filter_map(Result::ok)
                 .map(|e| e.path())
@@ -157,7 +170,10 @@ mod oracle {
     /// `pob_oracle probe` process when absent (TP1: `testkit::probe_selection`, keyed by the
     /// patched source, the build's bytes and the selection, shared by every worktree). Hold the
     /// result while reading the dumps.
-    fn probe(xml: &Path, skills: &BTreeSet<String>) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    fn probe(
+        xml: &Path,
+        skills: &BTreeSet<String>,
+    ) -> Result<pob_oracle::runner::ProbeDumps, String> {
         let opts = pob_oracle::runner::ProbeOptions {
             select: skills.iter().map(|s| format!("skill:{s}:*")).collect(),
             max_dumps: 100_000,
@@ -248,7 +264,12 @@ mod oracle {
                 } else {
                     Outcome::Mismatch(
                         mm.iter()
-                            .map(|m| format!("{} {:?}: pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours))
+                            .map(|m| {
+                                format!(
+                                    "{} {:?}: pob={:?} ours={:?}",
+                                    m.path, m.kind, m.pob, m.ours
+                                )
+                            })
                             .collect(),
                     )
                 }
@@ -298,14 +319,27 @@ mod oracle {
                 }
             };
             let mut ins: Vec<(String, u64, PathBuf)> = Vec::new();
-            for e in std::fs::read_dir(&state).into_iter().flatten().filter_map(Result::ok) {
+            for e in std::fs::read_dir(&state)
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+            {
                 let name = e.file_name().to_string_lossy().into_owned();
-                let Some(base) = name.strip_suffix(".json").or_else(|| name.strip_suffix(".json.zst")) else {
+                let Some(base) = name
+                    .strip_suffix(".json")
+                    .or_else(|| name.strip_suffix(".json.zst"))
+                else {
                     continue;
                 };
-                let Some((probe_in, n)) = base.split_once('#') else { continue };
-                let Some(probe) = probe_in.strip_suffix(":in") else { continue };
-                let (Some(id), Ok(n)) = (hook_id(probe), n.parse::<u64>()) else { continue };
+                let Some((probe_in, n)) = base.split_once('#') else {
+                    continue;
+                };
+                let Some(probe) = probe_in.strip_suffix(":in") else {
+                    continue;
+                };
+                let (Some(id), Ok(n)) = (hook_id(probe), n.parse::<u64>()) else {
+                    continue;
+                };
                 if want.contains_key(&id) {
                     ins.push((id, n, e.path()));
                 }
@@ -338,12 +372,13 @@ mod oracle {
                 if dout.is_none() {
                     lua_errors += 1;
                 }
-                let has_bd = din
-                    .locals()
-                    .is_some_and(|l| {
-                        l.get("breakdown").is_some_and(|b| !b.is_null())
-                            || l.get("varargs").and_then(|v| v.get("$seq")).and_then(|s| s.get(0)).is_some_and(|b| !b.is_null())
-                    });
+                let has_bd = din.locals().is_some_and(|l| {
+                    l.get("breakdown").is_some_and(|b| !b.is_null())
+                        || l.get("varargs")
+                            .and_then(|v| v.get("$seq"))
+                            .and_then(|s| s.get(0))
+                            .is_some_and(|b| !b.is_null())
+                });
                 let ph = per.entry(id.clone()).or_default();
                 ph.hits += 1;
                 ph.builds.insert(stem.clone());
@@ -398,9 +433,16 @@ mod oracle {
             eprintln!("FAILED {f}");
         }
         assert!(failed.is_empty(), "{} hook hits failed", failed.len());
-        assert!(mism.is_empty(), "{} hook hits differ from the oracle", mism.len());
+        assert!(
+            mism.is_empty(),
+            "{} hook hits differ from the oracle",
+            mism.len()
+        );
         if std::env::var_os("SKA_BUILDS").is_none() {
-            assert!(unhit.is_empty(), "act_int hooks the corpus never runs: {unhit:?}");
+            assert!(
+                unhit.is_empty(),
+                "act_int hooks the corpus never runs: {unhit:?}"
+            );
         }
     }
 }

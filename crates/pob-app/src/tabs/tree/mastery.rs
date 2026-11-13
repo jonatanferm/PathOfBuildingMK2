@@ -83,12 +83,23 @@ impl PassiveMasteryControl {
     ) -> New<PassiveMasteryControl> {
         let [x, y, w, h] = r;
         // L26 self.list = list or { }
-        let values: Vec<ListValue> = list.iter().cloned().map(|e| ListValue::of(Rc::new(e))).collect();
+        let values: Vec<ListValue> = list
+            .iter()
+            .cloned()
+            .map(|e| ListValue::of(Rc::new(e)))
+            .collect();
         New::new(
             Base::new(anchor, [x, y, w, h]),
             PassiveMasteryControl {
                 // L31
-                list: ListControl::state(&HOOKS, 16.0, false, false, ListData::Local(values), false),
+                list: ListControl::state(
+                    &HOOKS,
+                    16.0,
+                    false,
+                    false,
+                    ListData::Local(values),
+                    false,
+                ),
                 // L32
                 tree_tab,
                 // L34
@@ -128,7 +139,13 @@ impl PassiveMasteryControl {
     /// lua: PassiveMasteryControl.lua:50-56 `PassiveMasteryControlClass:AddValueTooltip(tooltip,
     /// index, effect)`
     /// @pob Classes/PassiveMasteryControl.lua:50-56 h=7f624feb
-    fn AddValueTooltip(cx: &mut Cx, me: CtrlId, tooltip: &mut Tooltip, _index: usize, v: &ListValue) {
+    fn AddValueTooltip(
+        cx: &mut Cx,
+        me: CtrlId,
+        tooltip: &mut Tooltip,
+        _index: usize,
+        v: &ListValue,
+    ) {
         let effect = effect_of(v);
         let (tree_tab, node) = {
             let w = cx.w::<PassiveMasteryControl>(me);
@@ -150,21 +167,35 @@ impl PassiveMasteryControl {
         tree.ProcessStats(&node, None);
         // L55
         let f = crate::tree_view::hooks().add_node_tooltip;
-        cx.lend::<TreeTab, _, _>(tree_tab, |w| &mut w.core.viewer, |cx, viewer| {
-            f(cx, viewer, tooltip, &node);
-        });
+        cx.lend::<TreeTab, _, _>(
+            tree_tab,
+            |w| &mut w.core.viewer,
+            |cx, viewer| {
+                f(cx, viewer, tooltip, &node);
+            },
+        );
     }
 
     /// lua: PassiveMasteryControl.lua:58-60 `PassiveMasteryControlClass:OnSelClick(index, mastery,
     /// doubleClick)`
     /// @pob Classes/PassiveMasteryControl.lua:58-60 h=0d245030
-    fn OnSelClick(cx: &mut Cx, me: CtrlId, _index: usize, _v: &ListValue, _double_click: bool) -> Option<bool> {
+    fn OnSelClick(
+        cx: &mut Cx,
+        me: CtrlId,
+        _index: usize,
+        _v: &ListValue,
+        _double_click: bool,
+    ) -> Option<bool> {
         let (tree_tab, node) = {
             let w = cx.w::<PassiveMasteryControl>(me);
             (w.tree_tab, w.node.clone())
         };
         // L59 (`listControl.selValue`)
-        let sel = cx.w::<ListControl>(me).sel_value.as_ref().map(|v| effect_of(v).id);
+        let sel = cx
+            .w::<ListControl>(me)
+            .sel_value
+            .as_ref()
+            .map(|v| effect_of(v).id);
         TreeTab::SaveMasteryPopup(cx, tree_tab, &node, sel);
         None
     }

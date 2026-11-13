@@ -586,7 +586,10 @@ fn node_rec(pre: &str, n: &Node, r: &mut Rec) {
             f17(n.y.get()),
             f17(n.angle.get()),
             tostr_val(&n.extra.get(Name::from("icon"))),
-            (n.extra.get(Name::from("expansionSkill")).raw_eq(&Val::Bool(true))).to_string(),
+            (n.extra
+                .get(Name::from("expansionSkill"))
+                .raw_eq(&Val::Bool(true)))
+            .to_string(),
             n.alloc.get().to_string(),
         ]
         .join("|"),
@@ -759,11 +762,7 @@ fn load_items(build: &BuildRef, items: Option<&XmlNode>) {
             continue;
         }
         let item = new_Item(Some(""), None, false);
-        let attr = |k: &str| {
-            node.attrib
-                .get(k)
-                .and_then(|s| pob_lua::tonumber(s))
-        };
+        let attr = |k: &str| node.attrib.get(k).and_then(|s| pob_lua::tonumber(s));
         item.id.set(attr("id"));
         item.variant.set(attr("variant"));
         for (k, cell) in [
@@ -903,7 +902,10 @@ fn legacy_phase(build: &BuildRef, xml: &XmlNode, r: &mut Rec) {
     r.emit("legacy/sub", join_nums(s.allocSubgraphNodes.snapshot()));
     let mut alloc: Vec<i64> = s.allocNodes.with(|m| m.keys());
     alloc.sort_unstable();
-    r.emit("legacy/alloc", join_nums(alloc.into_iter().map(|x| x as f64)));
+    r.emit(
+        "legacy/alloc",
+        join_nums(alloc.into_iter().map(|x| x as f64)),
+    );
     let mut jws = s.jewels.with(|m| m.pairs());
     jws.sort_by_key(|(k, _)| *k);
     r.emit(
@@ -1077,7 +1079,10 @@ fn rust_probe(build: &BuildRef, ver: Name, keystones: &[&str]) -> BTreeMap<Strin
         if !legion.is_empty() {
             let ln = &legion[si % legion.len()];
             let b = spec.ReplaceNode(&node, ln);
-            r.emit(format!("{p}legion"), format!("{}|{}", ret(b), fields(&node)));
+            r.emit(
+                format!("{p}legion"),
+                format!("{}|{}", ret(b), fields(&node)),
+            );
         }
         let b = spec.ReplaceNode(&node, &treeNode);
         r.emit(format!("{p}back"), format!("{}|{}", ret(b), fields(&node)));
@@ -1086,7 +1091,10 @@ fn rust_probe(build: &BuildRef, ver: Name, keystones: &[&str]) -> BTreeMap<Strin
         if !tattooNames.is_empty() {
             let tn = obj_node(&tattoo.get(tattooNames[si % tattooNames.len()].as_str()));
             let b = spec.ReplaceNode(&node, &tn);
-            r.emit(format!("{p}tattoo"), format!("{}|{}", ret(b), fields(&node)));
+            r.emit(
+                format!("{p}tattoo"),
+                format!("{}|{}", ret(b), fields(&node)),
+            );
             let b = spec.ReplaceNode(&node, &treeNode);
             r.emit(format!("{p}back2"), format!("{}|{}", ret(b), fields(&node)));
         }
@@ -1137,7 +1145,11 @@ fn cluster_item(id: usize, j: &Jewel) -> String {
         "<Item id=\"{id}\">\nRarity: RARE\nSynth {id}\n{}\nItem Level: 84\n",
         j.base
     );
-    let implicits: Vec<&String> = j.lines.iter().filter(|l| l.starts_with("{crafted}")).collect();
+    let implicits: Vec<&String> = j
+        .lines
+        .iter()
+        .filter(|l| l.starts_with("{crafted}"))
+        .collect();
     s.push_str(&format!("Implicits: {}\n", implicits.len()));
     for l in &implicits {
         s.push_str(l);
@@ -1157,7 +1169,10 @@ fn skill_lines(base: &str, skillIdx: usize) -> (String, Vec<String>) {
     let (id, sk) = cj.skills.get_index(skillIdx % cj.skills.len()).unwrap();
     (
         id.to_string(),
-        sk.enchant.iter().map(|e| format!("{{crafted}}{e}")).collect(),
+        sk.enchant
+            .iter()
+            .map(|e| format!("{{crafted}}{e}"))
+            .collect(),
     )
 }
 
@@ -1173,7 +1188,9 @@ fn jewel(
     if sockets == 1 {
         lines.push("{crafted}1 Added Passive Skill is a Jewel Socket".to_owned());
     } else if sockets > 1 {
-        lines.push(format!("{{crafted}}{sockets} Added Passive Skills are Jewel Sockets"));
+        lines.push(format!(
+            "{{crafted}}{sockets} Added Passive Skills are Jewel Sockets"
+        ));
     }
     if let Some(si) = skillIdx {
         let (_, l) = skill_lines(base, si);
@@ -1269,32 +1286,128 @@ fn synthetic_builds_of(
         .collect();
     notables.sort_by(|a, b| a.0.total_cmp(&b.0));
     let nb = |i: usize| -> &'static str {
-        Box::leak(notables[(i * 7) % notables.len()].1.clone().into_boxed_str())
+        Box::leak(
+            notables[(i * 7) % notables.len()]
+                .1
+                .clone()
+                .into_boxed_str(),
+        )
     };
-    let ks = data().clusterJewels.keystones.first().map(|k| k.to_string());
+    let ks = data()
+        .clusterJewels
+        .keystones
+        .first()
+        .map(|k| k.to_string());
 
     // (large, [medium per sub-socket], [small per medium sub-socket])
     let larges = [
         jewel("Large Cluster Jewel", Some(0), 8, 2, &[nb(0), nb(1)], &[]),
-        jewel("Large Cluster Jewel", Some(1), 12, 1, &[nb(2), nb(3), nb(4)], &["Added Small Passive Skills have 25% increased Effect"]),
-        jewel("Large Cluster Jewel", Some(2), 10, 0, &[nb(5), nb(6), nb(7)], &[]),
-        jewel("Large Cluster Jewel", Some(3), 9, 2, &[nb(8)], &["Added Small Passive Skills also grant: +5 to Strength"]),
-        jewel("Large Cluster Jewel", None, 8, 0, &[], &["Adds 3 Jewel Socket Passive Skills", "Adds 1 Small Passive Skill which grants nothing"]),
-        jewel("Large Cluster Jewel", Some(4), 11, 2, &[nb(9), nb(10), nb(11), nb(12)], &[]),
-        jewel("Large Cluster Jewel", Some(5), 8, 1, &[nb(13), "Not A Real Notable"], &[]),
+        jewel(
+            "Large Cluster Jewel",
+            Some(1),
+            12,
+            1,
+            &[nb(2), nb(3), nb(4)],
+            &["Added Small Passive Skills have 25% increased Effect"],
+        ),
+        jewel(
+            "Large Cluster Jewel",
+            Some(2),
+            10,
+            0,
+            &[nb(5), nb(6), nb(7)],
+            &[],
+        ),
+        jewel(
+            "Large Cluster Jewel",
+            Some(3),
+            9,
+            2,
+            &[nb(8)],
+            &["Added Small Passive Skills also grant: +5 to Strength"],
+        ),
+        jewel(
+            "Large Cluster Jewel",
+            None,
+            8,
+            0,
+            &[],
+            &[
+                "Adds 3 Jewel Socket Passive Skills",
+                "Adds 1 Small Passive Skill which grants nothing",
+            ],
+        ),
+        jewel(
+            "Large Cluster Jewel",
+            Some(4),
+            11,
+            2,
+            &[nb(9), nb(10), nb(11), nb(12)],
+            &[],
+        ),
+        jewel(
+            "Large Cluster Jewel",
+            Some(5),
+            8,
+            1,
+            &[nb(13), "Not A Real Notable"],
+            &[],
+        ),
     ];
     let mediums = [
-        jewel("Medium Cluster Jewel", Some(0), 4, 0, &[nb(20), nb(21)], &[]),
+        jewel(
+            "Medium Cluster Jewel",
+            Some(0),
+            4,
+            0,
+            &[nb(20), nb(21)],
+            &[],
+        ),
         jewel("Medium Cluster Jewel", Some(1), 4, 1, &[nb(22)], &[]),
-        jewel("Medium Cluster Jewel", Some(2), 5, 1, &[nb(23), nb(24)], &[]),
-        jewel("Medium Cluster Jewel", Some(3), 6, 1, &[nb(25), nb(26)], &["Added Small Passive Skills have 30% increased Effect"]),
+        jewel(
+            "Medium Cluster Jewel",
+            Some(2),
+            5,
+            1,
+            &[nb(23), nb(24)],
+            &[],
+        ),
+        jewel(
+            "Medium Cluster Jewel",
+            Some(3),
+            6,
+            1,
+            &[nb(25), nb(26)],
+            &["Added Small Passive Skills have 30% increased Effect"],
+        ),
         jewel("Medium Cluster Jewel", Some(4), 5, 0, &[nb(27)], &[]),
-        jewel("Medium Cluster Jewel", Some(5), 6, 0, &[nb(28), nb(29), nb(30)], &[]),
+        jewel(
+            "Medium Cluster Jewel",
+            Some(5),
+            6,
+            0,
+            &[nb(28), nb(29), nb(30)],
+            &[],
+        ),
     ];
     let smalls = vec![
         jewel("Small Cluster Jewel", Some(0), 2, 0, &[nb(40)], &[]),
-        jewel("Small Cluster Jewel", Some(1), 3, 0, &[nb(41)], &["Added Small Passive Skills have 35% increased Effect"]),
-        jewel("Small Cluster Jewel", Some(2), 3, 0, &[], &["Added Small Passive Skills grant Nothing"]),
+        jewel(
+            "Small Cluster Jewel",
+            Some(1),
+            3,
+            0,
+            &[nb(41)],
+            &["Added Small Passive Skills have 35% increased Effect"],
+        ),
+        jewel(
+            "Small Cluster Jewel",
+            Some(2),
+            3,
+            0,
+            &[],
+            &["Added Small Passive Skills grant Nothing"],
+        ),
         jewel("Small Cluster Jewel", Some(3), 2, 0, &[], &[]),
     ];
     // a keystone cluster (`clusterJewelKeystone`: `o = 0, oidx = 1`, PassiveSpec.lua 2076-2087)
@@ -1325,10 +1438,17 @@ fn synthetic_builds_of(
         let mut legacySockets = String::new();
         let mut nodesAttr: Vec<i64> = Vec::new();
         let mut itemId = 0usize;
-        let mut add = |j: &Jewel, socket: i64, legacySocket: i64, items: &mut String, sockets: &mut String, legacySockets: &mut String| {
+        let mut add = |j: &Jewel,
+                       socket: i64,
+                       legacySocket: i64,
+                       items: &mut String,
+                       sockets: &mut String,
+                       legacySockets: &mut String| {
             itemId += 1;
             items.push_str(&cluster_item(itemId, j));
-            sockets.push_str(&format!("<Socket nodeId=\"{socket}\" itemId=\"{itemId}\"/>\n"));
+            sockets.push_str(&format!(
+                "<Socket nodeId=\"{socket}\" itemId=\"{itemId}\"/>\n"
+            ));
             legacySockets.push_str(&format!(
                 "<Socket nodeId=\"{legacySocket}\" itemId=\"{itemId}\"/>\n"
             ));
@@ -1336,15 +1456,31 @@ fn synthetic_builds_of(
         for (li, &ls) in large.iter().enumerate() {
             nodesAttr.push(ls);
             if layout == Layout::S {
-                add(&smalls[(li + variant) % smalls.len()], ls, ls, &mut items, &mut sockets, &mut legacySockets);
+                add(
+                    &smalls[(li + variant) % smalls.len()],
+                    ls,
+                    ls,
+                    &mut items,
+                    &mut sockets,
+                    &mut legacySockets,
+                );
                 continue;
             }
             if layout == Layout::Ms {
-                add(&mediums[(li + variant) % mediums.len()], ls, ls, &mut items, &mut sockets, &mut legacySockets);
+                add(
+                    &mediums[(li + variant) % mediums.len()],
+                    ls,
+                    ls,
+                    &mut items,
+                    &mut sockets,
+                    &mut legacySockets,
+                );
                 let children = socket_children(ver, ls);
                 // FindClusterSocket(group, 1) or FindClusterSocket(group, 0)
                 let legacyParent = children.get(&1).or_else(|| children.get(&0)).copied();
-                let legacyChildren = legacyParent.map(|c| socket_children(ver, c)).unwrap_or_default();
+                let legacyChildren = legacyParent
+                    .map(|c| socket_children(ver, c))
+                    .unwrap_or_default();
                 for (si, (idx, &ss)) in children.iter().enumerate() {
                     let leg = legacyChildren.get(idx).copied().unwrap_or(ss);
                     add(
@@ -1358,7 +1494,14 @@ fn synthetic_builds_of(
                 }
                 continue;
             }
-            add(&larges[(li + variant) % larges.len()], ls, ls, &mut items, &mut sockets, &mut legacySockets);
+            add(
+                &larges[(li + variant) % larges.len()],
+                ls,
+                ls,
+                &mut items,
+                &mut sockets,
+                &mut legacySockets,
+            );
             for (mi, (_, &ms)) in socket_children(ver, ls).iter().enumerate() {
                 add(
                     &mediums[(li * 3 + mi + variant) % mediums.len()],
@@ -1624,7 +1767,8 @@ fn passive_spec_cluster_acceptance() {
     let mut preloaded: BTreeSet<String> = BTreeSet::new();
     let mut versions: BTreeSet<String> = BTreeSet::new();
     let mut t = Tally::default();
-    let (mut specs, mut subgraphs, mut clusterNodes, mut legacySpecs) = (0usize, 0usize, 0usize, 0usize);
+    let (mut specs, mut subgraphs, mut clusterNodes, mut legacySpecs) =
+        (0usize, 0usize, 0usize, 0usize);
     let (mut legacyMapped, mut legacyRemapped, mut legacyJewels) = (0usize, 0usize, 0usize);
     let mut bad_specs: Vec<String> = Vec::new();
     for (stem, text) in &builds {
@@ -1645,7 +1789,11 @@ fn passive_spec_cluster_acceptance() {
                 main_tree_insert(ver, new_passive_tree_with_node_order(ver, Some(&order)));
             }
             let _ = main_LoadTree(ver);
-            if node.attrib.get("clusterHashFormatVersion").map_or(node.attrib.contains_key("nodes"), |v| &**v == "1") {
+            if node
+                .attrib
+                .get("clusterHashFormatVersion")
+                .map_or(node.attrib.contains_key("nodes"), |v| &**v == "1")
+            {
                 legacySpecs += 1;
             }
             let lua = parse_records(&run_lua(
@@ -1653,9 +1801,8 @@ fn passive_spec_cluster_acceptance() {
                 &format!("return __psc.dumpSafe({})", si + 1),
                 &format!("{stem}#{si}"),
             ));
-            let rust = pob_lua::error::catch(|| rust_dump(&build, node)).unwrap_or_else(|e| {
-                BTreeMap::from([("ERR".to_owned(), esc(&format!("{e:?}")))])
-            });
+            let rust = pob_lua::error::catch(|| rust_dump(&build, node))
+                .unwrap_or_else(|e| BTreeMap::from([("ERR".to_owned(), esc(&format!("{e:?}")))]));
             if lua.contains_key("ERR") || rust.contains_key("ERR") {
                 eprintln!(
                     "{stem}#{si}: error: lua {:?} rust {:?}",
@@ -1760,7 +1907,10 @@ fn passive_spec_cluster_acceptance() {
     for (k, (ok, n)) in &t.info {
         eprintln!("  (in order, informational) {k:<20} {ok}/{n}");
     }
-    eprintln!("  translate                        {}/{tr_n}", tr_n - tr_bad);
+    eprintln!(
+        "  translate                        {}/{tr_n}",
+        tr_n - tr_bad
+    );
     eprintln!("PS-C total: {}/{total} records equal; specs with differences: {bad_specs:?}; probes with differences: {probe_bad}", total - bad);
     assert!(subgraphs > 0, "no subgraph was built");
     assert_eq!(tr_bad, 0, "TranslateClusterOrbitIndex differs");

@@ -77,12 +77,18 @@ pub struct Frame {
 impl Frame {
     /// lua: PassiveTreeView.lua:288-291 `treeToScreen(x, y)`
     pub fn tree_to_screen(&self, x: f64, y: f64) -> (f64, f64) {
-        (x * self.scale + self.offset_x, y * self.scale + self.offset_y)
+        (
+            x * self.scale + self.offset_x,
+            y * self.scale + self.offset_y,
+        )
     }
 
     /// lua: PassiveTreeView.lua:292-295 `screenToTree(x, y)`
     pub fn screen_to_tree(&self, x: f64, y: f64) -> (f64, f64) {
-        ((x - self.offset_x) / self.scale, (y - self.offset_y) / self.scale)
+        (
+            (x - self.offset_x) / self.scale,
+            (y - self.offset_y) / self.scale,
+        )
     }
 
     /// `splitPersonalityPath[id]`
@@ -218,11 +224,19 @@ impl PassiveTreeView {
                         cx.sys.platform.copy(&result);
                     } else if key == Key::PageUp {
                         // L225
-                        let l = if cx.sys.is_key_down(Key::Shift) { 3.0 } else { 1.0 };
+                        let l = if cx.sys.is_key_down(Key::Shift) {
+                            3.0
+                        } else {
+                            1.0
+                        };
                         self.zoom(cx, l, view_port);
                     } else if key == Key::PageDown {
                         // L227
-                        let l = if cx.sys.is_key_down(Key::Shift) { -3.0 } else { -1.0 };
+                        let l = if cx.sys.is_key_down(Key::Shift) {
+                            -3.0
+                        } else {
+                            -1.0
+                        };
                         self.zoom(cx, l, view_port);
                     } else if key == Key::F(1) && self.hover_node.is_some() {
                         // L228 itemLib.wiki.matchesKey(event.key) (wiki.key = "F1")
@@ -253,11 +267,19 @@ impl PassiveTreeView {
                             tree_click = Some("RIGHT");
                         } else if key == Key::WheelUp {
                             // L241
-                            let l = if cx.sys.is_key_down(Key::Shift) { 3.0 } else { 1.0 };
+                            let l = if cx.sys.is_key_down(Key::Shift) {
+                                3.0
+                            } else {
+                                1.0
+                            };
                             self.zoom(cx, l, view_port);
                         } else if key == Key::WheelDown {
                             // L243
-                            let l = if cx.sys.is_key_down(Key::Shift) { -3.0 } else { -1.0 };
+                            let l = if cx.sys.is_key_down(Key::Shift) {
+                                -3.0
+                            } else {
+                                -1.0
+                            };
                             self.zoom(cx, l, view_port);
                         }
                     }
@@ -300,7 +322,11 @@ impl PassiveTreeView {
         // L270
         if tree_click.is_some() && cx.sys.is_key_down(Key::Ctrl) {
             // L271
-            let l = if tree_click == Some("RIGHT") { -2.0 } else { 2.0 };
+            let l = if tree_click == Some("RIGHT") {
+                -2.0
+            } else {
+                2.0
+            };
             self.zoom(cx, l, view_port);
             // L272
             tree_click = None;
@@ -325,7 +351,8 @@ impl PassiveTreeView {
 
         // Create functions that will convert coordinates between the screen and tree coordinate spaces
         // L281
-        let scale = m_min(view_port.width, view_port.height) / tree.extra.num(n!("size")) * self.zoom;
+        let scale =
+            m_min(view_port.width, view_port.height) / tree.extra.num(n!("size")) * self.zoom;
         // L282-283
         let offset_x = self.zoom_x.unwrap() + view_port.x + view_port.width / 2.0;
         let offset_y = self.zoom_y.unwrap() + view_port.y + view_port.height / 2.0;
@@ -387,7 +414,9 @@ impl PassiveTreeView {
                 if !near {
                     continue;
                 }
-                let Some(group) = node.group.get() else { continue };
+                let Some(group) = node.group.get() else {
+                    continue;
+                };
                 if !node.extra.truthy(n!("isProxy")) && !group.truthy(n!("isProxy")) {
                     // Node has a defined size (i.e. has artwork)
                     // L310-311
@@ -651,7 +680,9 @@ impl PassiveTreeView {
                         // L449 (ORDER: module notes)
                         'outer: for (class_id, class_data) in spec.tree.get().classes.pairs() {
                             // L450
-                            let Some(cd) = class_data.table() else { continue };
+                            let Some(cd) = class_data.table() else {
+                                continue;
+                            };
                             let Some(cl) = cd.table(n!("classes")) else {
                                 lua_error!(
                                     "bad argument #1 to 'for iterator' (table expected, got nil)"
@@ -685,9 +716,8 @@ impl PassiveTreeView {
                                 let spec = spec.clone();
                                 move || {
                                     // L468
-                                    let target_node = spec
-                                        .nodes
-                                        .with(|m| m.get(clicked_ascend_node_id as i64));
+                                    let target_node =
+                                        spec.nodes.with(|m| m.get(clicked_ascend_node_id as i64));
                                     // L469
                                     if let Some(t) = target_node.filter(|t| !t.alloc.get()) {
                                         // L470
@@ -713,7 +743,9 @@ impl PassiveTreeView {
                                     .and_then(|c| c.str(n!("name")))
                                     .map(|s| s.to_string())
                                     .unwrap_or_else(|| {
-                                        lua_error!("attempt to concatenate field 'name' (a nil value)")
+                                        lua_error!(
+                                            "attempt to concatenate field 'name' (a nil value)"
+                                        )
                                     });
                                 let (s1, b1) = (spec.clone(), build.clone());
                                 let a1 = allocate_clicked_ascendancy.clone();
@@ -861,7 +893,8 @@ impl PassiveTreeView {
         // L1327
         let tree = cx.build().model.spec.get().tree.get();
         // L1328
-        let scale = m_min(view_port.width, view_port.height) / tree.extra.num(n!("size")) * self.zoom;
+        let scale =
+            m_min(view_port.width, view_port.height) / tree.extra.num(n!("size")) * self.zoom;
 
         // L1330-1331
         self.zoom_x = Some(-x * scale);

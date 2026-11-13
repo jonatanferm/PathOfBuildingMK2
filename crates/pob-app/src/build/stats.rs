@@ -174,7 +174,9 @@ fn stat_match_flags(statData: &DisplayStat, skillFlags: &Table) -> bool {
 
 /// `t_insert(self.controls.statBox.list, row)` (`statBoxList` aliases the control's list).
 fn push_row(cx: &mut Cx, stat_box: CtrlId, row: TextListRow) {
-    cx.w_mut::<TextListControl>(stat_box).list.push(Rc::new(row));
+    cx.w_mut::<TextListControl>(stat_box)
+        .list
+        .push(Rc::new(row));
 }
 
 /// A row with a single centred line (`{ height = h, align = "CENTER_X", x = 140, text }`).
@@ -262,7 +264,12 @@ pub fn format_stat(
         return String::new();
     }
     // L1720
-    let val = statVal.num() * (if statData.pc || statData.r#mod { 100.0 } else { 1.0 })
+    let val = statVal.num()
+        * (if statData.pc || statData.r#mod {
+            100.0
+        } else {
+            1.0
+        })
         - (if statData.r#mod { 100.0 } else { 0.0 });
     // L1721
     let mut color = match colorOverride {
@@ -413,9 +420,19 @@ fn section_subsections() -> Vec<Table> {
     sub.set(Name::from("label"), "View Skill Details");
     let data = Table::new();
     for (label, flag, format, breakdown) in [
-        ("Aura and Buff Skills", "buffs", "{output:BuffList}", Some("SkillBuffs")),
+        (
+            "Aura and Buff Skills",
+            "buffs",
+            "{output:BuffList}",
+            Some("SkillBuffs"),
+        ),
         ("Combat Buffs", "combat", "{output:CombatList}", None),
-        ("Curses and Debuffs", "effective", "{output:CurseList}", Some("SkillDebuffs")),
+        (
+            "Curses and Debuffs",
+            "effective",
+            "{output:CurseList}",
+            Some("SkillDebuffs"),
+        ),
     ] {
         let row = Table::new();
         row.set(Name::from("label"), label);
@@ -633,10 +650,7 @@ pub fn get_sidebar_breakdown(
         // L1833
         let displayCell = match &cell {
             Val::Table(t) => t.copyTable(false),
-            other => lua_error!(
-                "attempt to index a {} value (copyTable)",
-                other.lua_type()
-            ),
+            other => lua_error!("attempt to index a {} value (copyTable)", other.lua_type()),
         };
         // L1834
         if displayCell.get(Name::from("breakdown")).raw_eq(&sourceKey) {
@@ -678,8 +692,7 @@ pub fn get_sidebar_breakdown(
         if label.truthy() {
             let l = concat(&label);
             // L1859
-            if visitedSections.contains(&l) || ignoredSections.is_some_and(|s| s.contains(&l))
-            {
+            if visitedSections.contains(&l) || ignoredSections.is_some_and(|s| s.contains(&l)) {
                 // L1860
                 displayData.remove(Some(i));
             }
@@ -742,7 +755,11 @@ pub fn get_stat_breakdown_key(cx: &Cx, statData: &DisplayStat, actorName: &str) 
         // (`breakdown[nil]` reads nil; every row with a childStat has a stat)
         let stat = statData.stat.unwrap_or_default();
         // L1882
-        let parent = if statData.stat.is_some() { get(stat) } else { Val::Nil };
+        let parent = if statData.stat.is_some() {
+            get(stat)
+        } else {
+            Val::Nil
+        };
         // L1883
         if parent.truthy() && parent.get(Name::from(childStat)).truthy() {
             // L1884
@@ -1001,16 +1018,19 @@ pub fn add_display_stat_list(
                         }
                         .or_else(|| colour_code_map(&labelColor));
                         // L1994-2004
-                        let label = statData
-                            .label
-                            .unwrap_or_else(|| lua_error!("attempt to concatenate field 'label' (a nil value)"));
+                        let label = statData.label.unwrap_or_else(|| {
+                            lua_error!("attempt to concatenate field 'label' (a nil value)")
+                        });
                         let underline = breakdown.is_some();
                         push_row(
                             cx,
                             stat_box,
                             TextListRow {
                                 height: 16.0,
-                                cells: vec![Some(format!("{labelColor}{label}:")), Some(formattedStat)],
+                                cells: vec![
+                                    Some(format!("{labelColor}{label}:")),
+                                    Some(formattedStat),
+                                ],
                                 underline: Some(vec![false, underline]),
                                 extra: Some(Rc::new(StatLine {
                                     breakdown,
@@ -1042,9 +1062,9 @@ pub fn add_display_stat_list(
                     }
                 }
             } else if statData.label.is_some()
-                && statData.condFunc.is_some_and(|f| {
-                    f(&Val::Table(actor.output.get()), &Val::Nil).truthy()
-                })
+                && statData
+                    .condFunc
+                    .is_some_and(|f| f(&Val::Table(actor.output.get()), &Val::Nil).truthy())
             {
                 // L2014-2016 (the label-only variant: condFunc receives the output first)
                 let output = actor.output.get();
@@ -1058,7 +1078,13 @@ pub fn add_display_stat_list(
                     stat_box,
                     TextListRow {
                         height: 16.0,
-                        cells: vec![Some(format!("{labelColor}{}:", statData.label.unwrap_or_default())), Some(text)],
+                        cells: vec![
+                            Some(format!(
+                                "{labelColor}{}:",
+                                statData.label.unwrap_or_default()
+                            )),
+                            Some(text),
+                        ],
                         ..TextListRow::default()
                     },
                 );
@@ -1149,13 +1175,14 @@ pub fn add_display_stat_list(
         // L2052
         let mut aspectCount = 0.0;
         // L2053
-        aspectCount += if display_stats::lt(&Val::Num(0.0), &output.get(Name::from("CrabBarriersMax")))
-            && display_stats::lt(&Val::Num(0.0), &output.get(Name::from("CrabBarriers")))
-        {
-            1.0
-        } else {
-            0.0
-        };
+        aspectCount +=
+            if display_stats::lt(&Val::Num(0.0), &output.get(Name::from("CrabBarriersMax")))
+                && display_stats::lt(&Val::Num(0.0), &output.get(Name::from("CrabBarriers")))
+            {
+                1.0
+            } else {
+                0.0
+            };
         // L2054
         aspectCount += if aspectCount < 2.0 && flag("Condition:AspectOfTheSpiderActive") {
             1.0
@@ -1217,7 +1244,10 @@ pub fn insert_item_warnings(cx: &mut Cx) {
             // L2064
             insert_warning(
                 cx,
-                format!("You are exceeding jewel limit with the jewel {}", concat(&warning)),
+                format!(
+                    "You are exceeding jewel limit with the jewel {}",
+                    concat(&warning)
+                ),
             );
         }
     }
@@ -1240,7 +1270,10 @@ pub fn insert_item_warnings(cx: &mut Cx) {
         let parts: Vec<String> = ipairs_val(&anoint).iter().map(|(_, v)| concat(v)).collect();
         insert_warning(
             cx,
-            format!("You have eligible items missing an anoint: {}", parts.join(", ")),
+            format!(
+                "You have eligible items missing an anoint: {}",
+                parts.join(", ")
+            ),
         );
     }
 }
@@ -1258,11 +1291,19 @@ fn push_info_message(cx: &mut Cx, stat_box: CtrlId, msg: &str) {
             .collect();
         for line in lines {
             // L2084 / L2100
-            push_row(cx, stat_box, centred_row(14.0, Some(format!("{custom}{line}"))));
+            push_row(
+                cx,
+                stat_box,
+                centred_row(14.0, Some(format!("{custom}{line}"))),
+            );
         }
     } else {
         // L2087 / L2103
-        push_row(cx, stat_box, centred_row(14.0, Some(format!("{custom}{msg}"))));
+        push_row(
+            cx,
+            stat_box,
+            centred_row(14.0, Some(format!("{custom}{msg}"))),
+        );
     }
 }
 
@@ -1401,7 +1442,11 @@ pub fn compare_stat_list(
                 cx.main.cc.NEGATIVE.clone()
             };
             // L2136
-            let mult = if statData.pc || statData.r#mod { 100.0 } else { 1.0 };
+            let mult = if statData.pc || statData.r#mod {
+                100.0
+            } else {
+                1.0
+            };
             let val = diff * mult;
             // L2137 Can't use self:FormatStat, because it doesn't have %+. Adding that would have complicated a simple function
             let fmt = fmt_of(statData);
@@ -1413,7 +1458,14 @@ pub fn compare_stat_list(
             let valStr = format_num_sep_main(&cx.main, &valStr);
 
             // L2145
-            let mut line = lfmt!("%s%s %s", color.as_str(), valStr.as_str(), statData.label.unwrap_or_else(|| lua_error!("bad argument #4 to 'format' (string expected, got nil)")));
+            let mut line = lfmt!(
+                "%s%s %s",
+                color.as_str(),
+                valStr.as_str(),
+                statData.label.unwrap_or_else(|| lua_error!(
+                    "bad argument #4 to 'format' (string expected, got nil)"
+                ))
+            );
             // L2146
             let mut pcPerPt = String::new();
             // L2147
@@ -1467,15 +1519,22 @@ pub fn add_stat_compares_to_tooltip(
     // L2170
     let baseMinion = baseOutput.get(Name::from("Minion"));
     let compareMinion = compareOutput.get(Name::from("Minion"));
-    if main_skill(&env.player).minion.get().is_some() && baseMinion.truthy() && compareMinion.truthy() {
+    if main_skill(&env.player).minion.get().is_some()
+        && baseMinion.truthy()
+        && compareMinion.truthy()
+    {
         // L2171
         let minion = env
             .minion
             .get()
             .unwrap_or_else(|| lua_error!("attempt to index local 'actor' (a nil value)"));
         let as_table = |v: &Val| {
-            v.table()
-                .unwrap_or_else(|| lua_error!("attempt to index local 'baseOutput' (a {} value)", v.lua_type()))
+            v.table().unwrap_or_else(|| {
+                lua_error!(
+                    "attempt to index local 'baseOutput' (a {} value)",
+                    v.lua_type()
+                )
+            })
         };
         count += compare_stat_list(
             cx,
@@ -1551,7 +1610,11 @@ pub fn add_requirements_to_tooltip(
     let modDB = main_env(cx).modDB.get();
     if modDB.Flag(None, &[Name::from("OmniscienceRequirements")]) {
         // L2191
-        let omniSatisfy = modDB.Sum(ModType::INC, None, &[Name::from("OmniAttributeRequirements")]);
+        let omniSatisfy = modDB.Sum(
+            ModType::INC,
+            None,
+            &[Name::from("OmniAttributeRequirements")],
+        );
         // L2192
         let mut highestAttribute = 0.0;
         // L2193
@@ -1597,7 +1660,11 @@ pub fn add_requirements_to_tooltip(
     let req: Vec<String> = REQ.with(|r| r.borrow().clone());
     if !req.is_empty() {
         // L2214
-        let fontSizeBig = if cx.main.show_flavour_text { 18.0 } else { 16.0 };
+        let fontSizeBig = if cx.main.show_flavour_text {
+            18.0
+        } else {
+            16.0
+        };
         // L2215
         tooltip.add_line_ex(
             cx,
@@ -1687,7 +1754,11 @@ pub fn save_stats(build: &model::Build, xml: &mut XmlNode) {
                 // L1049
                 let value = tostring_num(mul(&field("dps"), &field("count")));
                 let skillPart = field("skillPart");
-                let skillPart = if skillPart.truthy() { concat(&skillPart) } else { String::new() };
+                let skillPart = if skillPart.truthy() {
+                    concat(&skillPart)
+                } else {
+                    String::new()
+                };
                 let source = field("source");
                 let source = if source.truthy() {
                     concat(&source)
@@ -1698,7 +1769,12 @@ pub fn save_stats(build: &model::Build, xml: &mut XmlNode) {
                 };
                 xml.children.push(xml_elem(
                     "FullDPSSkill",
-                    &[("stat", lhsString), ("value", value), ("skillPart", skillPart), ("source", source)],
+                    &[
+                        ("stat", lhsString),
+                        ("value", value),
+                        ("skillPart", skillPart),
+                        ("source", source),
+                    ],
                 ));
             }
             // L1051
@@ -1721,7 +1797,10 @@ pub fn save_stats(build: &model::Build, xml: &mut XmlNode) {
                 // L1058
                 xml.children.push(xml_elem(
                     "PlayerStat",
-                    &[("stat", statName.clone()), ("value", tostring_val(&statVal))],
+                    &[
+                        ("stat", statName.clone()),
+                        ("value", tostring_val(&statVal)),
+                    ],
                 ));
                 // L1059
                 addedStatNames.push(statName);
@@ -1737,7 +1816,10 @@ pub fn save_stats(build: &model::Build, xml: &mut XmlNode) {
             // L1067
             xml.children.push(xml_elem(
                 "PlayerStat",
-                &[("stat", (*stat).to_owned()), ("value", tostring_val(&statVal))],
+                &[
+                    ("stat", (*stat).to_owned()),
+                    ("value", tostring_val(&statVal)),
+                ],
             ));
         }
     }

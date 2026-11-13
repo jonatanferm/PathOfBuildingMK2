@@ -182,19 +182,21 @@ impl PowerReportListControl {
                             DropItem::str("Show Unallocated & Clusters"),
                             DropItem::str("Show Allocated"),
                         ],
-                        Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                            {
-                                let w = cx.w_mut::<PowerReportListControl>(me);
-                                // L36
-                                w.show_clusters = index == 2;
-                                // L37
-                                w.allocated = index == 3;
-                            }
-                            // L38
-                            Self::ReList(cx, me);
-                            // L39
-                            Self::ReSort(cx, me, 3); // Sort by power
-                        })),
+                        Some(Rc::new(
+                            move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                                {
+                                    let w = cx.w_mut::<PowerReportListControl>(me);
+                                    // L36
+                                    w.show_clusters = index == 2;
+                                    // L37
+                                    w.allocated = index == 3;
+                                }
+                                // L38
+                                Self::ReList(cx, me);
+                                // L39
+                                Self::ReSort(cx, me, 3); // Sort by power
+                            },
+                        )),
                         None,
                         false,
                     ),
@@ -226,15 +228,22 @@ impl PowerReportListControl {
 
     /// lua: PowerReportListControl.lua:49-60 `PowerReportListClass:SetReport(stat, report)`
     /// @pob Classes/PowerReportListControl.lua:49-60 h=dc1c779c
-    pub fn SetReport(cx: &mut Cx, me: CtrlId, stat: Option<&Table>, report: Option<Vec<Rc<ReportEntry>>>) {
+    pub fn SetReport(
+        cx: &mut Cx,
+        me: CtrlId,
+        stat: Option<&Table>,
+        report: Option<Vec<Rc<ReportEntry>>>,
+    ) {
         // L50
         let power_label = stat
             .and_then(|s| s.str(pob_lua::n!("label")))
             .map_or_else(String::new, |l| l.to_string());
-        cx.w_mut::<ListControl>(me).col_list[POWER_COLUMN - 1].label = Some(Prop::Val(power_label.clone()));
+        cx.w_mut::<ListControl>(me).col_list[POWER_COLUMN - 1].label =
+            Some(Prop::Val(power_label.clone()));
         let has_report = report.is_some();
         // L51
-        cx.w_mut::<PowerReportListControl>(me).original_list = Some(Rc::new(report.unwrap_or_default()));
+        cx.w_mut::<PowerReportListControl>(me).original_list =
+            Some(Rc::new(report.unwrap_or_default()));
 
         // L53
         let label = if stat.is_some_and(|s| s.truthy(pob_lua::n!("stat"))) {
@@ -332,7 +341,12 @@ impl PowerReportListControl {
         cx.w_mut::<ListControl>(me).list = ListData::Local(Vec::new());
         let (original, show_clusters, allocated, show_masteries) = {
             let w = cx.w::<PowerReportListControl>(me);
-            (w.original_list.clone(), w.show_clusters, w.allocated, w.show_masteries)
+            (
+                w.original_list.clone(),
+                w.show_clusters,
+                w.allocated,
+                w.show_masteries,
+            )
         };
         // L104
         let Some(original) = original else {
@@ -376,9 +390,19 @@ impl PowerReportListControl {
     /// lua: PowerReportListControl.lua:128-132 `PowerReportListClass:OnSelClick(index, report,
     /// doubleClick)`
     /// @pob Classes/PowerReportListControl.lua:128-132 h=632e006a
-    fn OnSelClick(cx: &mut Cx, me: CtrlId, _index: usize, v: &ListValue, _double_click: bool) -> Option<bool> {
+    fn OnSelClick(
+        cx: &mut Cx,
+        me: CtrlId,
+        _index: usize,
+        v: &ListValue,
+        _double_click: bool,
+    ) -> Option<bool> {
         // L129
-        if let Some(f) = cx.w::<PowerReportListControl>(me).node_select_callback.clone() {
+        if let Some(f) = cx
+            .w::<PowerReportListControl>(me)
+            .node_select_callback
+            .clone()
+        {
             let report = entry_of(v);
             // L130
             f(cx, report.x, report.y);
@@ -409,7 +433,13 @@ impl PowerReportListControl {
     /// lua: PowerReportListControl.lua:143-153 `PowerReportListClass:AddValueTooltip(tooltip, _,
     /// node)`
     /// @pob Classes/PowerReportListControl.lua:143-153 h=41d678b7
-    fn AddValueTooltip(cx: &mut Cx, _me: CtrlId, tooltip: &mut Tooltip, _index: usize, v: &ListValue) {
+    fn AddValueTooltip(
+        cx: &mut Cx,
+        _me: CtrlId,
+        tooltip: &mut Tooltip,
+        _index: usize,
+        v: &ListValue,
+    ) {
         // L144
         if !cx.main.popups.is_empty() {
             // L145
@@ -435,7 +465,13 @@ impl PowerReportListControl {
 
 /// `TreeTabHooks::power_report_list`: `self.controls.powerReportList =
 /// new("PowerReportListControl"):PowerReportListControl(anchor, rect, callback)` (TreeTab.lua:279).
-pub fn ctor_hook(cx: &mut Cx, tree_tab: CtrlId, anchor: Anchor, r: [Prop<f64>; 4], jump: JumpFn) -> CtrlId {
+pub fn ctor_hook(
+    cx: &mut Cx,
+    tree_tab: CtrlId,
+    anchor: Anchor,
+    r: [Prop<f64>; 4],
+    jump: JumpFn,
+) -> CtrlId {
     cx.add(
         tree_tab,
         "powerReportList",

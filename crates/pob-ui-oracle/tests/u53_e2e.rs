@@ -553,10 +553,14 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
 
 fn window_titles(frames: &[FrameTrace]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for t in frames.iter().flat_map(|f| &f.effects).filter_map(|e| match e {
-        SideEffect::WindowTitle(t) => Some(t.clone()),
-        _ => None,
-    }) {
+    for t in frames
+        .iter()
+        .flat_map(|f| &f.effects)
+        .filter_map(|e| match e {
+            SideEffect::WindowTitle(t) => Some(t.clone()),
+            _ => None,
+        })
+    {
         if out.last() != Some(&t) {
             out.push(t);
         }
@@ -575,9 +579,11 @@ fn multiset_bucket(k: (i32, i32)) -> bool {
 
 /// Whether PoB drew the passive tree in this frame (only then are the tree's buckets multisets).
 fn draws_tree(f: &FrameTrace) -> bool {
-    f.calls
-        .iter()
-        .any(|c| c.src.as_deref().is_some_and(|s| s.contains("PassiveTreeView.lua")))
+    f.calls.iter().any(|c| {
+        c.src
+            .as_deref()
+            .is_some_and(|s| s.contains("PassiveTreeView.lua"))
+    })
 }
 
 /// A sort key of an op: its arguments at 1e-3 (u23's).
@@ -604,7 +610,12 @@ fn op_key(op: &DrawOp) -> String {
             height,
             font,
             text,
-        } => format!("S {} {} {align:?} {} {font:?} {text}", r(*x), r(*y), r(*height)),
+        } => format!(
+            "S {} {} {align:?} {} {font:?} {text}",
+            r(*x),
+            r(*y),
+            r(*height)
+        ),
         other => format!("{other:?}"),
     };
     format!("{:?} {} {call}", op.color, rs(&op.viewport))
@@ -682,7 +693,11 @@ fn describe(d: &Divergence) -> String {
             idx,
             lua,
             rust,
-        } => format!("changed {bucket:?}#{idx}: lua {} | rust {}", op(lua), op(rust)),
+        } => format!(
+            "changed {bucket:?}#{idx}: lua {} | rust {}",
+            op(lua),
+            op(rust)
+        ),
         Divergence::Effect { lua, rust } => format!("effect: lua {lua:?} rust {rust:?}"),
     }
 }
@@ -749,7 +764,11 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
         }
     }
     for want in directives(text, "expect-snapshot") {
-        if !lua.snapshots.iter().any(|(n, x)| *n == want && x.contains("<PathOfBuilding")) {
+        if !lua
+            .snapshots
+            .iter()
+            .any(|(n, x)| *n == want && x.contains("<PathOfBuilding"))
+        {
             errs.push(format!("no build XML snapshot {want}"));
         }
     }
@@ -775,7 +794,10 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
         let root = root_element(x).map_err(|e| format!("snapshot {name}: {e}"))?;
         Ok(normalise(&root, true, &mut T4Notes::default()))
     };
-    for (dir, want_same) in [("expect-snapshot-differs", false), ("expect-snapshot-same", true)] {
+    for (dir, want_same) in [
+        ("expect-snapshot-differs", false),
+        ("expect-snapshot-same", true),
+    ] {
         for arg in directives(text, dir) {
             let Some((a, b)) = arg.split_once(' ') else {
                 errs.push(format!("#! {dir} {arg}: expected two snapshot names"));

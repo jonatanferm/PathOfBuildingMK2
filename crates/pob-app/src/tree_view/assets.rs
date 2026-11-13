@@ -463,7 +463,8 @@ impl TreeAssets {
                 "CharmSocketActiveInt",
                 "CharmSocketActiveDex",
             ] {
-                self.assets.insert(name.to_owned(), Rc::new(Asset::default()));
+                self.assets
+                    .insert(name.to_owned(), Rc::new(Asset::default()));
             }
         }
     }
@@ -626,7 +627,11 @@ impl TreeAssets {
 
     /// lua: PassiveTree.lua:331-387 (bloodline sprites, alternate ascendancy emblems)
     /// @pob Classes/PassiveTree.lua:331-387 h=211d3c03
-    fn build_bloodlines(&mut self, tree: &PassiveTreeRef, sprite_map: &IndexMap<String, SpriteSet>) {
+    fn build_bloodlines(
+        &mut self,
+        tree: &PassiveTreeRef,
+        sprite_map: &IndexMap<String, SpriteSet>,
+    ) {
         // L331-343
         let bloodline_sprite_types: [(&str, &str); 11] = [
             ("Trialmaster", "trialmasterBloodline"),
@@ -668,8 +673,10 @@ impl TreeAssets {
                 // L362
                 if let Some(sprite_data) = sprite_data {
                     // L363
-                    self.assets
-                        .insert(format!("{ascendancy_name}{asset_name}"), sprite_data.clone());
+                    self.assets.insert(
+                        format!("{ascendancy_name}{asset_name}"),
+                        sprite_data.clone(),
+                    );
                     // L364
                     has_sprite = true;
                 }
@@ -720,7 +727,9 @@ impl TreeAssets {
             let filename = data
                 .field("filename")
                 .as_str()
-                .unwrap_or_else(|| lua_error!("attempt to concatenate field 'filename' (a nil value)"))
+                .unwrap_or_else(|| {
+                    lua_error!("attempt to concatenate field 'filename' (a nil value)")
+                })
                 .to_owned();
             if let Some(sheet) = sprite_sheets.get(&filename) {
                 return sheet.clone();
@@ -806,7 +815,9 @@ impl TreeAssets {
                 return e.connectors.clone();
             }
         }
-        let connectors = Rc::new(super::connectors::build_subgraph_connectors(self, sub_graph));
+        let connectors = Rc::new(super::connectors::build_subgraph_connectors(
+            self, sub_graph,
+        ));
         let mut cache = self.subgraph_cache.borrow_mut();
         // subgraphs come and go with the jewels: forget the old ones now and then
         if cache.len() >= 256 {

@@ -79,7 +79,6 @@ use pob_ui_oracle::lua_calc::LuaCalcBridge;
 use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-
 fn inputs() -> Option<PathBuf> {
     let root = pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)")?;
     let dump = pob_testpaths::require(pob_testpaths::dump_dir(), "data/dump")?;
@@ -318,7 +317,15 @@ fn compare_entry(cx: &mut Cx, xml: Option<&str>, label: Option<&str>) -> Option<
     let xml = xml?;
     init::flush_window_titles(cx);
     let m = pob_calc::model::Build::new(pob_gamedata::data());
-    let closed = pob_calc::model::build_xml::Init_model(&m, None, Some(&label), Some(xml), false, None, false);
+    let closed = pob_calc::model::build_xml::Init_model(
+        &m,
+        None,
+        Some(&label),
+        Some(xml),
+        false,
+        None,
+        false,
+    );
     DROP_TITLES.with(|d| d.set(true));
     init::flush_window_titles(cx);
     DROP_TITLES.with(|d| d.set(false));
@@ -364,7 +371,14 @@ fn tostring(v: &Val) -> String {
 /// The stub's `u48misc(ct, build)` base output.
 fn standin_base(build: &BuildRef) -> Output {
     let mut acc = 0u64;
-    for (i, g) in build.skillsTab.socketGroupList.get().snapshot().iter().enumerate() {
+    for (i, g) in build
+        .skillsTab
+        .socketGroupList
+        .get()
+        .snapshot()
+        .iter()
+        .enumerate()
+    {
         for (j, gem) in g.gemList.get().snapshot().iter().enumerate() {
             let name = match gem.grantedEffect.get() {
                 Some(ge) => ge.name.to_string(),
@@ -405,16 +419,26 @@ struct StandinMisc {
 impl MiscCalc for StandinMisc {
     fn call(&self, ov: Option<Rc<Override>>, _use_full_dps: Option<bool>) -> Poll<Output> {
         let out = self.base.copyTable(false);
-        let add = |k: &str, d: f64| out.set(pob_lua::Name::from(k), out.num(pob_lua::Name::from(k)) + d);
+        let add =
+            |k: &str, d: f64| out.set(pob_lua::Name::from(k), out.num(pob_lua::Name::from(k)) + d);
         if let Some(ov) = ov {
-            for (_, node) in ov.addNodes.get().map(|s| s.with(pob_lua::LjIntMap::pairs)).unwrap_or_default() {
+            for (_, node) in ov
+                .addNodes
+                .get()
+                .map(|s| s.with(pob_lua::LjIntMap::pairs))
+                .unwrap_or_default()
+            {
                 let d = u48hash(&u48key(&node.modKey.get()));
                 add("Life", (d % 701 + 1) as f64);
                 add("LifeUnreserved", (d % 701 + 1) as f64);
                 add("CombinedDPS", (d % 4999 + 1) as f64);
             }
             if let Some(item) = ov.repItem.get() {
-                let slot = ov.repSlotName.get().map(|s| s.to_string()).unwrap_or_default();
+                let slot = ov
+                    .repSlotName
+                    .get()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
                 let d = u48hash(&format!("{slot}|{}", item.name.get()));
                 add("Life", (d % 503) as f64 - 251.0);
                 add("LifeUnreserved", (d % 503) as f64 - 251.0);
@@ -442,7 +466,8 @@ impl CalcFacade for StandinCalc {
 
 /// `self.controls[key]` of the tab.
 fn c(cx: &Cx, me: CtrlId, key: &'static str) -> CtrlId {
-    cx.child(me, key).unwrap_or_else(|| panic!("controls.{key}"))
+    cx.child(me, key)
+        .unwrap_or_else(|| panic!("controls.{key}"))
 }
 
 fn at(cx: &mut Cx, id: CtrlId, x: f64, y: f64) {
@@ -452,7 +477,8 @@ fn at(cx: &mut Cx, id: CtrlId, x: f64, y: f64) {
 }
 
 fn label_width(cx: &Cx, id: CtrlId) -> f64 {
-    cx.w::<pob_ui_core::controls::CheckBoxControl>(id).label_width
+    cx.w::<pob_ui_core::controls::CheckBoxControl>(id)
+        .label_width
 }
 
 /// The stub's `u48row(label)`.
@@ -462,7 +488,11 @@ fn u48row(label: &str) -> pob_app::model::Table {
             let data = sub.get(pob_lua::n!("data"));
             let Some(data) = data.table() else { continue };
             for (_, row) in data.ipairs() {
-                if row.get(pob_lua::n!("label")).str().is_some_and(|l| &*l == label) {
+                if row
+                    .get(pob_lua::n!("label"))
+                    .str()
+                    .is_some_and(|l| &*l == label)
+                {
                     return row.get(1).table().expect("row[1]");
                 }
             }
@@ -501,11 +531,15 @@ fn draw_compare(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
             let p = ci::st(cx, me).comparePowerProgress;
             ComparePowerReportListControl::SetProgress(cx, list, p);
             ci::st_mut(cx, me).comparePowerListSynced = false;
-        } else if ci::st(cx, me).comparePowerResults.is_some() && !ci::st(cx, me).comparePowerListSynced {
+        } else if ci::st(cx, me).comparePowerResults.is_some()
+            && !ci::st(cx, me).comparePowerListSynced
+        {
             let (stat, res) = (ci::st(cx, me).comparePowerStat, power::results(cx, me));
             ComparePowerReportListControl::SetReport(cx, list, stat, res);
             ci::st_mut(cx, me).comparePowerListSynced = true;
-        } else if ci::st(cx, me).comparePowerStat.is_none() && !ci::st(cx, me).comparePowerListSynced {
+        } else if ci::st(cx, me).comparePowerStat.is_none()
+            && !ci::st(cx, me).comparePowerListSynced
+        {
             ComparePowerReportListControl::SetReport(cx, list, None, None);
             ci::st_mut(cx, me).comparePowerListSynced = true;
         }
@@ -550,26 +584,78 @@ fn draw_compare(cx: &mut Cx, vp: &ViewPort, ev: &mut InputEvents) {
                 lines.extend(rows);
             }
             for l in lines {
-                cx.sg.draw_string(x + 10.0, line, Align::Left, 12.0, Font::Var, &l);
+                cx.sg
+                    .draw_string(x + 10.0, line, Align::Left, 12.0, Font::Var, &l);
                 line += 14.0;
             }
         } else {
             for l in lines {
-                cx.sg.draw_string(x + 10.0, line, Align::Left, 12.0, Font::Var, &l);
+                cx.sg
+                    .draw_string(x + 10.0, line, Align::Left, 12.0, Font::Var, &l);
                 line += 14.0;
             }
             if mode == "CALCS" {
                 let label = CompareTab::GetShortBuildName(cx.build().build_name.as_deref());
                 let primary = cx.build().model.clone();
-                let (r1, r2) = ROWS.with(|r| r.borrow_mut().get_or_insert_with(|| (u48row("Dexterity"), u48row("Total Base"))).clone());
+                let (r1, r2) = ROWS.with(|r| {
+                    r.borrow_mut()
+                        .get_or_insert_with(|| (u48row("Dexterity"), u48row("Total Base")))
+                        .clone()
+                });
                 let mut tt = std::mem::take(&mut ci::st_mut(cx, me).calcsTooltip);
-                calcs_helpers::DrawCalcsTooltip(cx, &mut tt, &primary, &label, &r1, Some("Dexterity"), x + 10.0, y + 40.0, 200.0, 20.0, vp, entry);
+                calcs_helpers::DrawCalcsTooltip(
+                    cx,
+                    &mut tt,
+                    &primary,
+                    &label,
+                    &r1,
+                    Some("Dexterity"),
+                    x + 10.0,
+                    y + 40.0,
+                    200.0,
+                    20.0,
+                    vp,
+                    entry,
+                );
                 ci::st_mut(cx, me).calcsTooltip = tt;
                 let mut tt2 = TIP2.with(|t| std::mem::take(&mut *t.borrow_mut()));
-                calcs_helpers::DrawCalcsTooltip(cx, &mut tt2, &primary, &label, &r2, Some("Total Base"), x + 400.0, y + 40.0, 200.0, 20.0, vp, entry);
+                calcs_helpers::DrawCalcsTooltip(
+                    cx,
+                    &mut tt2,
+                    &primary,
+                    &label,
+                    &r2,
+                    Some("Total Base"),
+                    x + 400.0,
+                    y + 40.0,
+                    200.0,
+                    20.0,
+                    vp,
+                    entry,
+                );
                 TIP2.with(|t| *t.borrow_mut() = tt2);
-                calcs_helpers::DrawSkillBreakdownPanel(cx, &primary, "SkillBuffs", Some("Buffs"), x + 10.0, y + 300.0, 100.0, 20.0, vp);
-                calcs_helpers::DrawSkillBreakdownPanel(cx, &entry.model, "SkillBuffs", Some("Buffs"), x + 600.0, y + 300.0, 100.0, 20.0, vp);
+                calcs_helpers::DrawSkillBreakdownPanel(
+                    cx,
+                    &primary,
+                    "SkillBuffs",
+                    Some("Buffs"),
+                    x + 10.0,
+                    y + 300.0,
+                    100.0,
+                    20.0,
+                    vp,
+                );
+                calcs_helpers::DrawSkillBreakdownPanel(
+                    cx,
+                    &entry.model,
+                    "SkillBuffs",
+                    Some("Buffs"),
+                    x + 600.0,
+                    y + 300.0,
+                    100.0,
+                    20.0,
+                    vp,
+                );
             }
         }
     }
@@ -690,14 +776,18 @@ impl pob_sg::Platform for RecordingPlatform {
         self.inner.time_ms()
     }
     fn copy(&mut self, text: &str) {
-        self.effects.borrow_mut().push(SideEffect::Copy(text.to_owned()));
+        self.effects
+            .borrow_mut()
+            .push(SideEffect::Copy(text.to_owned()));
         self.inner.copy(text);
     }
     fn paste(&mut self) -> Option<String> {
         self.inner.paste()
     }
     fn open_url(&mut self, url: &str) {
-        self.effects.borrow_mut().push(SideEffect::OpenUrl(url.to_owned()));
+        self.effects
+            .borrow_mut()
+            .push(SideEffect::OpenUrl(url.to_owned()));
         self.inner.open_url(url);
     }
     fn set_window_title(&mut self, title: &str) {
@@ -776,7 +866,11 @@ impl RustSide {
         SRC.with(|s| *s.borrow_mut() = Some(src.clone()));
         let mut app = pob_app::PobApp::with_calc(
             parts,
-            Rc::new(move || Box::new(StandinCalc { inner: LuaCalcBridge::new(Some(src.clone())) })),
+            Rc::new(move || {
+                Box::new(StandinCalc {
+                    inner: LuaCalcBridge::new(Some(src.clone())),
+                })
+            }),
         );
         effects.borrow_mut().clear(); // Launch.lua:11 runs at script load, before tracing
                                       // pob-ui-oracle patch 4's equivalent (CCR-0091)
@@ -849,7 +943,6 @@ impl ScenarioApp for RustSide {
         Ok(())
     }
 }
-
 
 // ---- runs ----
 
@@ -930,10 +1023,15 @@ fn run_sides(
     let src = std::fs::canonicalize(root.join("src")).unwrap_or_else(|_| root.join("src"));
     let mut rust_side = RustSide::new(PlatformParts { sg, sys }, src);
     let mut d = Driver::new(screen, handles, user.path.clone());
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runner::drive(&mut rust_side, script, &mut d)));
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runner::drive(&mut rust_side, script, &mut d)
+    }));
     let (mut frames, error) = match res {
         Ok((frames, r)) => (frames, r.err().map(|e| e.to_string())),
-        Err(p) => (Vec::new(), Some(format!("panicked: {}", pob_host::panic_message(&*p)))),
+        Err(p) => (
+            Vec::new(),
+            Some(format!("panicked: {}", pob_host::panic_message(&*p))),
+        ),
     };
     drop(rust_side);
     drop_image_loads(&mut frames);
@@ -945,10 +1043,12 @@ fn run_sides(
     Ok((lua, rust))
 }
 
-
 fn out_dir() -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR")
-        .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"), PathBuf::from)
+        .map_or_else(
+            || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"),
+            PathBuf::from,
+        )
         .join("ui-parity")
 }
 
@@ -957,7 +1057,14 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
     frames
         .iter()
         .flat_map(|f| &f.calls)
-        .filter(|c| matches!(c.call, ApiCall::DrawImage { .. } | ApiCall::DrawImageQuad { .. } | ApiCall::DrawString { .. }))
+        .filter(|c| {
+            matches!(
+                c.call,
+                ApiCall::DrawImage { .. }
+                    | ApiCall::DrawImageQuad { .. }
+                    | ApiCall::DrawString { .. }
+            )
+        })
         .count()
 }
 
@@ -994,7 +1101,6 @@ fn distinct_titles(t: &[String]) -> Vec<String> {
     }
     out
 }
-
 
 /// `#! u48-expect-text TEXT`: some Lua DrawString contains TEXT (guards a script whose clicks
 /// silently stopped reaching the tab, which both sides would agree on).
@@ -1043,7 +1149,12 @@ fn u48_scenarios() {
         let (script, base_dir) = runner::load_script(&path).unwrap();
         let fx = runner::fixtures(&script, &base_dir).unwrap();
         let tag = format!("u48_{stem}");
-        let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(1280, 800, 1.0)) {
+        let (lua, rust) = match run_sides(
+            &root,
+            &script,
+            fx.user_dir.as_deref(),
+            runner::screen(1280, 800, 1.0),
+        ) {
             Ok(s) => s,
             Err(e) => {
                 out.failures.push(format!("{tag}: {e:#}"));
@@ -1056,7 +1167,10 @@ fn u48_scenarios() {
         if std::env::var_os("U48_DUMP_TEXT").is_some() {
             // the Lua side's distinct DrawString texts, in first-drawn order (for writing scripts)
             let mut seen = std::collections::HashSet::new();
-            let texts: Vec<String> = draw_texts(&lua.frames).into_iter().filter(|t| seen.insert(t.clone())).collect();
+            let texts: Vec<String> = draw_texts(&lua.frames)
+                .into_iter()
+                .filter(|t| seen.insert(t.clone()))
+                .collect();
             let dir = out_dir().join(&tag);
             let _ = std::fs::create_dir_all(&dir);
             let _ = std::fs::write(dir.join("lua_texts.txt"), texts.join("\n"));
@@ -1076,8 +1190,12 @@ fn u48_scenarios() {
             "{tag}: {} frames, {ops} Lua draw ops, {n} divergences, titles {:?}{}{}{}",
             run.lua.len(),
             distinct_titles(&titles.0),
-            lua.error.as_ref().map_or_else(String::new, |e| format!(", Lua error: {e}")),
-            rust.error.as_ref().map_or_else(String::new, |e| format!(", Rust error: {e}")),
+            lua.error
+                .as_ref()
+                .map_or_else(String::new, |e| format!(", Lua error: {e}")),
+            rust.error
+                .as_ref()
+                .map_or_else(String::new, |e| format!(", Rust error: {e}")),
             if expect.is_empty() {
                 String::new()
             } else {
@@ -1227,7 +1345,10 @@ fn u48_progress_steps() {
     ci::st_mut(cx, me).comparePowerStat = Some(full_dps);
     ci::st_mut(cx, me).comparePowerDirty = true;
     CompareTab::RunComparePowerReport(cx, me, &entry);
-    assert!(ci::st(cx, me).comparePowerCoroutine.is_none(), "one resume builds the report");
+    assert!(
+        ci::st(cx, me).comparePowerCoroutine.is_none(),
+        "one resume builds the report"
+    );
     let one = result_lines(cx, me);
     assert!(!one.is_empty(), "the report has rows");
 
@@ -1250,13 +1371,20 @@ fn u48_progress_steps() {
             break;
         }
         assert!(pob_ui_core::coroutine::co::any_alive(), "step {steps}");
-        assert!(power::results(cx, me).is_none(), "no results while running (step {steps})");
+        assert!(
+            power::results(cx, me).is_none(),
+            "no results while running (step {steps})"
+        );
         let p = ci::st(cx, me).comparePowerProgress;
         if progress.last() != Some(&p) {
             progress.push(p);
         }
         ComparePowerReportListControl::SetProgress(cx, list, p);
-        let s = cx.w::<ComparePowerReportListControl>(list).status_text.clone().unwrap_or_default();
+        let s = cx
+            .w::<ComparePowerReportListControl>(list)
+            .status_text
+            .clone()
+            .unwrap_or_default();
         if statuses.last() != Some(&s) {
             statuses.push(s);
         }
@@ -1273,10 +1401,20 @@ fn u48_progress_steps() {
         statuses.last()
     );
     assert!(steps > 2, "the builder yields on time ({steps} resumes)");
-    assert!(progress.windows(2).all(|w| w[0] <= w[1]), "progress rises: {progress:?}");
-    assert!(statuses.first().is_some_and(|s| s.starts_with("Calculating... ")), "{statuses:?}");
+    assert!(
+        progress.windows(2).all(|w| w[0] <= w[1]),
+        "progress rises: {progress:?}"
+    );
+    assert!(
+        statuses
+            .first()
+            .is_some_and(|s| s.starts_with("Calculating... ")),
+        "{statuses:?}"
+    );
     assert_eq!(ci::st(cx, me).comparePowerProgress, 100.0);
-    assert_eq!(one, stepped, "the stepped report equals the one-resume report");
+    assert_eq!(
+        one, stepped,
+        "the stepped report equals the one-resume report"
+    );
     drop(rust_side);
 }
-

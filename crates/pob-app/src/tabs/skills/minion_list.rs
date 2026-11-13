@@ -30,7 +30,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use pob_lua::lfmt;
-use pob_ui_core::controls::list::{ListControl, ListData, ListHooks, ListSource, ListValue, ValKey};
+use pob_ui_core::controls::list::{
+    ListControl, ListData, ListHooks, ListSource, ListValue, ValKey,
+};
 use pob_ui_core::controls::ButtonControl;
 use pob_ui_core::prelude::*;
 use pob_ui_core::tooltip::tooltip::TtKey;
@@ -121,7 +123,11 @@ pub(super) static HOOKS: ListHooks = ListHooks {
 impl MinionListControl {
     /// The fields of `self:ListControl(anchor, rect, 16, "VERTICAL", not dest, list)` plus
     /// `self.dest` (L15, L17); the subclass embeds this state.
-    pub(super) fn state(hooks: &'static ListHooks, list: ListData, dest: Option<CtrlId>) -> MinionListControl {
+    pub(super) fn state(
+        hooks: &'static ListHooks,
+        list: ListData,
+        dest: Option<CtrlId>,
+    ) -> MinionListControl {
         // L15
         let l = ListControl::state(hooks, 16.0, true, dest.is_none(), list, false);
         MinionListControl {
@@ -237,7 +243,8 @@ impl MinionListControl {
         // L47
         if column == 1 {
             // L48
-            let minion = minion.unwrap_or_else(|| lua_error!("attempt to index local 'minion' (a nil value)"));
+            let minion = minion
+                .unwrap_or_else(|| lua_error!("attempt to index local 'minion' (a nil value)"));
             return minion.name.to_string();
         }
         String::new()
@@ -246,7 +253,13 @@ impl MinionListControl {
     /// lua: MinionListControl.lua:52-81 `MinionListClass:AddValueTooltip(tooltip, index,
     /// minionId)`
     /// @pob Classes/MinionListControl.lua:52-81 h=3ccb0ff6
-    fn AddValueTooltip(cx: &mut Cx, _me: CtrlId, tooltip: &mut Tooltip, _index: usize, v: &ListValue) {
+    fn AddValueTooltip(
+        cx: &mut Cx,
+        _me: CtrlId,
+        tooltip: &mut Tooltip,
+        _index: usize,
+        v: &ListValue,
+    ) {
         let id = value_name(v);
         // L53
         if tooltip.check_for_update(cx, &[TtKey::Str(Rc::from(id.as_str()))]) {
@@ -259,7 +272,11 @@ impl MinionListControl {
             // L57
             if let Some(es) = minion.energyShield {
                 // L58
-                tooltip.add_line(cx, 14.0, &lfmt!("^7Energy Shield: %d%% of base Life", es * 100.0));
+                tooltip.add_line(
+                    cx,
+                    14.0,
+                    &lfmt!("^7Energy Shield: %d%% of base Life", es * 100.0),
+                );
             }
             // L60
             if let Some(armour) = minion.armour {
@@ -269,7 +286,11 @@ impl MinionListControl {
             // L63
             if let Some(evasion) = minion.evasion {
                 // L64
-                tooltip.add_line(cx, 14.0, &lfmt!("^7Evasion Multiplier: x%.2f", 1.0 + evasion));
+                tooltip.add_line(
+                    cx,
+                    14.0,
+                    &lfmt!("^7Evasion Multiplier: x%.2f", 1.0 + evasion),
+                );
             }
             // L66-71
             let cc = cx.main.cc.clone();
@@ -288,7 +309,11 @@ impl MinionListControl {
             // L72
             tooltip.add_line(cx, 14.0, &lfmt!("^7Base Damage: x%.2f", minion.damage));
             // L73
-            tooltip.add_line(cx, 14.0, &lfmt!("^7Base Attack Speed: %.2f", 1.0 / minion.attackTime));
+            tooltip.add_line(
+                cx,
+                14.0,
+                &lfmt!("^7Base Attack Speed: %.2f", 1.0 / minion.attackTime),
+            );
             // L75
             for skillId in &minion.skillList {
                 // L76
@@ -302,7 +327,12 @@ impl MinionListControl {
 
     /// lua: MinionListControl.lua:83-85 `MinionListClass:GetDragValue(index, value)`
     /// @pob Classes/MinionListControl.lua:83-85 h=9a6adf8d
-    fn GetDragValue(_cx: &Cx, _me: CtrlId, _index: usize, v: &ListValue) -> Option<(Rc<str>, DragValue)> {
+    fn GetDragValue(
+        _cx: &Cx,
+        _me: CtrlId,
+        _index: usize,
+        v: &ListValue,
+    ) -> Option<(Rc<str>, DragValue)> {
         // L84
         Some((Rc::from("MinionId"), DragValue(Rc::new(value_name(v)))))
     }
@@ -310,7 +340,13 @@ impl MinionListControl {
     /// lua: MinionListControl.lua:95-99 `MinionListClass:OnSelClick(index, minionId,
     /// doubleClick)`
     /// @pob Classes/MinionListControl.lua:95-99 h=33c680d2
-    fn OnSelClick(cx: &mut Cx, me: CtrlId, _index: usize, _v: &ListValue, double_click: bool) -> Option<bool> {
+    fn OnSelClick(
+        cx: &mut Cx,
+        me: CtrlId,
+        _index: usize,
+        _v: &ListValue,
+        double_click: bool,
+    ) -> Option<bool> {
         // L96
         if double_click && cx.w::<MinionListControl>(me).dest.is_some() {
             // L97
@@ -351,8 +387,9 @@ impl MinionListControl {
     /// @pob Classes/MinionListControl.lua:91-93 h=9d4ffdb3
     pub(super) fn ReceiveDrag(cx: &mut Cx, me: CtrlId, _ty: &str, v: &DragValue, _source: CtrlId) {
         // L92 (a "MinionId" payload is always a minion id: CanReceiveDrag accepted the type)
-        let id = Self::drag_name(v)
-            .unwrap_or_else(|| lua_error!("MinionListControl: a drag value that is not a minion id"));
+        let id = Self::drag_name(v).unwrap_or_else(|| {
+            lua_error!("MinionListControl: a drag value that is not a minion id")
+        });
         let pos = cx
             .w::<ListControl>(me)
             .sel_drag_index
@@ -395,7 +432,11 @@ impl Widget for MinionListControl {
 /// `controls.list = new("MinionListControl"):MinionListControl(nil, {-139, 40, 265, 250},
 /// self.data, destList)` (Build.lua:1536) in the Spectre Library popup `popup`: the
 /// `ShellHooks::minion_list_control` entry (CCR-0104 §1).
-pub fn spectre_library_list(cx: &mut Cx, popup: CtrlId, dest_list: Rc<RefCell<Vec<Name>>>) -> CtrlId {
+pub fn spectre_library_list(
+    cx: &mut Cx,
+    popup: CtrlId,
+    dest_list: Rc<RefCell<Vec<Name>>>,
+) -> CtrlId {
     cx.add(
         popup,
         "list",

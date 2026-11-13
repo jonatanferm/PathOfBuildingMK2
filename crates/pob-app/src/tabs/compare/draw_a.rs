@@ -173,7 +173,10 @@ fn item_at(build: &model::BuildRef, id: &Val) -> Option<ItemRef> {
 
 /// `itemsTab.slots[slotName]`
 fn slot_at(build: &model::BuildRef, slotName: &str) -> Option<Table> {
-    build.itemsTab.slots.with(|s| s.get(&Name::from(slotName)).cloned())
+    build
+        .itemsTab
+        .slots
+        .with(|s| s.get(&Name::from(slotName)).cloned())
 }
 
 /// `local pSlot = itemsTab.slots[slotName]; local pItem = pSlot and itemsTab.items[pSlot.selItemId]`
@@ -206,7 +209,10 @@ fn fa(v: &Val) -> FmtArg<'_> {
         Val::Bool(b) => FmtArg::Bool(*b),
         Val::Num(n) => FmtArg::Num(*n),
         Val::Str(s) => FmtArg::Str(s),
-        other => lua_error!("bad argument #2 to 'format' (number expected, got {})", other.lua_type()),
+        other => lua_error!(
+            "bad argument #2 to 'format' (number expected, got {})",
+            other.lua_type()
+        ),
     }
 }
 
@@ -288,7 +294,9 @@ const ITEM_BOX_H: f64 = 20.0;
 /// lua: TradeHelpers.lua:71-79 `M.getRarityColor(item)` (CCR-0143 §1)
 fn getRarityColor(cx: &Cx, item: Option<&ItemRef>) -> String {
     // L72
-    let Some(item) = item else { return "^7".to_owned() };
+    let Some(item) = item else {
+        return "^7".to_owned();
+    };
     // L73 (`item.rarity` is always a string)
     let rarity = item.rarity.get();
     match cx.main.cc.get(rarity.as_str()) {
@@ -467,23 +475,33 @@ fn drawCopyButtons(
             cx.sg.set_draw_color(0.0, 0.0, 0.0);
         }
         // L466
-        cx.sg.draw_image(None, x + 1.0, btnY + 1.0, w - 2.0, btnH - 2.0);
+        cx.sg
+            .draw_image(None, x + 1.0, btnY + 1.0, w - 2.0, btnH - 2.0);
         // Label
         // L468
         cx.sg.set_draw_color(1.0, 1.0, 1.0);
         // L469
-        cx.sg.draw_string(x + w / 2.0, btnY + 1.0, Align::CenterX, 14.0, Font::Var, label);
+        cx.sg.draw_string(
+            x + w / 2.0,
+            btnY + 1.0,
+            Align::CenterX,
+            14.0,
+            Font::Var,
+            label,
+        );
     };
 
     // "Buy" button
     // L473-474
-    let b3Hover = cursorX >= btn3X && cursorX < btn3X + buyW && cursorY >= btnY && cursorY < btnY + btnH;
+    let b3Hover =
+        cursorX >= btn3X && cursorX < btn3X + buyW && cursorY >= btnY && cursorY < btnY + btnH;
     // L475
     drawBtn(cx, btn3X, buyW, b3Hover, "^7Buy");
 
     // "Copy" button
     // L478-479
-    let b1Hover = cursorX >= btn1X && cursorX < btn1X + btnW && cursorY >= btnY && cursorY < btnY + btnH;
+    let b1Hover =
+        cursorX >= btn1X && cursorX < btn1X + btnW && cursorY >= btnY && cursorY < btnY + btnH;
     // L480
     drawBtn(cx, btn1X, btnW, b1Hover, "^7Copy");
 
@@ -508,7 +526,10 @@ fn drawCopyButtons(
     } else {
         // "Equip" button
         // L490-491
-        b2Hover = cursorX >= btn2X && cursorX < btn2X + equipW && cursorY >= btnY && cursorY < btnY + btnH;
+        b2Hover = cursorX >= btn2X
+            && cursorX < btn2X + equipW
+            && cursorY >= btnY
+            && cursorY < btnY + btnH;
         // L492
         drawBtn(cx, btn2X, equipW, b2Hover, "^7Equip");
     }
@@ -649,14 +670,22 @@ fn drawCompactSlotRow(
     // L555
     let labelText = format!("^7{slotLabel}:");
     // L556
-    cx.sg.draw_string(labelX, drawY + 2.0, Align::Left, 16.0, Font::Var, &labelText);
+    cx.sg.draw_string(
+        labelX,
+        drawY + 2.0,
+        Align::Left,
+        16.0,
+        Font::Var,
+        &labelText,
+    );
 
     // L558
     if shouldUnderlineLabel {
         // L559
         let labelW = cx.sg.draw_string_width(16.0, Font::Var, &labelText);
         // L560
-        cx.sg.draw_image(None, labelX, drawY + 2.0 + 16.0, labelW, 1.0);
+        cx.sg
+            .draw_image(None, labelX, drawY + 2.0 + 16.0, labelW, 1.0);
     }
 
     // Draw primary item box
@@ -666,14 +695,22 @@ fn drawCompactSlotRow(
     cx.sg.set_draw_color(pBorderGray, pBorderGray, pBorderGray);
     cx.sg.draw_image(None, pBoxX, drawY, pBoxW, ITEM_BOX_H);
     cx.sg.set_draw_color(0.05, 0.05, 0.05);
-    cx.sg.draw_image(None, pBoxX + 1.0, drawY + 1.0, pBoxW - 2.0, ITEM_BOX_H - 2.0);
+    cx.sg.draw_image(
+        None,
+        pBoxX + 1.0,
+        drawY + 1.0,
+        pBoxW - 2.0,
+        ITEM_BOX_H - 2.0,
+    );
     cx.sg.set_draw_color(1.0, 1.0, 1.0);
     let t = fitItemName(cx, &pColor, &pName, pBoxW - 8.0);
-    cx.sg.draw_string(pBoxX + 4.0, drawY + 2.0, Align::Left, 16.0, Font::Var, &t);
+    cx.sg
+        .draw_string(pBoxX + 4.0, drawY + 2.0, Align::Left, 16.0, Font::Var, &t);
 
     // Draw diff indicator (between the two item boxes)
     // L573
-    cx.sg.draw_string(diffX, drawY + 3.0, Align::Left, 14.0, Font::Var, &diffLabel);
+    cx.sg
+        .draw_string(diffX, drawY + 3.0, Align::Left, 14.0, Font::Var, &diffLabel);
 
     // Draw compare item box
     // L576
@@ -682,10 +719,17 @@ fn drawCompactSlotRow(
     cx.sg.set_draw_color(cBorderGray, cBorderGray, cBorderGray);
     cx.sg.draw_image(None, cBoxX, drawY, cBoxW, ITEM_BOX_H);
     cx.sg.set_draw_color(0.05, 0.05, 0.05);
-    cx.sg.draw_image(None, cBoxX + 1.0, drawY + 1.0, cBoxW - 2.0, ITEM_BOX_H - 2.0);
+    cx.sg.draw_image(
+        None,
+        cBoxX + 1.0,
+        drawY + 1.0,
+        cBoxW - 2.0,
+        ITEM_BOX_H - 2.0,
+    );
     cx.sg.set_draw_color(1.0, 1.0, 1.0);
     let t = fitItemName(cx, &cColor, &cName, cBoxW - 8.0);
-    cx.sg.draw_string(cBoxX + 4.0, drawY + 2.0, Align::Left, 16.0, Font::Var, &t);
+    cx.sg
+        .draw_string(cBoxX + 4.0, drawY + 2.0, Align::Left, 16.0, Font::Var, &t);
 
     // Draw buttons
     // L585
@@ -871,7 +915,14 @@ fn drawSlotEntry(
         cx.sg.set_draw_color(1.0, 1.0, 1.0);
         // L3851
         let text = format!("^7{label}:{}", pWarn.unwrap_or(""));
-        cx.sg.draw_string(f.scrollOffsetX + 10.0, f.drawY, Align::Left, 16.0, Font::Var, &text);
+        cx.sg.draw_string(
+            f.scrollOffsetX + 10.0,
+            f.drawY,
+            Align::Left,
+            16.0,
+            Font::Var,
+            &text,
+        );
         // L3852
         let labelEndW = cx.sg.draw_string_width(16.0, Font::Var, &text);
         // L3853
@@ -938,7 +989,8 @@ fn drawSlotEntry(
         // L3869
         let maxH = m_max(leftHeight, rightHeight);
         // L3870
-        cx.sg.draw_image(None, f.scrollOffsetX + f.colWidth, itemStartY, 1.0, maxH);
+        cx.sg
+            .draw_image(None, f.scrollOffsetX + f.colWidth, itemStartY, 1.0, maxH);
 
         // L3872
         f.drawY = f.drawY + maxH + 6.0;
@@ -997,7 +1049,8 @@ fn drawSlotEntry(
                 crate::tabs::items::slot_helper::DrawViewer(cx, id, boxX, boxY, boxSize, boxSize);
                 // restore viewport
                 // L3899
-                cx.sg.set_viewport(f.vp.x, f.vp.y + f.checkboxOffset, f.vp.width, f.scrollViewH);
+                cx.sg
+                    .set_viewport(f.vp.x, f.vp.y + f.checkboxOffset, f.vp.width, f.scrollViewH);
             }
         }
         // L3902
@@ -1072,9 +1125,13 @@ impl CompareTab {
         // L3190-3193
         let primaryName = Self::GetShortBuildName(cx.build().build_name.as_deref());
         let compareName = compareEntry.label.clone();
-        let primaryNameW = cx.sg.draw_string_width(headerHeight, Font::Var, &primaryName);
+        let primaryNameW = cx
+            .sg
+            .draw_string_width(headerHeight, Font::Var, &primaryName);
         let _ = primaryNameW;
-        let compareNameW = cx.sg.draw_string_width(headerHeight, Font::Var, &compareName);
+        let compareNameW = cx
+            .sg
+            .draw_string_width(headerHeight, Font::Var, &compareName);
 
         // L3195-3198
         let minCol3R = col2R + compareNameW + 16.0;
@@ -1087,22 +1144,34 @@ impl CompareTab {
         // L3201
         cx.sg.set_draw_color(1.0, 1.0, 1.0);
         // L3202
-        cx.sg.draw_string(col1, 4.0, Align::Left, headerHeight, Font::Var, "^7Stat");
+        cx.sg
+            .draw_string(col1, 4.0, Align::Left, headerHeight, Font::Var, "^7Stat");
         // L3203
         let t = format!("{}{primaryName}", cx.main.cc.POSITIVE);
-        cx.sg.draw_string(col2R, 4.0, Align::RightX, headerHeight, Font::Var, &t);
+        cx.sg
+            .draw_string(col2R, 4.0, Align::RightX, headerHeight, Font::Var, &t);
         // L3204-3205
         let t = format!("{}{compareName}", cx.main.cc.WARNING);
-        cx.sg.draw_string(col3R, 4.0, Align::RightX, headerHeight, Font::Var, &t);
+        cx.sg
+            .draw_string(col3R, 4.0, Align::RightX, headerHeight, Font::Var, &t);
         // L3206
-        cx.sg.draw_string(col4, 4.0, Align::Left, headerHeight, Font::Var, "^7Difference");
+        cx.sg.draw_string(
+            col4,
+            4.0,
+            Align::Left,
+            headerHeight,
+            Font::Var,
+            "^7Difference",
+        );
         // L3207
         cx.sg.set_draw_color(0.5, 0.5, 0.5);
         // L3208
-        cx.sg.draw_image(None, 4.0, headerHeight + 8.0, vp.width - 8.0, 2.0);
+        cx.sg
+            .draw_image(None, 4.0, headerHeight + 8.0, vp.width - 8.0, 2.0);
 
         // L3210
-        cx.sg.set_viewport(vp.x, vp.y + headerReserve, vp.width, scrollViewH);
+        cx.sg
+            .set_viewport(vp.x, vp.y + headerReserve, vp.width, scrollViewH);
         // L3211
         let mut drawY = -st(cx, me).scrollY;
 
@@ -1187,8 +1256,14 @@ impl CompareTab {
 
         // Label for dropdown
         // L3248
-        cx.sg
-            .draw_string(LAYOUT::powerReportLeft, drawY, Align::Left, 16.0, Font::Var, "^7Metric:");
+        cx.sg.draw_string(
+            LAYOUT::powerReportLeft,
+            drawY,
+            Align::Left,
+            16.0,
+            Font::Var,
+            "^7Metric:",
+        );
 
         // Category checkboxes (positioned to the right of dropdown)
         // L3251
@@ -1307,10 +1382,15 @@ impl CompareTab {
         // Get skill flags from each build's selected actor (player, or minion when the
         // top-section "Skill:" is a minion skill) for stat filtering
         // L3314-3315
-        let flags_of = |a: Option<&ActorRef>| a.and_then(|a| a.mainSkill.get()).map(|s| s.skillFlags.get());
+        let flags_of = |a: Option<&ActorRef>| {
+            a.and_then(|a| a.mainSkill.get())
+                .map(|s| s.skillFlags.get())
+        };
         let primaryFlags = flags_of(primaryActor);
         let compareFlags = flags_of(compareActor);
-        let has = |flags: &Option<Table>, f: &str| flags.as_ref().is_some_and(|t| t.truthy(Name::from(f)));
+        let has = |flags: &Option<Table>, f: &str| {
+            flags.as_ref().is_some_and(|t| t.truthy(Name::from(f)))
+        };
         let pVal = Val::Table(primaryOutput.clone());
         let cVal = Val::Table(compareOutput.clone());
 
@@ -1365,15 +1445,19 @@ impl CompareTab {
                 // L3346-3347
                 let zero = Val::Num(0.0);
                 if (!primaryVal.raw_eq(&zero) || !compareVal.raw_eq(&zero))
-                    && statData
-                        .condFunc
-                        .map_or(true, |f| f(&primaryVal, &pVal).truthy() || f(&compareVal, &cVal).truthy())
+                    && statData.condFunc.map_or(true, |f| {
+                        f(&primaryVal, &pVal).truthy() || f(&compareVal, &cVal).truthy()
+                    })
                 {
                     // Format values
                     // L3349
                     let fmt = statData.fmt.unwrap_or("d");
                     // L3350
-                    let multiplier = if statData.pc || statData.r#mod { 100.0 } else { 1.0 };
+                    let multiplier = if statData.pc || statData.r#mod {
+                        100.0
+                    } else {
+                        1.0
+                    };
                     // L3351-3352
                     let f = format!("%{fmt}");
                     let mut primaryStr = lfmt!(&f, primaryVal.num() * multiplier);
@@ -1390,7 +1474,8 @@ impl CompareTab {
                     // L3360
                     if diff > 0.001 || diff < -0.001 {
                         // L3361
-                        let isBetter = (statData.lowerIsBetter && diff < 0.0) || (!statData.lowerIsBetter && diff > 0.0);
+                        let isBetter = (statData.lowerIsBetter && diff < 0.0)
+                            || (!statData.lowerIsBetter && diff > 0.0);
                         // L3362
                         diffColor = if isBetter {
                             cx.main.cc.POSITIVE.clone()
@@ -1415,21 +1500,27 @@ impl CompareTab {
 
                     // Draw stat row
                     // L3374
-                    let labelColor = statData.color(&cx.main.cc).unwrap_or_else(|| "^7".to_owned());
+                    let labelColor = statData
+                        .color(&cx.main.cc)
+                        .unwrap_or_else(|| "^7".to_owned());
                     // L3375
                     let t = format!("{labelColor}{}", statData.label.unwrap_or(stat));
-                    cx.sg.draw_string(col1, drawY, Align::Left, lineHeight, Font::Var, &t);
+                    cx.sg
+                        .draw_string(col1, drawY, Align::Left, lineHeight, Font::Var, &t);
                     // L3376
                     let t = format!("^7{primaryStr}");
-                    cx.sg.draw_string(col2R, drawY, Align::RightX, lineHeight, Font::Var, &t);
+                    cx.sg
+                        .draw_string(col2R, drawY, Align::RightX, lineHeight, Font::Var, &t);
                     // L3377
                     let t = format!("{}{compareStr}", cx.main.cc.SPLITPERSONALITY);
-                    cx.sg.draw_string(col3R, drawY, Align::RightX, lineHeight, Font::Var, &t);
+                    cx.sg
+                        .draw_string(col3R, drawY, Align::RightX, lineHeight, Font::Var, &t);
                     // L3378
                     if !diffStr.is_empty() {
                         // L3379
                         let t = format!("{diffColor}{diffStr}");
-                        cx.sg.draw_string(col4, drawY, Align::Left, lineHeight, Font::Var, &t);
+                        cx.sg
+                            .draw_string(col4, drawY, Align::Left, lineHeight, Font::Var, &t);
                     }
                     // L3381
                     drawY = drawY + lineHeight + 1.0;
@@ -1437,7 +1528,9 @@ impl CompareTab {
             } else if let (Some(label), Some(condFunc)) = (statData.label, statData.condFunc) {
                 // Label-only stat (e.g. "Chaos Resistance: Immune")
                 // L3385
-                let labelColor = statData.color(&cx.main.cc).unwrap_or_else(|| "^7".to_owned());
+                let labelColor = statData
+                    .color(&cx.main.cc)
+                    .unwrap_or_else(|| "^7".to_owned());
                 // L3386
                 if condFunc(&pVal, &Val::Nil).truthy() || condFunc(&cVal, &Val::Nil).truthy() {
                     // L3387
@@ -1447,13 +1540,20 @@ impl CompareTab {
                     let compareShown = condFunc(&cVal, &Val::Nil).truthy();
                     // L3390
                     let t = format!("{labelColor}{label}");
-                    cx.sg.draw_string(col1, drawY, Align::Left, lineHeight, Font::Var, &t);
+                    cx.sg
+                        .draw_string(col1, drawY, Align::Left, lineHeight, Font::Var, &t);
                     // L3391
                     let t = format!("^7{}", if primaryShown { valStr } else { "-" });
-                    cx.sg.draw_string(col2R, drawY, Align::RightX, lineHeight, Font::Var, &t);
+                    cx.sg
+                        .draw_string(col2R, drawY, Align::RightX, lineHeight, Font::Var, &t);
                     // L3392
-                    let t = format!("{}{}", cx.main.cc.WARNING, if compareShown { valStr } else { "-" });
-                    cx.sg.draw_string(col3R, drawY, Align::RightX, lineHeight, Font::Var, &t);
+                    let t = format!(
+                        "{}{}",
+                        cx.main.cc.WARNING,
+                        if compareShown { valStr } else { "-" }
+                    );
+                    cx.sg
+                        .draw_string(col3R, drawY, Align::RightX, lineHeight, Font::Var, &t);
                     // L3393
                     drawY = drawY + lineHeight + 1.0;
                 }
@@ -1482,7 +1582,8 @@ impl CompareTab {
         let headerHeight = layout.headerHeight;
         let footerHeight = layout.footerHeight;
         // the primary build's TreeTab and its viewer (`treeTab and treeTab.viewer`)
-        let primaryTreeTab = crate::tabs::tree::core::tab(cx).filter(|id| cx.try_w::<TreeTab>(*id).is_some());
+        let primaryTreeTab =
+            crate::tabs::tree::core::tab(cx).filter(|id| cx.try_w::<TreeTab>(*id).is_some());
 
         // L3411
         if layout.overlay {
@@ -1515,9 +1616,13 @@ impl CompareTab {
                         height: treeHeight,
                     };
                     // L3430
-                    cx.lend::<TreeTab, _, _>(tt, |w| &mut w.core.viewer, |cx, v| {
-                        v.draw(cx, &treeVP, inputEvents);
-                    });
+                    cx.lend::<TreeTab, _, _>(
+                        tt,
+                        |w| &mut w.core.viewer,
+                        |cx, v| {
+                            v.draw(cx, &treeVP, inputEvents);
+                        },
+                    );
                     // L3431
                     cx.sg.reset_viewport();
 
@@ -1535,17 +1640,22 @@ impl CompareTab {
 
         // ========== SIDE-BY-SIDE MODE ==========
         // L3442-3443
-        let halfWidth = layout
-            .halfWidth
-            .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on local 'halfWidth' (a nil value)"));
+        let halfWidth = layout.halfWidth.unwrap_or_else(|| {
+            lua_error!("attempt to perform arithmetic on local 'halfWidth' (a nil value)")
+        });
         let treeHeight = vp.height - headerHeight - footerHeight;
 
         // Divider (from header bottom to viewport bottom)
         // L3446
         cx.sg.set_draw_color(0.5, 0.5, 0.5);
         // L3447
-        cx.sg
-            .draw_image(None, vp.x + halfWidth, vp.y + headerHeight, 4.0, vp.height - headerHeight);
+        cx.sg.draw_image(
+            None,
+            vp.x + halfWidth,
+            vp.y + headerHeight,
+            4.0,
+            vp.height - headerHeight,
+        );
 
         // Route input events to the panel containing the mouse
         // L3450
@@ -1561,7 +1671,8 @@ impl CompareTab {
         // L3457
         if let Some(tt) = primaryTreeTab {
             // L3458
-            cx.sg.set_viewport(leftAbsX, leftAbsY, halfWidth, treeHeight);
+            cx.sg
+                .set_viewport(leftAbsX, leftAbsY, halfWidth, treeHeight);
             // L3459
             cx.sg.set_draw_layer(None, Some(0));
             // L3460-3463
@@ -1575,10 +1686,18 @@ impl CompareTab {
                 };
                 // L3465
                 let mut none = InputEvents::default();
-                let ev = if leftHasInput { &mut *inputEvents } else { &mut none };
-                cx.lend::<TreeTab, _, _>(tt, |w| &mut w.core.viewer, |cx, v| {
-                    v.draw(cx, &leftTreeVP, ev);
-                });
+                let ev = if leftHasInput {
+                    &mut *inputEvents
+                } else {
+                    &mut none
+                };
+                cx.lend::<TreeTab, _, _>(
+                    tt,
+                    |w| &mut w.core.viewer,
+                    |cx, v| {
+                        v.draw(cx, &leftTreeVP, ev);
+                    },
+                );
                 // L3466
                 cx.sg.reset_viewport();
             });
@@ -1592,7 +1711,8 @@ impl CompareTab {
         // its viewer, entry.rs)
         {
             // L3473
-            cx.sg.set_viewport(rightAbsX, rightAbsY, halfWidth, treeHeight);
+            cx.sg
+                .set_viewport(rightAbsX, rightAbsY, halfWidth, treeHeight);
             // L3474
             cx.sg.set_draw_layer(None, Some(0));
             // L3475-3478
@@ -1606,7 +1726,11 @@ impl CompareTab {
                 };
                 // L3480 (lent out of the entry: nothing the draw calls reads it)
                 let mut none = InputEvents::default();
-                let ev = if leftHasInput { &mut none } else { &mut *inputEvents };
+                let ev = if leftHasInput {
+                    &mut none
+                } else {
+                    &mut *inputEvents
+                };
                 let mut viewer = std::mem::take(&mut *entry::ext(compareEntry).viewer.borrow_mut());
                 with_entry_as_build(cx, compareEntry, |cx| {
                     viewer.draw(cx, &rightTreeVP, ev);
@@ -1683,7 +1807,10 @@ impl CompareTab {
                     // L3526
                     if tk(&weaponData, "PhysicalDPS").truthy() {
                         // L3527
-                        let t = lua_fmt(&format!("^x7F7F7FPhys DPS: {magic}%.1f"), &[&tk(&weaponData, "PhysicalDPS")]);
+                        let t = lua_fmt(
+                            &format!("^x7F7F7FPhys DPS: {magic}%.1f"),
+                            &[&tk(&weaponData, "PhysicalDPS")],
+                        );
                         e.emit(cx, x, drawY, Align::Left, fontSize, &t);
                         // L3528
                         drawY += lineHeight;
@@ -1691,7 +1818,10 @@ impl CompareTab {
                     // L3530
                     if tk(&weaponData, "ElementalDPS").truthy() {
                         // L3531
-                        let t = lua_fmt(&format!("^x7F7F7FEle DPS: {magic}%.1f"), &[&tk(&weaponData, "ElementalDPS")]);
+                        let t = lua_fmt(
+                            &format!("^x7F7F7FEle DPS: {magic}%.1f"),
+                            &[&tk(&weaponData, "ElementalDPS")],
+                        );
                         e.emit(cx, x, drawY, Align::Left, fontSize, &t);
                         // L3532
                         drawY += lineHeight;
@@ -1699,7 +1829,10 @@ impl CompareTab {
                     // L3534
                     if tk(&weaponData, "ChaosDPS").truthy() {
                         // L3535
-                        let t = lua_fmt(&format!("^x7F7F7FChaos DPS: {magic}%.1f"), &[&tk(&weaponData, "ChaosDPS")]);
+                        let t = lua_fmt(
+                            &format!("^x7F7F7FChaos DPS: {magic}%.1f"),
+                            &[&tk(&weaponData, "ChaosDPS")],
+                        );
                         e.emit(cx, x, drawY, Align::Left, fontSize, &t);
                         // L3536
                         drawY += lineHeight;
@@ -1707,18 +1840,27 @@ impl CompareTab {
                     // L3538
                     if tk(&weaponData, "TotalDPS").truthy() {
                         // L3539
-                        let t = lua_fmt(&format!("^x7F7F7FTotal DPS: {magic}%.1f"), &[&tk(&weaponData, "TotalDPS")]);
+                        let t = lua_fmt(
+                            &format!("^x7F7F7FTotal DPS: {magic}%.1f"),
+                            &[&tk(&weaponData, "TotalDPS")],
+                        );
                         e.emit(cx, x, drawY, Align::Left, fontSize, &t);
                         // L3540
                         drawY += lineHeight;
                     }
                     // L3542
-                    let t = lua_fmt(&format!("^x7F7F7FCrit: {magic}%.2f%%"), &[&tk(&weaponData, "CritChance")]);
+                    let t = lua_fmt(
+                        &format!("^x7F7F7FCrit: {magic}%.2f%%"),
+                        &[&tk(&weaponData, "CritChance")],
+                    );
                     e.emit(cx, x, drawY, Align::Left, fontSize, &t);
                     // L3543
                     drawY += lineHeight;
                     // L3544
-                    let t = lua_fmt(&format!("^x7F7F7FAPS: {magic}%.2f"), &[&tk(&weaponData, "AttackRate")]);
+                    let t = lua_fmt(
+                        &format!("^x7F7F7FAPS: {magic}%.2f"),
+                        &[&tk(&weaponData, "AttackRate")],
+                    );
                     e.emit(cx, x, drawY, Align::Left, fontSize, &t);
                     // L3545
                     drawY += lineHeight;
@@ -1808,17 +1950,25 @@ impl CompareTab {
                         && tk(&flaskData, "duration").truthy()
                     {
                         // L3583
-                        let t = lua_fmt(&format!("^x7F7F7FDuration: {magic}%.2fs"), &[&tk(&flaskData, "duration")]);
+                        let t = lua_fmt(
+                            &format!("^x7F7F7FDuration: {magic}%.2fs"),
+                            &[&tk(&flaskData, "duration")],
+                        );
                         e.emit(cx, x, drawY, Align::Left, fontSize, &t);
                         // L3584
                         drawY += lineHeight;
                     }
                     // L3586
-                    if tk(&flaskData, "chargesUsed").truthy() && tk(&flaskData, "chargesMax").truthy() {
+                    if tk(&flaskData, "chargesUsed").truthy()
+                        && tk(&flaskData, "chargesMax").truthy()
+                    {
                         // L3587
                         let t = lua_fmt(
                             &format!("^x7F7F7FCharges: {magic}%d/%d"),
-                            &[&tk(&flaskData, "chargesUsed"), &tk(&flaskData, "chargesMax")],
+                            &[
+                                &tk(&flaskData, "chargesUsed"),
+                                &tk(&flaskData, "chargesMax"),
+                            ],
                         );
                         e.emit(cx, x, drawY, Align::Left, fontSize, &t);
                         // L3588
@@ -1846,7 +1996,8 @@ impl CompareTab {
             // Quality (if not shown in type-specific section)
             // L3602
             if let Some(q) = item.quality.get() {
-                if q > 0.0 && base.weapon.is_none() && base.armour.is_none() && base.flask.is_none() {
+                if q > 0.0 && base.weapon.is_none() && base.armour.is_none() && base.flask.is_none()
+                {
                     // L3603
                     let t = lfmt!(&format!("^x7F7F7FQuality: {magic}+%d%%"), q);
                     e.emit(cx, x, drawY, Align::Left, fontSize, &t);
@@ -1968,10 +2119,11 @@ impl CompareTab {
     /// @pob Classes/CompareTab.lua:3668-3674 h=18d75a33
     pub fn ShouldShowRing3(cx: &Cx, compareEntry: &CompareEntryRef) -> bool {
         let flag = |b: &model::BuildRef| {
-            b.calcsTab
-                .mainEnv
-                .get()
-                .is_some_and(|env| env.modDB.get().Flag(None, pob_lua::nm!["AdditionalRingSlot"]))
+            b.calcsTab.mainEnv.get().is_some_and(|env| {
+                env.modDB
+                    .get()
+                    .Flag(None, pob_lua::nm!["AdditionalRingSlot"])
+            })
         };
         // L3669-3672
         let primaryHas = flag(&cx.build().model);
@@ -1983,12 +2135,18 @@ impl CompareTab {
     /// lua: CompareTab.lua:3676-3693 `CompareTabClass:AddAbyssSockets(comparison, destTable,
     /// requireBothSides)`
     /// @pob Classes/CompareTab.lua:3676-3693 h=28e2fa53
-    pub fn AddAbyssSockets(cx: &Cx, comparison: &CompareEntryRef, destTable: &mut Vec<String>, requireBothSides: bool) {
+    pub fn AddAbyssSockets(
+        cx: &Cx,
+        comparison: &CompareEntryRef,
+        destTable: &mut Vec<String>,
+        requireBothSides: bool,
+    ) {
         let p = cx.build().model.clone();
         let c = &comparison.model;
         // `slots[name].shown()` (CCR-0143 §5, as CCR-0138 §2)
         let shown = |b: &model::BuildRef, name: &str| {
-            let slot = slot_at(b, name).unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
+            let slot = slot_at(b, name)
+                .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
             abyssal_slot_shown(b, &slot)
         };
         // L3680-3681
@@ -2014,7 +2172,9 @@ impl CompareTab {
                 // L3686
                 let comparisonHas = shown(c, &abyssalSocketName);
                 // L3687-3688
-                if (requireBothSides && mainHas && comparisonHas) || (!requireBothSides && (mainHas || comparisonHas)) {
+                if (requireBothSides && mainHas && comparisonHas)
+                    || (!requireBothSides && (mainHas || comparisonHas))
+                {
                     // L3689
                     destTable.push(abyssalSocketName);
                 }
@@ -2067,11 +2227,11 @@ impl CompareTab {
         Self::AddAbyssSockets(cx, compareEntry, &mut baseSlots, false);
 
         // L3704-3705
-        let primaryHasRing3 = p
-            .calcsTab
-            .mainEnv
-            .get()
-            .is_some_and(|env| env.modDB.get().Flag(None, pob_lua::nm!["AdditionalRingSlot"]));
+        let primaryHasRing3 = p.calcsTab.mainEnv.get().is_some_and(|env| {
+            env.modDB
+                .get()
+                .Flag(None, pob_lua::nm!["AdditionalRingSlot"])
+        });
         // L3706
         let lineHeight = 20.0;
         let _ = lineHeight;
@@ -2086,7 +2246,9 @@ impl CompareTab {
         // L3713
         for sn in &baseSlots {
             // L3714
-            let w = cx.sg.draw_string_width(16.0, Font::Var, &format!("^7{sn}:"));
+            let w = cx
+                .sg
+                .draw_string_width(16.0, Font::Var, &format!("^7{sn}:"));
             // L3715
             if w > maxLabelW {
                 maxLabelW = w;
@@ -2095,7 +2257,9 @@ impl CompareTab {
         // L3717
         for jE in &jewelSlots {
             // L3718
-            let w = cx.sg.draw_string_width(16.0, Font::Var, &format!("^7{}:", jE.label));
+            let w = cx
+                .sg
+                .draw_string_width(16.0, Font::Var, &format!("^7{}:", jE.label));
             // L3719
             if w > maxLabelW {
                 maxLabelW = w;
@@ -2141,7 +2305,9 @@ impl CompareTab {
             }
             // Label row in expanded mode: drawn at x=10, diff label drawn right-aligned at colWidth-10
             // L3745
-            let labelRowW = 10.0 + cx.sg.draw_string_width(16.0, Font::Var, &format!("^7{}:", baseSlots[0]));
+            let labelRowW = 10.0
+                + cx.sg
+                    .draw_string_width(16.0, Font::Var, &format!("^7{}:", baseSlots[0]));
             // Item card drawn at x + 20, so total primary-column content width is 20 + widestLine + 10 padding
             // L3747
             primaryContentW = m_max(20.0 + widest + 10.0, labelRowW);
@@ -2194,7 +2360,12 @@ impl CompareTab {
         // L3783
         let hBar = ctl(cx, me, "itemsHScrollBar");
         // L3784-3786
-        set_xy(cx, hBar, vp.x, vp.y + vp.height - LAYOUT::itemsHScrollBarHeight);
+        set_xy(
+            cx,
+            hBar,
+            vp.x,
+            vp.y + vp.height - LAYOUT::itemsHScrollBarHeight,
+        );
         cx.base_mut(hBar).width = Prop::Val(vp.width);
         // L3787
         ScrollBarControl::set_content_dimension(cx, hBar, contentWidth, vp.width);
@@ -2202,11 +2373,16 @@ impl CompareTab {
         st_mut(cx, me).itemsScrollX = cx.w::<ScrollBarControl>(hBar).offset;
 
         // L3790
-        let bottomReserve = if needsHScroll { LAYOUT::itemsHScrollBarHeight } else { 0.0 };
+        let bottomReserve = if needsHScroll {
+            LAYOUT::itemsHScrollBarHeight
+        } else {
+            0.0
+        };
         // L3791
         let scrollViewH = vp.height - checkboxOffset - bottomReserve;
         // L3792
-        cx.sg.set_viewport(vp.x, vp.y + checkboxOffset, vp.width, scrollViewH);
+        cx.sg
+            .set_viewport(vp.x, vp.y + checkboxOffset, vp.width, scrollViewH);
         // L3793-3794
         let drawY = 4.0 - st(cx, me).scrollY;
         let scrollOffsetX = -st(cx, me).itemsScrollX;
@@ -2287,19 +2463,37 @@ impl CompareTab {
         let pLabel = ctl(cx, me, "primaryTreeSetLabel");
         set_xy(cx, pLabel, vp.x + scrollOffsetX + 10.0, absY + 2.0);
         let pSelect = ctl(cx, me, "primaryTreeSetSelect");
-        set_xy(cx, pSelect, vp.x + scrollOffsetX + 10.0 + treeSetLabelW, absY);
+        set_xy(
+            cx,
+            pSelect,
+            vp.x + scrollOffsetX + 10.0 + treeSetLabelW,
+            absY,
+        );
 
         // L3938-3941
         let cLabel = ctl(cx, me, "compareTreeSetLabel");
-        set_xy(cx, cLabel, vp.x + scrollOffsetX + colWidth + 10.0, absY + 2.0);
+        set_xy(
+            cx,
+            cLabel,
+            vp.x + scrollOffsetX + colWidth + 10.0,
+            absY + 2.0,
+        );
         let cSelect = ctl(cx, me, "compareTreeSetSelect");
-        set_xy(cx, cSelect, vp.x + scrollOffsetX + colWidth + 10.0 + treeSetLabelW, absY);
+        set_xy(
+            cx,
+            cSelect,
+            vp.x + scrollOffsetX + colWidth + 10.0 + treeSetLabelW,
+            absY,
+        );
 
         // Populate tree set lists
         // L3944 (`self.primaryBuild.treeTab` always exists)
         {
             // L3945
-            let list: Vec<DropItem> = TreeTab::GetSpecList(cx).into_iter().map(DropItem::str).collect();
+            let list: Vec<DropItem> = TreeTab::GetSpecList(cx)
+                .into_iter()
+                .map(DropItem::str)
+                .collect();
             cx.w_mut::<DropDownControl>(pSelect).list = list;
             // L3946
             cx.w_mut::<DropDownControl>(pSelect).sel_index = sel(p.treeTab.activeSpec.get());
@@ -2307,7 +2501,10 @@ impl CompareTab {
         // L3948 (`compareEntry.treeTab` always exists)
         {
             // L3949
-            let list: Vec<DropItem> = entry::GetSpecList(compareEntry).into_iter().map(DropItem::str).collect();
+            let list: Vec<DropItem> = entry::GetSpecList(compareEntry)
+                .into_iter()
+                .map(DropItem::str)
+                .collect();
             cx.w_mut::<DropDownControl>(cSelect).list = list;
             // L3950
             cx.w_mut::<DropDownControl>(cSelect).sel_index = sel(c.treeTab.activeSpec.get());
@@ -2323,8 +2520,14 @@ impl CompareTab {
             // L3958
             cx.sg.set_draw_color(1.0, 1.0, 1.0);
             // L3959
-            cx.sg
-                .draw_string(scrollOffsetX + 10.0, f.drawY, Align::Left, 16.0, Font::Var, "^7-- Jewels --");
+            cx.sg.draw_string(
+                scrollOffsetX + 10.0,
+                f.drawY,
+                Align::Left,
+                16.0,
+                Font::Var,
+                "^7-- Jewels --",
+            );
             // L3960
             f.drawY += 20.0;
 
@@ -2391,34 +2594,47 @@ impl CompareTab {
         if cx.main.popups.is_empty() && f.hoverItem.is_some() && f.hoverItemsTab.is_some() {
             let hoverItem = f.hoverItem.clone().expect("hoverItem");
             let (hx, hy, hw, hh) = (f.hoverX, f.hoverY, f.hoverW, f.hoverH);
-            cx.lend::<CompareTab, _, _>(me, |w| &mut w.init.itemTooltip, |cx, tt| {
-                // L3987
-                tt.clear(false);
-                // L3988 (`hoverItemsTab`: the primary build's ItemsTab or `compareEntry.itemsTab`)
-                let hoverItemsTab = match f.hoverItemsTab {
-                    Some(ItemsTabSide::Compare) => {
-                        Some(crate::tabs::items::tooltip::ItemsTabSelf::Entry(compareEntry.clone()))
+            cx.lend::<CompareTab, _, _>(
+                me,
+                |w| &mut w.init.itemTooltip,
+                |cx, tt| {
+                    // L3987
+                    tt.clear(false);
+                    // L3988 (`hoverItemsTab`: the primary build's ItemsTab or `compareEntry.itemsTab`)
+                    let hoverItemsTab = match f.hoverItemsTab {
+                        Some(ItemsTabSide::Compare) => Some(
+                            crate::tabs::items::tooltip::ItemsTabSelf::Entry(compareEntry.clone()),
+                        ),
+                        _ => {
+                            items_tab_node(cx).map(crate::tabs::items::tooltip::ItemsTabSelf::Open)
+                        }
+                    };
+                    if let Some(hoverItemsTab) = hoverItemsTab {
+                        crate::tabs::items::tooltip::AddItemTooltip(
+                            cx,
+                            hoverItemsTab,
+                            tt,
+                            &hoverItem,
+                            &Val::Nil,
+                            false,
+                            Some(maxTooltipWidth),
+                        );
                     }
-                    _ => items_tab_node(cx).map(crate::tabs::items::tooltip::ItemsTabSelf::Open),
-                };
-                if let Some(hoverItemsTab) = hoverItemsTab {
-                    crate::tabs::items::tooltip::AddItemTooltip(
+                    // L3989
+                    cx.sg.set_draw_layer(None, Some(100));
+                    // L3990
+                    tt.draw(
                         cx,
-                        hoverItemsTab,
-                        tt,
-                        &hoverItem,
-                        &Val::Nil,
-                        false,
-                        Some(maxTooltipWidth),
+                        vp.x + hx,
+                        vp.y + checkboxOffset + hy,
+                        Some(hw),
+                        Some(hh),
+                        vp,
                     );
-                }
-                // L3989
-                cx.sg.set_draw_layer(None, Some(100));
-                // L3990
-                tt.draw(cx, vp.x + hx, vp.y + checkboxOffset + hy, Some(hw), Some(hh), vp);
-                // L3991
-                cx.sg.set_draw_layer(None, Some(0));
-            });
+                    // L3991
+                    cx.sg.set_draw_layer(None, Some(0));
+                },
+            );
         }
 
         // Draw stat comparison tooltip when hovering Equip button
@@ -2428,17 +2644,34 @@ impl CompareTab {
                 (f.hoverEquipItem.clone(), f.hoverEquipSlotName.clone())
             {
                 let (bx, by, bh) = (f.hoverEquipBtnX, f.hoverEquipBtnY, f.hoverEquipBtnH);
-                cx.lend::<CompareTab, _, _>(me, |w| &mut w.init.itemTooltip, |cx, tt| {
-                    Self::equip_tooltip(cx, tt, &hoverEquipItem, &hoverEquipSlotName, maxTooltipWidth);
-                    // L4034
-                    cx.sg.set_draw_layer(None, Some(100));
-                    // Force tooltip to the left of the button by passing a large width
-                    // so the right-side placement overflows and the Draw logic flips to left
-                    // L4037
-                    tt.draw(cx, vp.x + bx, vp.y + checkboxOffset + by, Some(vp.width), Some(bh), vp);
-                    // L4038
-                    cx.sg.set_draw_layer(None, Some(0));
-                });
+                cx.lend::<CompareTab, _, _>(
+                    me,
+                    |w| &mut w.init.itemTooltip,
+                    |cx, tt| {
+                        Self::equip_tooltip(
+                            cx,
+                            tt,
+                            &hoverEquipItem,
+                            &hoverEquipSlotName,
+                            maxTooltipWidth,
+                        );
+                        // L4034
+                        cx.sg.set_draw_layer(None, Some(100));
+                        // Force tooltip to the left of the button by passing a large width
+                        // so the right-side placement overflows and the Draw logic flips to left
+                        // L4037
+                        tt.draw(
+                            cx,
+                            vp.x + bx,
+                            vp.y + checkboxOffset + by,
+                            Some(vp.width),
+                            Some(bh),
+                            vp,
+                        );
+                        // L4038
+                        cx.sg.set_draw_layer(None, Some(0));
+                    },
+                );
             }
         }
 
@@ -2451,7 +2684,13 @@ impl CompareTab {
     }
 
     /// L3996-4033 of DrawItems: the Equip button's stat comparison lines.
-    fn equip_tooltip(cx: &mut Cx, tt: &mut Tooltip, hoverEquipItem: &ItemRef, hoverEquipSlotName: &str, maxTooltipWidth: f64) {
+    fn equip_tooltip(
+        cx: &mut Cx,
+        tt: &mut Tooltip,
+        hoverEquipItem: &ItemRef,
+        hoverEquipSlotName: &str,
+        maxTooltipWidth: f64,
+    ) {
         // L3996
         tt.clear(false);
         // L3997
@@ -2473,7 +2712,9 @@ impl CompareTab {
             // Determine what's currently in the target slot
             // L4005-4006
             let pSlot = slot_at(&m, hoverEquipSlotName);
-            let selItem = pSlot.as_ref().and_then(|s| item_at(&m, &s.get(n!("selItemId"))));
+            let selItem = pSlot
+                .as_ref()
+                .and_then(|s| item_at(&m, &s.get(n!("selItemId"))));
 
             // For jewel sockets that aren't allocated, temporarily allocate the node
             // L4009
@@ -2483,7 +2724,11 @@ impl CompareTab {
                 ..Override::default()
             };
             // L4010
-            if let Some(nodeId) = pSlot.as_ref().map(|s| s.get(n!("nodeId"))).filter(Val::truthy) {
+            if let Some(nodeId) = pSlot
+                .as_ref()
+                .map(|s| s.get(n!("nodeId")))
+                .filter(Val::truthy)
+            {
                 // L4011
                 let pSpec = m.spec.get();
                 // L4012 (`pSpec.allocNodes` always exists; a non-integer id is in neither map)
@@ -2514,7 +2759,12 @@ impl CompareTab {
             let header = if let Some(selItem) = &selItem {
                 // L4024
                 let rarity = selItem.rarity.get();
-                let rc = cx.main.cc.get(rarity.as_str()).cloned().unwrap_or_else(|| "^7".to_owned());
+                let rc = cx
+                    .main
+                    .cc
+                    .get(rarity.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| "^7".to_owned());
                 format!(
                     "^7Equipping this item in {slotLabel} will give you:\n(replacing {rc}{}^7)",
                     selItem.name.get()
@@ -2524,7 +2774,9 @@ impl CompareTab {
                 format!("^7Equipping this item in {slotLabel} will give you:")
             };
             // L4028
-            let count = crate::build::stats::add_stat_compares_to_tooltip(cx, tt, &calcBase, &output, &header, None);
+            let count = crate::build::stats::add_stat_compares_to_tooltip(
+                cx, tt, &calcBase, &output, &header, None,
+            );
             // L4029
             if count == 0.0 {
                 // L4030-4031
@@ -2558,4 +2810,3 @@ fn abyssal_slot_shown(build: &model::BuildRef, slot: &Table) -> bool {
         _ => !slot.truthy(n!("inactive")),
     }
 }
-

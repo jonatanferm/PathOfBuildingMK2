@@ -333,7 +333,8 @@ impl SkillListControl {
                         let n = ListControl::list_len(cx, me);
                         cx.w_mut::<ListControl>(me).sel_index = Some(n);
                         // L67
-                        cx.w_mut::<ListControl>(me).sel_value = Some(ListValue::of(newGroup.clone()));
+                        cx.w_mut::<ListControl>(me).sel_value =
+                            Some(ListValue::of(newGroup.clone()));
                         // L68
                         set_display_group(cx, skills_tab, Some(newGroup));
                         // L69
@@ -385,7 +386,11 @@ impl SkillListControl {
             // L88
             if currentMainSkill {
                 // L89
-                let activeLabel = if disabled { " (Forced Active)" } else { " (Active)" };
+                let activeLabel = if disabled {
+                    " (Forced Active)"
+                } else {
+                    " (Active)"
+                };
                 // L90
                 label = format!("{label}{}{activeLabel}", cc.RELIC);
             }
@@ -403,9 +408,13 @@ impl SkillListControl {
                 for gem in socketGroup.gemList.get().snapshot() {
                     // L99
                     let gemData = gem.gemData.get();
-                    if (gemData.is_some() || gem.grantedEffect.get().is_some()) && gem.enabled.get() {
+                    if (gemData.is_some() || gem.grantedEffect.get().is_some()) && gem.enabled.get()
+                    {
                         // L100
-                        let grantedEffect = gem.grantedEffect.get().or_else(|| gemData.map(|d| d.grantedEffect.clone()));
+                        let grantedEffect = gem
+                            .grantedEffect
+                            .get()
+                            .or_else(|| gemData.map(|d| d.grantedEffect.clone()));
                         // L101
                         if let Some(grantedEffect) = grantedEffect {
                             // L102
@@ -449,7 +458,13 @@ impl SkillListControl {
     /// lua: SkillListControl.lua:120-128 `SkillListClass:AddValueTooltip(tooltip, index,
     /// socketGroup)`
     /// @pob Classes/SkillListControl.lua:120-128 h=79559562
-    fn AddValueTooltip(cx: &mut Cx, _me: CtrlId, tooltip: &mut Tooltip, _index: usize, v: &ListValue) {
+    fn AddValueTooltip(
+        cx: &mut Cx,
+        _me: CtrlId,
+        tooltip: &mut Tooltip,
+        _index: usize,
+        v: &ListValue,
+    ) {
         let socketGroup = group_of(v);
         // L121
         if socketGroup.displaySkillList.get().is_none() {
@@ -538,10 +553,10 @@ impl SkillListControl {
         // L162-171
         let updateActiveSocketGroupIndex = move |cx: &mut Cx| {
             // L163
-            let selIndex = cx
-                .w::<ListControl>(me)
-                .sel_index
-                .map_or_else(|| lua_error!("attempt to compare nil with number"), |i| i as f64);
+            let selIndex = cx.w::<ListControl>(me).sel_index.map_or_else(
+                || lua_error!("attempt to compare nil with number"),
+                |i| i as f64,
+            );
             let skillsTabIndex = main_socket_group(cx);
             // L164
             if skillsTabIndex > selIndex {
@@ -587,10 +602,9 @@ impl SkillListControl {
             cx.w_mut::<ListControl>(me).sel_value = None;
         } else {
             // L185
-            let label = socketGroup
-                .displayLabel
-                .get()
-                .unwrap_or_else(|| lua_error!("attempt to concatenate field 'displayLabel' (a nil value)"));
+            let label = socketGroup.displayLabel.get().unwrap_or_else(|| {
+                lua_error!("attempt to concatenate field 'displayLabel' (a nil value)")
+            });
             let msg = format!("Are you sure you want to delete '{label}'?");
             let group = socketGroup.clone();
             popups::open_confirm_popup(
@@ -626,7 +640,13 @@ impl SkillListControl {
 
     /// lua: SkillListControl.lua:241-267 `SkillListClass:GetRowIcon(column, index, socketGroup)`
     /// @pob Classes/SkillListControl.lua:241-267 h=0cf47b25
-    fn GetRowIcon(cx: &Cx, _me: CtrlId, column: usize, _index: usize, v: &ListValue) -> Option<ImageHandle> {
+    fn GetRowIcon(
+        cx: &Cx,
+        _me: CtrlId,
+        column: usize,
+        _index: usize,
+        v: &ListValue,
+    ) -> Option<ImageHandle> {
         let socketGroup = group_of(v);
         // L242
         if column == 1 {
@@ -634,11 +654,9 @@ impl SkillListControl {
             let mut slot = socketGroup.slot.get().map(|s| s.to_string());
             // L244
             let m = &cx.build().model;
-            let set = m
-                .itemsTab
-                .activeItemSet
-                .get()
-                .unwrap_or_else(|| lua_error!("attempt to index field 'activeItemSet' (a nil value)"));
+            let set = m.itemsTab.activeItemSet.get().unwrap_or_else(|| {
+                lua_error!("attempt to index field 'activeItemSet' (a nil value)")
+            });
             let sel = |name: &str| -> Val {
                 let v = set
                     .table(name)
@@ -657,7 +675,9 @@ impl SkillListControl {
                     Some(item) => item
                         .base
                         .get()
-                        .unwrap_or_else(|| lua_error!("attempt to index field 'base' (a nil value)"))
+                        .unwrap_or_else(|| {
+                            lua_error!("attempt to index field 'base' (a nil value)")
+                        })
                         .r#type
                         .to_string(),
                     None => "None".to_owned(),
@@ -690,12 +710,16 @@ impl SkillListControl {
                 slot = Some(format!("{weapon1SwapType} Swap"));
             }
             // L259
-            if slot.as_deref() == Some("Weapon 2") && (weapon2Type == "Quiver" || weapon2Type == "Shield") {
+            if slot.as_deref() == Some("Weapon 2")
+                && (weapon2Type == "Quiver" || weapon2Type == "Shield")
+            {
                 // L260
                 slot = Some(weapon2Type);
             }
             // L262
-            if slot.as_deref() == Some("Weapon 2 Swap") && (weapon2SwapType == "Quiver" || weapon2SwapType == "Shield") {
+            if slot.as_deref() == Some("Weapon 2 Swap")
+                && (weapon2SwapType == "Quiver" || weapon2SwapType == "Shield")
+            {
                 // L263
                 slot = Some(format!("{weapon2SwapType} Swap"));
             }
@@ -751,10 +775,9 @@ impl Widget for SkillListControl {
                     if let Some(gem_data) = gem.gemData.get() {
                         wiki_open_gem(cx, &gem_data);
                     } else {
-                        let ge = gem
-                            .grantedEffect
-                            .get()
-                            .unwrap_or_else(|| lua_error!("attempt to index field 'grantedEffect' (a nil value)"));
+                        let ge = gem.grantedEffect.get().unwrap_or_else(|| {
+                            lua_error!("attempt to index field 'grantedEffect' (a nil value)")
+                        });
                         // `openGem(name)` of a string: `itemLib.wiki.open(name)` (ItemTools.lua:395)
                         wiki_open(cx, ge.name.as_str());
                     }
@@ -813,5 +836,10 @@ impl Widget for SkillListControl {
 /// `SkillsHooks::skill_list_ctor` seam. Returns the control.
 pub fn skill_list_ctor(cx: &mut Cx, tab: CtrlId, anchor: Anchor, r: [Prop<f64>; 4]) -> CtrlId {
     let list = cx.build().model.skillsTab.socketGroupList.get();
-    cx.add(tab, "groupList", SkillListControl::new(anchor, r, tab, list)).id()
+    cx.add(
+        tab,
+        "groupList",
+        SkillListControl::new(anchor, r, tab, list),
+    )
+    .id()
 }
