@@ -116,6 +116,10 @@ pub struct HeadlessState {
     pub restart_requested: Cell<bool>,
     overlay: RefCell<Overlay>,
     net: RefCell<NetState>,
+    /// The script path's index when it is the asset bundle (VENDOR, [`crate::bundle`]; detected
+    /// by [`HeadlessState::new`]).
+    #[cfg(not(target_arch = "wasm32"))]
+    bundle: Option<std::sync::Arc<crate::bundle::Bundle>>,
 }
 
 /// A handle to the shared state.
@@ -135,6 +139,8 @@ impl HeadlessState {
             restart_requested: Cell::new(false),
             overlay: RefCell::new(Overlay::default()),
             net: RefCell::new(NetState::default()),
+            #[cfg(not(target_arch = "wasm32"))]
+            bundle: crate::bundle::Bundle::detect(Path::new(script_path)),
         })
     }
 
@@ -149,7 +155,16 @@ impl HeadlessState {
 
     /// Lexically normalised absolute path (relative paths resolve against the script path,
     /// SG's working directory during Lua calls).
+    /// VENDOR: a logical path of the asset bundle resolves to the bundle file that holds it.
     fn resolve(&self, path: &str) -> PathBuf {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(p) = self
+            .bundle
+            .as_deref()
+            .and_then(|b| crate::fs_native::bundle_file(b, path))
+        {
+            return normalize(&p);
+        }
         let p = Path::new(path);
         let joined = if p.is_absolute() {
             p.to_path_buf()
@@ -372,6 +387,20 @@ impl Fs for HeadlessFs {
         let Some((dir, pattern)) = crate::search_split_spec(spec) else {
             return Vec::new();
         };
+        // VENDOR: a logical directory of the asset bundle lists its index (read-only; disk
+        // modification times are reported as 0, see the module docs)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(mut found) = self
+            .0
+            .bundle
+            .as_deref()
+            .and_then(|b| crate::fs_native::bundle_search(b, dir, pattern, find_dirs))
+        {
+            for e in &mut found {
+                e.modified = 0;
+            }
+            return found;
+        }
         let d = self.0.resolve(dir);
         let o = self.0.overlay.borrow();
         let mut out: Vec<FileEntry> = Self::children(&o, &d)

@@ -1,92 +1,27 @@
 //! The desktop app (ui doc §3): `pob_host::run_desktop(cfg, pob_app::PobApp::new)` with the command
-//! line as `launch.arg`, whose calc is
-//! the Rust calc (`RustCalc`, calc:PWR/CA). Feature `lua-calc` (dev only) runs PoB's Lua calc in a
-//! second VM instead (pob-ui-oracle's LuaCalcBridge, ui doc D14, §10.4). Owner: U7; U53's cut-over
-//! renamed the package from `pob-port-desktop` and wired the `lua-calc` injection. The
-//! SimpleGraphic test card is `sg-demo`.
-
-use std::path::PathBuf;
-
-fn locate_pob_root() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("POB_ROOT") {
-        return Some(PathBuf::from(p));
-    }
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(PathBuf::from));
-    let starts = [std::env::current_dir().ok(), exe_dir];
-    for s in starts.into_iter().flatten() {
-        for d in s.ancestors() {
-            let p = d.join(".PathOfBuilding");
-            if p.join("src/Launch.lua").is_file() {
-                return Some(p);
-            }
-        }
-    }
-    None
-}
-
-/// The compiled game data (`pob-dump compile`: `data.bin` and `trees/`): `$POB_DUMP_DIR`, else
-/// the first `data/dump` with a `data.bin` above the working directory or the executable.
-/// CCR-0106 §5 (U22's end-to-end gate): nothing initialised `pob_gamedata` in the desktop
-/// binary, so Launch failed with "pob_gamedata::init not called".
-fn locate_dump_dir() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("POB_DUMP_DIR") {
-        return Some(PathBuf::from(p));
-    }
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(PathBuf::from));
-    let starts = [std::env::current_dir().ok(), exe_dir];
-    for s in starts.into_iter().flatten() {
-        for d in s.ancestors() {
-            let p = d.join("data/dump");
-            if p.join("data.bin").is_file() {
-                return Some(p);
-            }
-        }
-    }
-    None
-}
+//! line as `launch.arg`, whose calc is the Rust calc (`RustCalc`, calc:PWR/CA). Owner: U7; U53's
+//! cut-over renamed the package from `pob-port-desktop`. The SimpleGraphic test card is
+//! `sg-demo`.
+//!
+//! VENDOR: everything the app reads comes from the asset bundle (`assets/`, located by
+//! [`pob_desktop::locate_assets`]): the script and runtime directories, the game data and the
+//! timeless jewel files. No PoB checkout is read. (The dev-only `lua-calc` feature, which ran
+//! PoB's Lua calc from a checkout, is gone with it; the oracle crates keep `LuaCalcBridge`.)
 
 fn main() -> anyhow::Result<()> {
-    let root = locate_pob_root().ok_or_else(|| {
-        anyhow::anyhow!("PoB not found (set POB_ROOT to a .PathOfBuilding directory)")
-    })?;
-    // CCR-0106 §5
-    let dump = locate_dump_dir().ok_or_else(|| {
-        anyhow::anyhow!("game data not found (set POB_DUMP_DIR to a data/dump directory)")
-    })?;
-    pob_gamedata::init_from_dir(&dump)
-        .map_err(|e| anyhow::anyhow!("{}: {e}", dump.join("data.bin").display()))?;
+    let assets = pob_desktop::locate_assets()?;
+    pob_desktop::init_bundle(&assets)?;
+    let dir = assets.to_string_lossy().into_owned();
     let cfg = pob_host::HostConfig {
         title: "Path of Building".into(),
         size: (1280, 800),
         min_size: (800, 600),
-        pob_src: root.join("src").to_string_lossy().into_owned(),
-        sg_runtime: root
-            .join("runtime/SimpleGraphic")
-            .to_string_lossy()
-            .into_owned(),
+        script_dir: dir.clone(),
+        sg_runtime: dir,
     };
     // SimpleGraphic's `arg` global: the command line after the program name, e.g. the
     // `pob://pobbin/<id>` link a protocol handler passes (Main.lua:41-49, :71-83)
     let arg: Vec<String> = std::env::args().skip(1).collect();
-    #[cfg(feature = "lua-calc")]
-    {
-        let src = root.join("src");
-        pob_host::run_desktop(cfg, move |parts| {
-            let mut app = pob_app::PobApp::with_calc(
-                parts,
-                std::rc::Rc::new(move || {
-                    Box::new(pob_ui_oracle::lua_calc::LuaCalcBridge::lua(Some(src.clone())))
-                }),
-            );
-            with_arg(&mut app, arg);
-            app
-        })
-    }
-    #[cfg(not(feature = "lua-calc"))]
     pob_host::run_desktop(cfg, move |parts| {
         let mut app = pob_app::PobApp::new(parts);
         with_arg(&mut app, arg);

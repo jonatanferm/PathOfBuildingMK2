@@ -2,7 +2,10 @@
 //! `pob-sg/src/bin/sg-demo.rs` by UI-U0 and adapted to the pob-sg / pob-host / pob-sg-wgpu
 //! surfaces; U7 owns it).
 //!
-//! Usage: `sg-demo [--pob <.PathOfBuilding dir>] [--screenshot <out.png> [--frames N] [--scale S]]`
+//! Usage: `sg-demo [--assets <bundle dir>] [--screenshot <out.png> [--frames N] [--scale S]]`
+//!
+//! The assets are the app's asset bundle (VENDOR, `pob_desktop::locate_assets`; `--assets`
+//! overrides it).
 //!
 //! Without `--screenshot` a 1280x800 window opens. With it, N frames (default 3) are rendered
 //! offscreen (no window needed) and the last one is saved as PNG.
@@ -12,26 +15,6 @@ use std::path::{Path, PathBuf};
 use pob_host::{App, HostConfig, PlatformParts};
 use pob_sg::{Align, Font, ImageFlags, ImageHandle, Key, ScreenInfo, Sg, Sys};
 use pob_ui_core::color_codes::ColorCodes;
-
-fn locate_pob_root() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("POB_ROOT") {
-        return Some(PathBuf::from(p));
-    }
-    let mut starts = Vec::new();
-    if let Ok(c) = std::env::current_dir() {
-        starts.push(c);
-    }
-    starts.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    for s in starts {
-        for d in s.ancestors() {
-            let p = d.join(".PathOfBuilding");
-            if p.join("src/Launch.lua").is_file() {
-                return Some(p);
-            }
-        }
-    }
-    None
-}
 
 struct Demo {
     sg: Sg,
@@ -527,21 +510,17 @@ fn main() -> anyhow::Result<()> {
             .and_then(|i| args.get(i + 1))
             .cloned()
     };
-    let root = arg("--pob")
-        .map(PathBuf::from)
-        .or_else(locate_pob_root)
-        .ok_or_else(|| {
-            anyhow::anyhow!("PoB not found (set POB_ROOT or --pob <.PathOfBuilding>)")
-        })?;
+    let assets = match arg("--assets") {
+        Some(a) => PathBuf::from(a),
+        None => pob_desktop::locate_assets()?,
+    };
+    let dir = assets.to_string_lossy().into_owned();
     let cfg = HostConfig {
         title: "pob-sg demo".into(),
         size: (1280, 800),
         min_size: (640, 400),
-        pob_src: root.join("src").to_string_lossy().into_owned(),
-        sg_runtime: root
-            .join("runtime/SimpleGraphic")
-            .to_string_lossy()
-            .into_owned(),
+        script_dir: dir.clone(),
+        sg_runtime: dir,
     };
     if let Some(out) = arg("--screenshot") {
         let frames: u32 = arg("--frames").and_then(|s| s.parse().ok()).unwrap_or(3);

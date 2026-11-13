@@ -5,13 +5,14 @@
 //! made it the default (it was `?app=pob` before). `?app=testcard` runs the SimpleGraphic
 //! [`TestCard`] instead. A panic is fatal on wasm32 (ui doc §13 item 6).
 //!
-//! Serving: Trunk serves `dist/`; PoB's files are expected under `pob/` next to `index.html`
-//! (`pob/src/...`, `pob/runtime/SimpleGraphic/Fonts/...`, optionally `pob/web-prefetch.txt`,
-//! see `pob_host::web`), e.g. a symlink to `.PathOfBuilding` in `dist/`.
+//! Serving (VENDOR): Trunk serves `dist/`, and `index.html` copies the parts of the asset bundle
+//! the web needs (`assets/`: its index, `web-prefetch.txt`, `ui/`, `tree/`, `fonts/`, `text/`,
+//! `gamedata/`) into `dist/assets/`. Every file the page fetches is a bundle file
+//! (`pob_host::web`); no PoB checkout is served.
 //!
-//! CCR-0134 §6 (U54): the app also needs `pob-dump compile`'s output under
-//! `pob/dump/` (`data.bin`, `trees/<ver>.bin`; `?data=<url>` overrides), and the calc runs in a
-//! Web Worker started from this same module (`pob_app::calc::worker_web`).
+//! CCR-0134 §6 (U54): the game data is the bundle's `assets/gamedata/` (`data.bin`,
+//! `trees/<name>.bin`; `?data=<url>` overrides), and the calc runs in a Web Worker started from
+//! this same module (`pob_app::calc::worker_web`).
 
 use pob_host::{App, PlatformParts};
 use pob_sg::{Align, Font, Key, Sg, Sys};
@@ -223,8 +224,9 @@ mod web {
                 title: "Path of Building".into(),
                 size: (1280, 800),
                 min_size: (800, 600),
-                pob_src: "pob/src".into(),
-                sg_runtime: "pob/runtime/SimpleGraphic".into(),
+                // VENDOR: the asset bundle is the script and runtime dir
+                script_dir: "assets".into(),
+                sg_runtime: "assets".into(),
             };
             let search = web_sys::window()
                 .and_then(|w| w.location().search().ok())
@@ -232,7 +234,7 @@ mod web {
             // U53 (cut-over): PoB's app is the page; `?app=testcard` shows the test card
             let pob = !search.contains("app=testcard");
             let r = if pob {
-                // CCR-0134 §6: the game data (`?data=<url>`, default `pob/dump`) and the calc in a
+                // CCR-0134 §6: the game data (`?data=<url>`, default `assets/gamedata`) and the calc in a
                 // Web Worker (WorkerCalc, calc doc D15)
                 use pob_app::calc::worker_web::{self, WebWorkerConfig, WorkerCalc};
                 let data_base = search

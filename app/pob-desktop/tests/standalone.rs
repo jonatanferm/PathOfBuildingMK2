@@ -1,0 +1,433 @@
+//! VENDOR acceptance: the app runs on the asset bundle (`assets/`) alone, with no PoB checkout.
+//!
+//! * `e2e_scenarios_run_on_the_bundle`: the 15 U53 e2e scenarios (copied to
+//!   `tests/standalone/scenarios`, the fixture user dir to `tests/standalone/user1`) run headless
+//!   on the real `PobApp` with the Rust calc. The bundle is located as the desktop app locates it
+//!   and loaded by `pob_desktop::init_bundle`. Per scenario: no error prompt, the `#! expect-text`
+//!   lines in the last frame, every image the frames draw read from the bundle, and no asset
+//!   read that fails except the [`KNOWN_MISSES`]. The scenarios open builds and switch every tab
+//!   (tree, skills, items, calcs, config, notes, party, import/export, compare); the tree
+//!   scenario must draw node icons from the skill sprite sheets.
+//! * `every_tree_version_loads_its_images_from_the_bundle`: `main:LoadTree` of every tree version
+//!   (images probed, not decoded): every image it asks for is in the bundle, and the bundle's tree
+//!   images are exactly the ones asked for.
+//! * `timeless_jewel_tables_load_from_the_bundle`: a `.zip`, a split `.zip.partN` and an abyss
+//!   table load through `BundleJewelFs`, with the `.bin` cache written outside the bundle and read
+//!   back.
+//! * `bundle_matches_its_index` and `text_files_and_listings_resolve`: the index and the files
+//!   agree; `NativeFs` reads and lists the logical tree.
+//!
+//! Run with `--test-threads=1` (the scenario test holds an app with decoded images). The proof
+//! that nothing else is read: run this binary with the PoB checkout hidden (VENDOR's report).
+
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::Arc;
+
+use pob_app::app::CxApp;
+use pob_host::bundle::Bundle;
+use pob_host::fs_native::BundleAssets;
+use pob_sg::trace::ApiCall;
+use pob_sg::{AssetSource, ImageFlags, ImageLoader, LoadEvent, TexId};
+
+/// Image paths `PassiveTree:LoadImage` asks for that neither PoB's `TreeData/` nor
+/// `TreeData/<ver>/` holds (the load fails in PoB too): recorded from the app on the PoB checkout
+/// when the bundle was vendored.
+const KNOWN_MISSES: [&str; 9] = [
+    "TreeData/PassiveMasteryConnectedButton.png",
+    "TreeData/ascendancy-3.png",
+    "TreeData/ascendancy-background-3.jpg",
+    "TreeData/background-3.png",
+    "TreeData/frame-3.png",
+    "TreeData/group-background-3.png",
+    "TreeData/jewel-3.png",
+    "TreeData/jewel-radius.png",
+    "TreeData/line-3.png",
+];
+
+fn here() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/standalone")
+}
+
+/// The bundle, located and loaded once per process like the desktop app does it.
+fn assets() -> PathBuf {
+    static INIT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    INIT.get_or_init(|| {
+        let a = pob_desktop::locate_assets().expect("asset bundle");
+        assert!(
+            !a.components().any(|c| c.as_os_str() == ".PathOfBuilding")
+                && !a.join("Launch.lua").exists(),
+            "the bundle is not a PoB checkout: {}",
+            a.display()
+        );
+        let b = pob_desktop::init_bundle(&a).expect("init bundle");
+        // the decompressed-LUT cache of the tests: a temp dir, not the user's cache
+        let cache = std::env::temp_dir().join(format!("pob-standalone-lut-{}", std::process::id()));
+        pob_gamedata::timeless_lut::set_jewel_fs(Arc::new(pob_desktop::BundleJewelFs::new(
+            b,
+            Some(cache),
+        )));
+        a
+    })
+    .clone()
+}
+
+fn bundle() -> Arc<Bundle> {
+    Bundle::detect(&assets()).expect("bundle index")
+}
+
+/// Every asset read: (runtime?, path, ok).
+type Log = Rc<RefCell<Vec<(bool, String, bool)>>>;
+
+struct Recording {
+    inner: BundleAssets,
+    log: Log,
+}
+
+impl AssetSource for Recording {
+    fn read_src(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        let r = self.inner.read_src(path);
+        self.log
+            .borrow_mut()
+            .push((false, path.to_owned(), r.is_ok()));
+        r
+    }
+    fn read_runtime(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        let r = self.inner.read_runtime(path);
+        self.log
+            .borrow_mut()
+            .push((true, path.to_owned(), r.is_ok()));
+        r
+    }
+}
+
+/// The app on the bundle, as `pob-desktop` builds it, with headless services.
+fn app(parts: pob_host::PlatformParts) -> pob_app::PobApp {
+    let a = assets();
+    let mut parts = parts;
+    let state = pob_host::headless::HeadlessState::new(
+        &a.to_string_lossy(),
+        &a.parent().unwrap().to_string_lossy(),
+    );
+    let (p, f, n) = pob_host::headless::services(&state);
+    parts.sys = pob_sg::Sys::new(p, f, n);
+    pob_app::PobApp::new(parts)
+}
+
+fn expectations(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|l| l.trim().strip_prefix("#! expect-text "))
+        .map(|t| t.trim().to_owned())
+        .collect()
+}
+
+#[test]
+fn e2e_scenarios_run_on_the_bundle() {
+    let a = assets();
+    let mut scripts: Vec<PathBuf> = std::fs::read_dir(here().join("scenarios"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "pobscript"))
+        .collect();
+    scripts.sort();
+    assert_eq!(scripts.len(), 15, "the U53 e2e scenarios");
+    let mut failures = Vec::new();
+    let mut tree_icons = 0usize;
+    for path in &scripts {
+        let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
+        let text = std::fs::read_to_string(path).unwrap();
+        let script = pob_host::script::Script::load(path).unwrap();
+        let log: Log = Rc::default();
+        let parts = pob_host::headless::parts(Rc::new(Recording {
+            inner: BundleAssets::open(&a).unwrap(),
+            log: log.clone(),
+        }))
+        .expect("fonts from the bundle");
+        let mut app = app(parts);
+        let frames = pob_host::run_headless(&mut app, &script);
+        let mut fail = |m: String| failures.push(format!("{stem}: {m}"));
+        if let Some(p) = app.cx.app().launch.prompt_msg.clone() {
+            fail(format!("error prompt: {p:?}"));
+        }
+        let Some(last) = frames.last() else {
+            fail("no frames".to_owned());
+            continue;
+        };
+        for t in expectations(&text) {
+            let found = last
+                .calls
+                .iter()
+                .any(|c| matches!(&c.call, ApiCall::DrawString { text, .. } if text.contains(&t)));
+            if !found {
+                fail(format!("expect-text {t:?} not in the last frame"));
+            }
+        }
+        // what the frames drew, and what was read
+        let mut drawn: BTreeSet<String> = BTreeSet::new();
+        for f in &frames {
+            for c in &f.calls {
+                match &c.call {
+                    ApiCall::DrawImage {
+                        img: Some(i), tc, ..
+                    } => {
+                        drawn.insert(i.path.clone());
+                        if stem == "b_open_tree" && tc.is_some() && i.path.contains("/skills") {
+                            tree_icons += 1;
+                        }
+                    }
+                    ApiCall::DrawImageQuad { img: Some(i), .. } => {
+                        drawn.insert(i.path.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let log = log.borrow();
+        let ok: BTreeSet<&str> = log
+            .iter()
+            .filter(|(rt, _, ok)| !rt && *ok)
+            .map(|(_, p, _)| p.as_str())
+            .collect();
+        for d in &drawn {
+            if !ok.contains(d.as_str()) && !KNOWN_MISSES.contains(&d.as_str()) {
+                fail(format!("drew {d}, which was not read from the bundle"));
+            }
+        }
+        for (rt, p, good) in log.iter() {
+            if !good && !KNOWN_MISSES.contains(&p.as_str()) {
+                fail(format!(
+                    "{} read failed: {p}",
+                    if *rt { "runtime" } else { "script" }
+                ));
+            }
+        }
+        let fonts = log.iter().filter(|(rt, _, good)| *rt && *good).count();
+        eprintln!(
+            "{stem}: {} frames, {} images drawn, {} script reads, {fonts} font files",
+            frames.len(),
+            drawn.len(),
+            log.iter().filter(|(rt, _, _)| !rt).count()
+        );
+        if fonts < 100 {
+            fail(format!("only {fonts} font files read from the bundle"));
+        }
+    }
+    eprintln!("b_open_tree: {tree_icons} node icon draws from the skill sprite sheets");
+    if tree_icons < 100 {
+        failures.push(format!("b_open_tree: only {tree_icons} node icons drawn"));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Probes image files (header sizes from the bundle) without decoding them.
+struct ProbeLoader {
+    assets: BundleAssets,
+    asked: Rc<RefCell<BTreeSet<(String, bool)>>>,
+}
+
+impl ImageLoader for ProbeLoader {
+    fn request(
+        &mut self,
+        id: TexId,
+        path: &str,
+        _flags: ImageFlags,
+        _sync: bool,
+        _priority: i32,
+    ) -> Option<LoadEvent> {
+        let ok = self
+            .assets
+            .0
+            .script_file(path)
+            .is_some_and(|f| Path::new(&self.assets.0.root).join(f).is_file());
+        self.asked.borrow_mut().insert((path.to_owned(), ok));
+        Some(LoadEvent::Failed(id))
+    }
+    fn read_size(&mut self, _id: TexId, path: &str) -> Option<(u32, u32)> {
+        let b = self.assets.read_src(path).ok()?;
+        pob_sg::image::read_image_size(&b, path)
+    }
+    fn set_priority(&mut self, _id: TexId, _priority: i32) {}
+    fn poll(&mut self) -> Vec<LoadEvent> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn every_tree_version_loads_its_images_from_the_bundle() {
+    let a = assets();
+    let asked: Rc<RefCell<BTreeSet<(String, bool)>>> = Rc::default();
+    let images = pob_sg::ImageRegistry::new(Box::new(ProbeLoader {
+        assets: BundleAssets::open(&a).unwrap(),
+        asked: asked.clone(),
+    }));
+    let sg = pob_sg::Sg::new(Rc::new(pob_sg::FontSet::empty()), images);
+    let parts = pob_host::PlatformParts {
+        sg,
+        sys: pob_host::headless::parts_without_assets().sys,
+    };
+    let mut app = app(parts);
+    let _ = pob_host::run_headless(
+        &mut app,
+        &pob_host::script::Script::parse("frames 1").unwrap(),
+    );
+    let versions: Vec<String> = pob_gamedata::data()
+        .gameVersions
+        .treeVersionList
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(versions.len() >= 40, "{versions:?}");
+    for v in &versions {
+        let r = pob_host::guarded(&mut app, |app| {
+            assert!(
+                pob_app::tree_view::assets::main_load_tree(&mut app.cx, v).is_some(),
+                "tree {v}"
+            );
+        });
+        assert!(r.is_ok(), "{v}: {r:?}");
+    }
+    assert!(app.cx.app().launch.prompt_msg.is_none());
+    let asked = asked.borrow();
+    let missing: Vec<&str> = asked
+        .iter()
+        .filter(|(p, ok)| !ok && !KNOWN_MISSES.contains(&p.as_str()))
+        .map(|(p, _)| p.as_str())
+        .collect();
+    assert!(missing.is_empty(), "not in the bundle: {missing:?}");
+    let asked_tree: BTreeSet<&str> = asked
+        .iter()
+        .filter(|(p, ok)| *ok && p.starts_with("TreeData/"))
+        .map(|(p, _)| p.as_str())
+        .collect();
+    let b = bundle();
+    let bundled_tree: BTreeSet<&str> = b
+        .script_files()
+        .map(|(l, _)| l)
+        .filter(|l| l.starts_with("TreeData/"))
+        .collect();
+    eprintln!(
+        "{} tree versions: {} tree images asked for, {} bundled",
+        versions.len(),
+        asked_tree.len(),
+        bundled_tree.len()
+    );
+    assert_eq!(
+        asked_tree, bundled_tree,
+        "the bundle's tree images are exactly the ones used"
+    );
+}
+
+#[test]
+fn timeless_jewel_tables_load_from_the_bundle() {
+    use pob_gamedata::timeless_lut;
+    let _ = assets();
+    let cache = std::env::temp_dir().join(format!("pob-vendor-lut-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&cache);
+    timeless_lut::set_jewel_fs(Arc::new(pob_desktop::BundleJewelFs::new(
+        bundle(),
+        Some(cache.clone()),
+    )));
+    // sizes recorded from PoB's own files when the bundle was vendored
+    let first = timeless_lut::loadJewelFile("HeroicTragedy", true).map(|b| b.len());
+    assert_eq!(first, Some(3_587_054), "HeroicTragedy.zip");
+    let bin = cache.join("HeroicTragedy.bin");
+    assert_eq!(
+        std::fs::metadata(&bin).map(|m| m.len()).ok(),
+        Some(3_587_054),
+        "the .bin cache"
+    );
+    let again = timeless_lut::loadJewelFile("HeroicTragedy", true).map(|b| b.len());
+    assert_eq!(again, Some(3_587_054), "read back from the cache");
+    let gv = timeless_lut::loadJewelFile("GloriousVanity", false).map(|b| b.len());
+    assert_eq!(gv, Some(51_651_890), "GloriousVanity.zip.part0-4");
+    let abyss = timeless_lut::loadJewelFile("AbyssAmanamu", false).map(|b| b.len());
+    assert_eq!(abyss, Some(72_995_595), "AbyssAmanamu.zip.part0-5");
+    assert!(
+        !assets().join("timeless/HeroicTragedy.bin").exists(),
+        "nothing is written into the bundle"
+    );
+    let _ = std::fs::remove_dir_all(&cache);
+}
+
+#[test]
+fn bundle_matches_its_index() {
+    let a = assets();
+    let index: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(a.join("index.json")).unwrap()).unwrap();
+    let files = index["files"].as_object().unwrap();
+    for (f, e) in files {
+        let len = std::fs::metadata(a.join(f)).map(|m| m.len()).ok();
+        assert_eq!(len, e["bytes"].as_u64(), "{f}");
+    }
+    let b = bundle();
+    for (l, f) in b.script_files().chain(b.runtime_files()) {
+        assert!(files.contains_key(f), "{l} -> {f} is not a bundle file");
+    }
+    // every file on disk is indexed, apart from the docs and the index itself
+    let mut on_disk = Vec::new();
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(root, &p, out);
+            } else {
+                out.push(
+                    p.strip_prefix(root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                );
+            }
+        }
+    }
+    walk(&a, &a, &mut on_disk);
+    let docs = [
+        "README.md",
+        "THIRD_PARTY_NOTICES.md",
+        ".gitattributes",
+        "index.json",
+    ];
+    let stray: Vec<&String> = on_disk
+        .iter()
+        .filter(|f| !docs.contains(&f.as_str()) && !files.contains_key(f.as_str()))
+        .collect();
+    assert!(stray.is_empty(), "files the index does not list: {stray:?}");
+    assert_eq!(index["source"]["pobVersion"], "2.67.2");
+    assert!(index["source"]["pobCommit"]
+        .as_str()
+        .unwrap()
+        .starts_with("16de4b82d"));
+    eprintln!("{} bundle files, {} on disk", files.len(), on_disk.len());
+}
+
+#[test]
+fn text_files_and_listings_resolve() {
+    use pob_sg::Fs;
+    let a = assets();
+    let fs = pob_host::fs_native::NativeFs::new(&a);
+    let changelog = String::from_utf8(fs.read("changelog.txt").unwrap()).unwrap();
+    assert!(changelog.starts_with("VERSION["), "{}", &changelog[..40]);
+    assert!(fs.read("help.txt").is_ok());
+    assert!(fs.read("Assets/ring.png").is_ok());
+    assert!(
+        fs.read("Launch.lua").is_err(),
+        "no PoB source in the bundle"
+    );
+    assert!(fs.read("manifest.xml").is_err());
+    let names = |v: Vec<pob_sg::FileEntry>| v.into_iter().map(|e| e.name).collect::<Vec<_>>();
+    let latest = pob_gamedata::data()
+        .gameVersions
+        .latestTreeVersion
+        .to_string();
+    let files = names(fs.search(&format!("TreeData/{latest}/*"), false));
+    assert!(files.iter().any(|n| n.starts_with("skills")), "{files:?}");
+    let dirs = names(fs.search("TreeData/*", true));
+    assert!(
+        dirs.contains(&latest) && dirs.contains(&"legion".to_owned()),
+        "{dirs:?}"
+    );
+    assert!(names(fs.search("Data/TimelessJewelData/*.zip", false)).len() >= 5);
+}

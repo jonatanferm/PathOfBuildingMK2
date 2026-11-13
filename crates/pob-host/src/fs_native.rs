@@ -7,24 +7,37 @@
 //! paths therefore resolve against PoB's `src/`.
 //!
 //! DIVERGENCE(listing order): see [`crate::sort_file_entries`].
+//!
+//! VENDOR: when the script directory is the asset bundle ([`crate::bundle`]), script-relative
+//! paths resolve through its index: reads and listings see PoB's logical tree.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use pob_sg::{AssetSource, FileEntry, Fs};
+
+use crate::bundle::Bundle;
 
 /// io.open / NewFileSearch / MakeDir / RemoveDir / os.rename / os.remove over the real file
 /// system, relative paths resolved against `base` (the script directory).
 #[derive(Default)]
 pub struct NativeFs {
     pub base: PathBuf,
+    /// `base`'s index when it is the asset bundle.
+    bundle: Option<Arc<Bundle>>,
 }
 
 impl NativeFs {
     pub fn new(base: impl Into<PathBuf>) -> NativeFs {
-        NativeFs { base: base.into() }
+        let base = base.into();
+        let bundle = Bundle::detect(&base);
+        NativeFs { base, bundle }
     }
 
     fn resolve(&self, path: &str) -> PathBuf {
+        if let Some(p) = self.bundle.as_deref().and_then(|b| bundle_file(b, path)) {
+            return p;
+        }
         let p = Path::new(path);
         if p.is_absolute() {
             p.to_path_buf()
@@ -32,6 +45,45 @@ impl NativeFs {
             self.base.join(p)
         }
     }
+}
+
+/// The bundle file holding the logical script path `path` (relative, or absolute under the
+/// bundle root).
+pub fn bundle_file(b: &Bundle, path: &str) -> Option<PathBuf> {
+    let rel = b.relative(path)?;
+    b.script_file(&rel).map(|f| Path::new(&b.root).join(f))
+}
+
+/// `NewFileSearch` of a logical directory of the bundle (`None`: the index has nothing there,
+/// search the disk).
+pub fn bundle_search(
+    b: &Bundle,
+    dir: &str,
+    pattern: &str,
+    find_dirs: bool,
+) -> Option<Vec<FileEntry>> {
+    let rel = b.relative(dir)?;
+    let entries = b.script_dir(&rel)?;
+    let mut out = Vec::new();
+    for e in entries {
+        if e.is_dir != find_dirs || !crate::glob_match(pattern, &e.name) {
+            continue;
+        }
+        let md = e
+            .file
+            .as_ref()
+            .and_then(|f| std::fs::metadata(Path::new(&b.root).join(f)).ok());
+        out.push(FileEntry {
+            name: e.name,
+            is_dir: e.is_dir,
+            size: md.as_ref().map_or(0, std::fs::Metadata::len),
+            modified: md
+                .and_then(|m| m.modified().ok())
+                .map_or(0, crate::filetime_ticks),
+        });
+    }
+    crate::sort_file_entries(&mut out);
+    Some(out)
 }
 
 /// lua: ui_api.cpp:1341-1430 `NewFileSearch` + `NextFile`: every entry of the spec's directory
@@ -75,6 +127,13 @@ impl Fs for NativeFs {
         let Some((dir, pattern)) = crate::search_split_spec(spec) else {
             return Vec::new();
         };
+        if let Some(found) = self
+            .bundle
+            .as_deref()
+            .and_then(|b| bundle_search(b, dir, pattern, find_dirs))
+        {
+            return found;
+        }
         search_dir(&self.resolve(dir), pattern, find_dirs)
     }
     /// `create_directory`: not recursive.
@@ -110,6 +169,52 @@ impl AssetSource for DirAssets {
     }
     fn read_runtime(&self, path: &str) -> std::io::Result<Vec<u8>> {
         std::fs::read(self.runtime.join(path))
+    }
+}
+
+/// The asset bundle as the script and runtime directories (VENDOR, [`crate::bundle`]).
+pub struct BundleAssets(pub Arc<Bundle>);
+
+impl BundleAssets {
+    /// The bundle at `dir` (an error when `dir` has no readable index).
+    pub fn open(dir: &Path) -> std::io::Result<BundleAssets> {
+        Bundle::detect(dir).map(BundleAssets).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("{}: no asset bundle index", dir.display()),
+            )
+        })
+    }
+
+    fn read(&self, file: Option<&str>, path: &str) -> std::io::Result<Vec<u8>> {
+        match file {
+            Some(f) => std::fs::read(Path::new(&self.0.root).join(f)),
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("{path}: not in the asset bundle"),
+            )),
+        }
+    }
+}
+
+impl AssetSource for BundleAssets {
+    fn read_src(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        self.read(self.0.script_file(path), path)
+    }
+    fn read_runtime(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        self.read(self.0.runtime_file(path), path)
+    }
+}
+
+/// The script/runtime assets of `script_dir` and `sg_runtime`: the bundle's when `script_dir`
+/// is the asset bundle, else the two directories as they are.
+pub fn dir_or_bundle_assets(script_dir: &Path, sg_runtime: &Path) -> Box<dyn AssetSource> {
+    match Bundle::detect(script_dir) {
+        Some(b) => Box::new(BundleAssets(b)),
+        None => Box::new(DirAssets {
+            src: script_dir.to_path_buf(),
+            runtime: sg_runtime.to_path_buf(),
+        }),
     }
 }
 

@@ -7,10 +7,12 @@
 //! (winit sizes the backing store and reports it as the inner size).
 //!
 //! Before `on_init`, [`run_web`] fetches into memory what SimpleGraphic would read
-//! synchronously: the 7 `.tgf` fonts and their atlases from `cfg.sg_runtime`, plus every path
-//! listed in the optional manifest [`PREFETCH_MANIFEST`] (one path relative to `cfg.pob_src` per
-//! line; PoB's `Assets/*` and the active tree version's sprite sheets), and loads the
-//! IndexedDB-backed user files ([`crate::fs_web::WebFs`]).
+//! synchronously: the asset bundle's index (`cfg.script_dir` is the bundle, VENDOR:
+//! [`crate::bundle`]), the 7 `.tgf` fonts and their atlases, plus every file listed in the
+//! bundle's [`WEB_PREFETCH_FILE`] (bundle paths, one per line: the UI art, the top-level and
+//! legion tree images and the latest tree version's images), and loads the IndexedDB-backed user
+//! files ([`crate::fs_web::WebFs`]). The VFS holds them under their logical paths
+//! (`Assets/ring.png`), the paths the app names.
 //!
 //! Clipboard: the canvas keeps the browser's default action for Ctrl/Cmd+C, +X and +V only
 //! (everything else is `preventDefault`ed, as winit would). The KeyDown of Ctrl+V is held back
@@ -22,7 +24,7 @@
 //!
 //! Images load through U3's [`crate::loader_web::WebLoader`] over the same VFS (CCR-0026 D): the
 //! manifest is fetched by [`WebLoader::prefetch`], non-ASYNC loads read the VFS and ASYNC ones
-//! are fetched lazily from `cfg.pob_src` (the platform divergences are listed in `loader_web`).
+//! are fetched lazily from the bundle (the platform divergences are listed in `loader_web`).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -40,15 +42,13 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys};
 use winit::window::{Window, WindowId};
 
+use crate::bundle::{Bundle, INDEX_FILE, WEB_PREFETCH_FILE};
 use crate::fs_web::{Vfs, WebFs};
 use crate::input::Input;
 use crate::loader_web::WebLoader;
 use crate::net_web::WebNet;
 use crate::platform_web::{WebPlatform, USER_PATH};
 use crate::{deliver, App, Driver, FrameOutcome, Gfx, HostConfig, PlatformParts};
-
-/// The prefetch manifest, relative to the parent of `cfg.pob_src`.
-pub const PREFETCH_MANIFEST: &str = "web-prefetch.txt";
 
 fn js(e: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&e.to_string())
@@ -90,11 +90,15 @@ async fn finish_fetch(f: Option<JsFuture>) -> Option<Vec<u8>> {
     Some(js_sys::Uint8Array::new(&buf).to_vec())
 }
 
-/// Fetch `rels` (relative to `base`) concurrently into `out`; failures are left out.
-async fn fetch_all(base: &str, rels: &[String], out: &mut HashMap<String, Vec<u8>>) {
+/// Fetch the logical runtime paths `rels` (`Fonts/…`) from the bundle files that hold them into
+/// `out` (keyed by the logical path); paths the index lacks and failed fetches are left out.
+async fn fetch_runtime(bundle: &Bundle, rels: &[String], out: &mut HashMap<String, Vec<u8>>) {
     let started: Vec<_> = rels
         .iter()
-        .map(|r| (r.clone(), start_fetch(&join_url(base, r))))
+        .filter_map(|r| {
+            let f = bundle.runtime_file(r)?;
+            Some((r.clone(), start_fetch(&join_url(&bundle.root, f))))
+        })
         .collect();
     for (r, f) in started {
         if let Some(b) = finish_fetch(f).await {
@@ -104,13 +108,13 @@ async fn fetch_all(base: &str, rels: &[String], out: &mut HashMap<String, Vec<u8
 }
 
 /// The fonts `FontSet::load` reads: every face's `.tgf`, then the atlas of each height it lists.
-async fn prefetch_fonts(sg_runtime: &str) -> HashMap<String, Vec<u8>> {
+async fn prefetch_fonts(bundle: &Bundle) -> HashMap<String, Vec<u8>> {
     let mut files = HashMap::new();
     let tgfs: Vec<String> = Font::ALL
         .iter()
         .map(|f| format!("Fonts/{}.tgf", f.file_stem()))
         .collect();
-    fetch_all(sg_runtime, &tgfs, &mut files).await;
+    fetch_runtime(bundle, &tgfs, &mut files).await;
     let mut atlases = Vec::new();
     for f in Font::ALL {
         let stem = f.file_stem();
@@ -120,11 +124,11 @@ async fn prefetch_fonts(sg_runtime: &str) -> HashMap<String, Vec<u8>> {
             }
         }
     }
-    fetch_all(sg_runtime, &atlases, &mut files).await;
+    fetch_runtime(bundle, &atlases, &mut files).await;
     files
 }
 
-/// The prefetched files as PoB's `src/` and `runtime/SimpleGraphic/`.
+/// The prefetched files as the script and runtime directories (logical paths).
 #[derive(Clone)]
 struct VfsAssets {
     src: Vfs,
@@ -420,25 +424,32 @@ pub async fn run_web<A: App>(
         .ok_or_else(|| js(format!("no element #{canvas_id}")))?
         .dyn_into()?;
 
-    // Prefetch: fonts, then the manifest's files.
-    let runtime = prefetch_fonts(&cfg.sg_runtime).await;
+    // Prefetch: the bundle's index, the fonts, then the bundle's prefetch list (VENDOR).
+    let index_url = join_url(&cfg.script_dir, INDEX_FILE);
+    let bundle = match finish_fetch(start_fetch(&index_url)).await {
+        Some(t) => Bundle::parse(&cfg.script_dir, &String::from_utf8_lossy(&t)).map_err(js)?,
+        None => {
+            return Err(js(format!(
+                "{index_url}: the asset bundle's index is missing"
+            )))
+        }
+    };
+    let bundle = Rc::new(bundle);
+    let runtime = prefetch_fonts(&bundle).await;
     let vfs: Vfs = Rc::default();
-    // `WebLoader` appends the path to its base: `src/` with a trailing slash ("" = page-relative).
-    let src_base = if cfg.pob_src.is_empty() {
+    // `WebLoader` appends the bundle path to its base: the bundle root with a trailing slash
+    // ("" = page-relative).
+    let src_base = if cfg.script_dir.is_empty() {
         String::new()
     } else {
-        format!("{}/", cfg.pob_src.trim_end_matches('/'))
+        format!("{}/", cfg.script_dir.trim_end_matches('/'))
     };
-    let loader = WebLoader::with_vfs(src_base, vfs.clone());
-    let manifest_url = join_url(&parent_path(&cfg.pob_src), PREFETCH_MANIFEST);
-    if let Some(m) = finish_fetch(start_fetch(&manifest_url)).await {
-        let list: Vec<String> = String::from_utf8_lossy(&m)
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .map(str::to_owned)
-            .collect();
-        loader.prefetch(&list).await;
+    let mut loader = WebLoader::with_vfs(src_base, vfs.clone());
+    loader.set_bundle(bundle.clone());
+    let list_url = join_url(&cfg.script_dir, WEB_PREFETCH_FILE);
+    if let Some(m) = finish_fetch(start_fetch(&list_url)).await {
+        let list = crate::bundle::prefetch_list(&String::from_utf8_lossy(&m));
+        loader.prefetch_bundle_files(&list).await;
     }
     let assets = VfsAssets {
         src: vfs.clone(),
@@ -446,14 +457,14 @@ pub async fn run_web<A: App>(
     };
     let mut images = ImageRegistry::new(Box::new(loader));
     let fonts = FontSet::load(&assets, &mut images).unwrap_or_else(|e| {
-        web_sys::console::error_1(&format!("fonts from {}: {e}", cfg.sg_runtime).into());
+        web_sys::console::error_1(&format!("fonts from {}: {e}", bundle.root).into());
         FontSet::empty()
     });
     let sg = Sg::new(Rc::new(fonts), images);
-    let platform = WebPlatform::new(cfg.pob_src.clone(), parent_path(&cfg.sg_runtime));
+    let platform = WebPlatform::new(cfg.script_dir.clone(), parent_path(&cfg.sg_runtime));
     let paste_cache = platform.paste_cache.clone();
     let exit_requested = platform.exit_requested.clone();
-    let fs = WebFs::open(&cfg.pob_src, USER_PATH, vfs).await;
+    let fs = WebFs::open(&cfg.script_dir, USER_PATH, vfs).await;
     let sys = Sys::new(
         Box::new(platform),
         Box::new(fs),
