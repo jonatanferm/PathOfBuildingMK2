@@ -303,13 +303,14 @@ fn recalc_frees_the_previous_graphs() {
 }
 
 /// CCR-0142: the two build-level cycles, which keep a dropped build alive (not a recalc;
-/// `recalc_frees_the_previous_graphs` passes). Three variants per build: (a) drop the build as it
+/// `recalc_frees_the_previous_graphs` passes). Four variants per build: (a) drop the build as it
 /// is; (b) first clear `calcsTab.mainEnv/calcsEnv/miscCalculator` (the `Env.build` /
 /// `MiscCalculator.build` edges back to the build); (c) also clear every socket group's
-/// `displaySkillList(Calcs)` (the `ActiveSkill.socketGroup` edge back to the group). (a) and (b)
-/// are printed (they leak until CCR-0142 is decided); the gate is (c), the teardown the web calc
-/// worker runs after each request (`pob-app/src/calc/worker_web.rs` `run_request`): the build
-/// and everything reachable from its envs is freed.
+/// `displaySkillList(Calcs)` (the `ActiveSkill.socketGroup` edge back to the group); (d)
+/// `Build::teardown` (CCR-0142 §3 B), which the web calc worker runs after each request
+/// (`pob-app/src/calc/worker_web.rs` `run_request`) and the desktop app before it drops a build
+/// (`pob-app/src/build/init.rs`). (a) and (b) are printed (they leak: the cycles are Lua aliases);
+/// the gates are (c) and (d): the build and everything reachable from its envs is freed.
 #[test]
 fn build_teardown_frees_everything_ccr0142() {
     if !init() {
@@ -318,7 +319,7 @@ fn build_teardown_frees_everything_ccr0142() {
     let mut failures = Vec::new();
     for (stem, _) in BUILDS {
         let Some(xml) = build_xml(stem) else { return };
-        for variant in ['a', 'b', 'c'] {
+        for variant in ['a', 'b', 'c', 'd'] {
             pob_calc::global_cache::clear_all();
             let build = pob_calc::model::build_xml::loadBuildFromXML(&xml, pob_gamedata::data());
             let mut g = Graph::default();
@@ -329,12 +330,14 @@ fn build_teardown_frees_everything_ccr0142() {
                 g.env("calcsEnv", &e);
             }
             let wb = Rc::downgrade(&build);
-            if variant >= 'b' {
+            if ('b'..='c').contains(&variant) {
                 build.calcsTab.mainEnv.set(None);
                 build.calcsTab.calcsEnv.set(None);
                 build.calcsTab.miscCalculator.set(None);
             }
-            if variant >= 'c' {
+            if variant == 'd' {
+                build.teardown();
+            } else if variant == 'c' {
                 for sg in build.skillsTab.socketGroupList.get().snapshot() {
                     sg.displaySkillList.set(None);
                     sg.displaySkillListCalcs.set(None);
@@ -349,9 +352,9 @@ fn build_teardown_frees_everything_ccr0142() {
                 wb.strong_count(),
                 s.len()
             );
-            if variant == 'c' && (wb.strong_count() > 0 || !s.is_empty()) {
+            if variant >= 'c' && (wb.strong_count() > 0 || !s.is_empty()) {
                 failures.push(format!(
-                    "{stem}: build strong {}\n  {}",
+                    "{stem} ({variant}): build strong {}\n  {}",
                     wb.strong_count(),
                     s.join("\n  ")
                 ));

@@ -4,8 +4,8 @@
 
 **Every planned unit row is merged into `rust-port`** (the integration branch). This covers every
 row of calc doc §11.1, including INT-1..INT-4, and every row of ui doc §12, including U53 (cut-over)
-and the optional U52 and U54. The only exception is U51. U16 keeps one known gap: the
-command-line import of Main.lua:71-82 (DIVERGENCE(no-cli-args), FOLLOWUPS "CCRDOC" 12).
+and the optional U52 and U54. The only exception is U51. The command-line import of
+Main.lua:71-83 is ported (FUP5, FOLLOWUPS "CCRDOC" 12).
 
 - **Calc:** no Lua at runtime (`cargo tree -e normal | grep -c mlua` = 0 for pob-calc, pob-app,
   pob-desktop and pob-web; AMENDMENTS A13). Parity, last measured by FUP4 (FOLLOWUPS "FUP4"):
@@ -31,12 +31,11 @@ on 15 scenes (U53 row). Wine is not installed (FOLLOWUPS "U53" 1).
 
 **Open follow-ups** (`docs/port/FOLLOWUPS.md`):
 
-- "CCRDOC" 1-12 are code and doc differences found while deciding the CCRs. Five differ from
-  PoB in the product: Options Save does not rebuild the build list; Import-to-new-build draws one
-  stale frame; POSTs have no Content-Type; the comparison build's item/jewel tooltips and config
-  tooltips are wrong or missing. Item 7 is a leak: a dropped build leaks on desktop. Item 12:
-  a build link on the command line still raises (DIVERGENCE(no-cli-args); no host passes one
-  today). The rest is hygiene.
+- "CCRDOC" 1-12 are code and doc differences found while deciding the CCRs. FUP5 closed 1, 2,
+  3, 7, 10 and 12 (build list rebuild on Options Save, the stale Import-to-new-build frame, the
+  POST Content-Type, the dropped-build and deleted-group leak, the range slider knob, the
+  command-line build link). Still open in the product: the comparison build's item/jewel tooltips
+  and config tooltips are wrong or missing (4, 5). The rest is hygiene.
 - "U53" 4 (the unit harnesses' nil rule) and "BRAND" 1 (above).
 - The older sections (CS0, HYG2 exposed, BM-A, CA, CS2, CCR2, FUP1, PF-B, PWR, INT-1F-A, OF-A,
   FUP2) mark their items closed or open in place. CCRDOC did not re-verify them.

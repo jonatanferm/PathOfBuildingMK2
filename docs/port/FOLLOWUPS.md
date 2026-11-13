@@ -612,15 +612,27 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
    `if` from before U18, although `crate::build_list::rebuild(cx)` exists (CCR-0100 B). Fix: call
    it there (one line). Owner: U17 (options_popup.rs). `u17_popups` stubs BuildList on the Lua
    side, so its scenarios do not see the difference.
+   **Closed by FUP5** (port/FUP5, 2026-11-13): `options_popup.rs` calls
+   `crate::build_list::rebuild(cx)` at L1219. `u17_popups` now runs the real build list as
+   `main.modes.LIST` on both sides (the BuildList stub is gone), so `e_options_save`, which sets a
+   new build path, sees the list rebuilt: 0 divergences with the fix, 144 without it.
 2. **Import "to a new build" draws the old build node for one frame** (CCR-0109 §9).
    `build/on_frame.rs` reads the build node once at the top. After `draw_tab` (ImportTab.lua:
    665-667 re-initialises the build inside the tab's Draw), the rest of OnFrame (L1321-1351)
    draws the old node's controls. Fix: re-read `cx.app().build` after the `draw_tab` call
    (`on_frame.rs:704-706`). Owner: U20. `u43/d_new_build.pobscript` sets frame 30 aside for it.
+   **Closed by FUP5** (port/FUP5, 2026-11-13): `on_frame` reads `cx.app().build`'s node again
+   after `draw_tab`. The frame-30 set-aside is gone from `d_new_build`: 0 divergences at both
+   screens with the fix, 171 without it.
 3. **POST requests carry no Content-Type** (CCR-0109 §10). curl's `OPT_POSTFIELDS` sends
    `application/x-www-form-urlencoded`; `pob-host/src/net_native.rs:87` sends the body with
    ureq's `send_bytes` and no default header. This affects UploadBuild and the OAuth token
    requests. Owner: U7.
+   **Closed by FUP5** (port/FUP5, 2026-11-13): `pob_host::post_content_type` gives curl's default
+   (`application/x-www-form-urlencoded` for a request with a body and no Content-Type header
+   line); `net_native.rs` (ureq) and `net_web.rs` (`fetch`, which adds no type for a byte body
+   either) both set it. `net_native::tests::download_page_local` checks one form Content-Type on
+   a POST without a header line, one `application/json` when a line sets it, and none on a GET.
 4. **The comparison build's item and jewel tooltips are built against the open build**
    (CCR-0122 §2, CCR-0143 §4). `ItemsTabHooks::add_item_tooltip` takes no build, so
    `compareSpec.build.itemsTab:AddItemTooltip` (PassiveTreeView.lua:1492/1783) and
@@ -642,6 +654,16 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
    build, `leak1_cycles.rs`), and deleting a socket group keeps its last display skills. Only
    the web worker tears down. Fix: a `Build::teardown` (model owner) called before the drop and
    by the Skills tab on group removal.
+   **Closed by FUP5** (port/FUP5, 2026-11-13): `Build::teardown` and `SocketGroup::teardown`
+   (`pob-calc-core/src/model/mod.rs`) do CCR-0142 §3 A's body. `build/init.rs` calls it on the
+   previous `BuildState`'s model before the drop, `worker_web.rs` `run_request` calls it instead of
+   its inline copy, and the Skills tab's delete paths (SkillListControl.lua L47, L175, L186) tear
+   the removed groups down. Gates: `leak1_cycles.rs` variant (d) (`Build::teardown`, 0 survivors
+   on the four builds) and `pob-app/tests/fup5_teardown.rs`: opening a second build frees the
+   first (0 of 1156 objects and 0 of 13 socket groups survive; without the fix the build, 200
+   objects and all 13 groups did), and the Delete button frees the group and its display skills
+   (without the fix both survived). Not covered: a group dropped by the Skills tab's undo/redo,
+   a deleted skill set, or a comparison build (CompareTab entries).
 8. **Duplicate helper ports** (CCR-0107 §3, 0109 §4, 0112 §2, 0114 §3; ui doc §13 item 15).
    `string:matchOrPattern` has four ports (notable_db.rs, item_db.rs, config/ctor.rs,
    tree_view/mod.rs), LuaJIT `math.random` two (timeless_list.rs, poe_api.rs), and zlib `Inflate`
@@ -662,6 +684,11 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
     (CCR-0124 §5). `ctor.rs` `range_slider_overrides` syncs `val` from `modLine.range` only before
     the class Draw, so the drag step's unrounded `5/82` is drawn where PoB draws `round(5/82, 6)`
     (knob x 1163.0 vs 1163.000032). Owner: U33.
+    **Closed by FUP5** (port/FUP5, 2026-11-13): a range slider's changeFunc run inside the class
+    `Draw` (the drag step) ends with the same `slider.val = modLine.range` copy PoB's next
+    `IsShown` makes (`ctor.rs` `sync_after_drag_step`, both the range line slider and the stacked
+    ones); a run from `OnKeyDown`/`OnKeyUp` does not, as in PoB. `u35/g_range_lines` now clicks,
+    drags and scrolls the slider: 0 divergences with the fix, 4 without it.
 11. **Exporter gaps behind CS2's excused buckets** (CCR-0140, test-only). `probe.rs` exports a
     bare `LjIntMap<NodeRef>` (`radiusJewelList[i].nodes`) as `{"$userdata": true}`, and a second
     pass's `override.extraJewelFuncs` actor does not line up path by path. `tests/CS2.rs` excuses
@@ -672,6 +699,13 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
     "needs buildSites ... not ported yet". It cannot be reached in the product, because no host
     sets `launch.arg` (`pob-app/src/launch.rs:93`). Fix: port L72-81 on U43's functions when a
     host passes the command line. Owner: U16 (main_mode/init.rs).
+    **Closed by FUP5** (port/FUP5, 2026-11-13): `main_init` ports L71-83 on U43's
+    `parse_import_link_from_uri`/`download_build`, and `app/pob-desktop` passes
+    `std::env::args().skip(1)` as `launch.arg` (DIVERGENCE(no-cli-args) is gone). `u43_import`
+    gained `#! u43-arg LINK` (the Lua side's `arg[1]`, the Rust side's `launch.arg`, network from
+    the scenario's `fixture net=`): `e_cli_link` (a pobb.in link: "Imported Build" with its
+    `importLink`) and `f_cli_link_error` (a 404: an empty build named after the error), 0
+    divergences each. The web host passes no command line.
 
 Dev-only bridge gaps (no product effect, recorded for completeness): `LuaCalcBridge` cannot carry
 `override.extra["$removeNodeIds"]` (CCR-0122 §1), the jewel-comparison spec (CCR-0125 §6) or a

@@ -757,6 +757,9 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
         }
     });
     if let Some(old) = cx.app_mut().build.take() {
+        // CCR-0142 §3 B: the previous build's two `Rc` cycles (Lua's GC collects them) are
+        // broken before it drops (FOLLOWUPS "CCRDOC" 7)
+        old.model.teardown();
         cx.bury(old.node);
     }
     let node: Ctrl<BuildMode> = cx.add_free(

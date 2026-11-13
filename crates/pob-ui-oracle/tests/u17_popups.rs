@@ -7,12 +7,14 @@
 //!   either side. A script with `#! u17-settings` also compares the Settings.xml its Save button
 //!   wrote (T4, attribute order normalised: PoB writes attributes in `pairs` order).
 //!
-//! Harness (as U16's `u16_main.rs`, whose reasons apply): the mode objects (`main.modes.LIST` =
-//! BuildList, U18; `main.modes.BUILD` = Build, U19-U21) are not ported, so both sides run the same
-//! stand-in: a mode whose `OnFrame` draws `main:DrawBackground(main.viewPort)` (what
-//! BuildList.lua:179 does every frame) and nothing else, with a no-op `BuildList` (Options' Save
-//! calls `main.modes.LIST:BuildList()` in LIST mode; CCR-0099 B). Everything else is real: the
-//! popups are PoB's Lua against U17's port.
+//! Harness: `main.modes.LIST` is the real build list on both sides (BuildList.lua against U18's
+//! port, which draws `main:DrawBackground` and the list of the fixture's builds): Options' Save
+//! calls `main.modes.LIST:BuildList()` in LIST mode (Main.lua:1219, CCR-0099 B), so
+//! `e_options_save`, which changes the build path, sees the list rebuilt from the new folder
+//! (FOLLOWUPS "CCRDOC" 1; a no-op stand-in hid it). `main.modes.BUILD` (Build, U19-U21) is a
+//! stand-in on both sides: a mode whose `OnFrame` draws `main:DrawBackground(main.viewPort)` and
+//! nothing else (no scenario opens a build). Everything else is real: the popups are PoB's Lua
+//! against U17's port.
 //!
 //! `#! u17-setup NAME` steps run on both sides right after the first frame (the popups read
 //! `main.screenW/H`, which main:OnFrame sets), in file order. A scenario that clicks Options' Save
@@ -60,21 +62,19 @@ fn test_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/u17")
 }
 
-/// The stand-in modes of the Lua side (see the module notes).
+/// The stand-in BUILD mode of the Lua side (see the module notes).
 const LUA_STUBS: &str = r"
 local function stubMode()
 	local m = { }
 	function m:Init(a1, a2) self.a1, self.a2 = a1, a2 end
 	function m:GetArgs() return self.a1, self.a2 end
 	function m:OnFrame(inputEvents, viewPort) main:DrawBackground(main.viewPort) end
-	function m:BuildList() end
 	return m
 end
-main.modes.LIST = stubMode()
 main.modes.BUILD = stubMode()
 ";
 
-/// The Rust stand-in mode: PendingMode's argument echo plus BuildList.lua:179's background.
+/// The Rust stand-in BUILD mode: PendingMode's argument echo plus `main:DrawBackground`.
 #[derive(Default)]
 struct StubMode {
     args: RefCell<Vec<ModeArg>>,
@@ -102,7 +102,6 @@ impl Mode for StubMode {
 
 fn rust_stubs(cx: &mut Cx) {
     let modes = &mut cx.app_mut().main.modes;
-    modes.insert("LIST".to_owned(), Rc::new(StubMode::default()));
     modes.insert("BUILD".to_owned(), Rc::new(StubMode::default()));
 }
 

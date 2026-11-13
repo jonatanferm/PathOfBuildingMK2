@@ -1,9 +1,10 @@
 # U35: the range line dropdown (`main.showAllItemAffixes` off): a unique's range lines from
 # UpdateDisplayItemRangeLines (the entries with a range or a mutation, selIndex 1, the slider's
 # value from rangeLineList[1].range); pick another line (the dropdown's selFunc reads
-# rangeLineList[index]). The range slider itself is not moved: clicking or dragging it diverges
-# (knob x 1163.000032 vs 1163.0) in U33's DIVERGENCE(range-slider-val) emulation, not in this
-# unit's code; see CCR-0124 §5.
+# rangeLineList[index]). Then click the range slider's track and drag it (SliderControl:Draw's
+# drag step re-parses the item and its `shown` copies back the rounded `modLine.range`, so the
+# knob is drawn at round(val, 6): x 1163.000032, not 1163.0; CCR-0124 §5, FOLLOWUPS "CCRDOC" 10),
+# release, and scroll it once.
 #! u35-settings showAllItemAffixes="true" => showAllItemAffixes="false"
 #! u35-expect display: Abyssus
 fixture userdir=../../fixtures/user1
@@ -27,5 +28,18 @@ move 970 266
 frames 2
 click LEFTBUTTON
 frames 3
+move 1150 600
+frames 2
+move 1165 217
+key-down LEFTBUTTON
+frames 2
+move 1180 217
+frames 2
+move 1207 218
+frames 2
+key-up LEFTBUTTON
+frames 2
+wheel up
+frames 2
 move 1150 600
 frames 2

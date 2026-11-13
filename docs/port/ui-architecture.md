@@ -2574,7 +2574,7 @@ cargo check -p pob-app --target wasm32-unknown-unknown     # web stays possible
 ---
 ## 12. Work units
 
-Status (2026-11-12, docs/port/STATUS.md): every row below is merged into `rust-port` except **U51** Trade, which the user deferred on 2026-11-12. U53's T6 gate (SSIM against real SimpleGraphic under Wine) is pending because Wine is not installed (AMENDMENTS A5). The update checker is stubbed by the user's decision of 2026-11-12 (FOLLOWUPS "BRAND" 1). U16 does not import a build link given on the command line (Main.lua:71-82, DIVERGENCE(no-cli-args); no host passes one; FOLLOWUPS "CCRDOC" 12).
+Status (2026-11-12, docs/port/STATUS.md): every row below is merged into `rust-port` except **U51** Trade, which the user deferred on 2026-11-12. U53's T6 gate (SSIM against real SimpleGraphic under Wine) is pending because Wine is not installed (AMENDMENTS A5). The update checker is stubbed by the user's decision of 2026-11-12 (FOLLOWUPS "BRAND" 1). The desktop host passes its command line as `launch.arg`, and U16 imports a build link given there (Main.lua:71-83; FUP5, FOLLOWUPS "CCRDOC" 12).
 
 ### 12.1 Rules
 

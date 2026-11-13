@@ -81,6 +81,31 @@ impl Build {
             outputRevision: Cell::new(1.0),
         })
     }
+
+    /// Not in PoB (CCR-0142 §3 B, calc doc §3.3 rule 4): breaks the two build-level `Rc` cycles
+    /// Lua's GC collects, for whoever drops this build. `calcsTab.mainEnv/calcsEnv/
+    /// miscCalculator` → `env.build` / `MiscCalculator.build` → the build, and every socket
+    /// group's `displaySkillList(Calcs)` → skill → `activeSkill.socketGroup` → the group; then
+    /// the `GlobalCache`'s envs, which point back to this build too, are freed.
+    pub fn teardown(&self) {
+        self.calcsTab.mainEnv.set(None);
+        self.calcsTab.calcsEnv.set(None);
+        self.calcsTab.miscCalculator.set(None);
+        for group in self.skillsTab.socketGroupList.get().snapshot() {
+            group.teardown();
+        }
+        crate::modules::common::wipeGlobalCache();
+    }
+}
+
+impl SocketGroup {
+    /// Not in PoB (CCR-0142 §3 B): breaks the group ↔ display skill cycle
+    /// (`displaySkillList(Calcs)` → skill → `activeSkill.socketGroup`), for whoever removes this
+    /// group from the model (the Skills tab's delete, [`Build::teardown`]).
+    pub fn teardown(&self) {
+        self.displaySkillList.set(None);
+        self.displaySkillListCalcs.set(None);
+    }
 }
 
 /// `build.itemsTab` (Classes/ItemsTab.lua, model half).

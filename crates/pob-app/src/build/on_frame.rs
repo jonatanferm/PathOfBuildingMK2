@@ -704,6 +704,13 @@ pub fn on_frame(cx: &mut Cx, input_events: &mut InputEvents, _vp: &ViewPort) {
     if let Some(tab) = tab {
         (h.draw_tab)(cx, tab, &tab_view_port, input_events);
     }
+    // `self` is the module table, which a `self:Init` inside the tab's Draw re-initialises
+    // (ImportTab.lua:665-667, "Import to a new build"): the rest of OnFrame reads the new
+    // build's controls. The port's Init makes a new `BuildState` node, so read it again
+    // (FOLLOWUPS "CCRDOC" 2, CCR-0109 §9).
+    let Some(me) = cx.app().build.as_ref().map(|b| b.node.id()) else {
+        return;
+    };
 
     // Draw overlay panes on top of all tab content (last = topmost)
     // L1321

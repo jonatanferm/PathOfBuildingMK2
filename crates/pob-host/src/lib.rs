@@ -53,6 +53,19 @@ pub use headless::run_headless;
 #[cfg(target_arch = "wasm32")]
 pub use web::run_web;
 
+/// The Content-Type curl adds to a DownloadPage POST (Launch.lua:279-282, `OPT_POST` and
+/// `OPT_POSTFIELDS`): `application/x-www-form-urlencoded` when the request has a body and none of
+/// its header lines (`OPT_HTTPHEADER`) names a Content-Type, else `None`. Both
+/// [`Net`](pob_sg::Net) hosts send it (FOLLOWUPS "CCRDOC" 3: ureq and `fetch` add none for a byte
+/// body).
+pub fn post_content_type(req: &pob_sg::HttpRequest) -> Option<&'static str> {
+    let named = req.headers.iter().any(|line| {
+        line.split_once(':')
+            .is_some_and(|(k, _)| k.trim().eq_ignore_ascii_case("content-type"))
+    });
+    (req.body.is_some() && !named).then_some("application/x-www-form-urlencoded")
+}
+
 /// The PoB side of the host (Launch.lua's callbacks).
 pub trait App: 'static {
     fn sg(&mut self) -> &mut pob_sg::Sg;

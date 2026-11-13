@@ -1,6 +1,6 @@
 # CCR-0142: LEAK1: two build-level `Rc` cycles keep a dropped build (and its envs) alive
 
-**Status: applied in part (CCRDOC, 2026-11-12): §3 A, the web worker's teardown in `worker_web.rs` `run_request` (LEAK1 `8eab49d`, gate `build_teardown_frees_everything_ccr0142`), is built. §3 B stays **open**: it describes a real leak and is not built yet. There is no `Build::teardown`, so the desktop app leaks the previous build and its envs when another build is opened (`build/init.rs` `build.take()`), and deleting a socket group leaks its display skills (calc doc §3.3 rule 4). FOLLOWUPS "CCRDOC" 7 tracks the fix.**
+**Status: applied (CCRDOC, 2026-11-12: §3 A, the web worker's teardown in `worker_web.rs` `run_request`, LEAK1 `8eab49d`; FUP5, 2026-11-13: §3 B). `Build::teardown` / `SocketGroup::teardown` (`pob-calc-core/src/model/mod.rs`) do §3 A's body; `run_request` calls `Build::teardown` instead of its inline copy, `build/init.rs` calls it before the previous `BuildState` drops, and the Skills tab's delete paths (`skill_list.rs`, SkillListControl.lua L47/L175/L186) tear the removed groups down. Gates: `leak1_cycles.rs` variant (d) and `pob-app/tests/fup5_teardown.rs` (a build switch and a group delete leave 0 survivors). Not covered: groups dropped by the Skills tab's undo/redo or a deleted skill set, and CompareTab entry builds.**
 
 Unit: **LEAK1** (found while applying CCR-0135; not a frozen-contract change made here). Filed status:
 **pending** (a local teardown in the web calc worker is applied, §3 A; the general fix, §3 B, is

@@ -54,6 +54,11 @@ pub async fn download(req: HttpRequest) -> HttpResponse {
                 let _ = headers.append(k.trim(), v.trim());
             }
         }
+        // OPT_POSTFIELDS: curl's default Content-Type, which `fetch` does not add for a byte
+        // body (FOLLOWUPS "CCRDOC" 3; a CORS-safelisted type, so no preflight)
+        if let Some(ct) = crate::post_content_type(&req) {
+            headers.set("Content-Type", ct)?;
+        }
         init.set_headers(&headers);
         if let Some(b) = &req.body {
             init.set_body(&js_sys::Uint8Array::from(b.as_slice()));

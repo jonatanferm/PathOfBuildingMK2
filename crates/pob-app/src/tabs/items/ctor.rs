@@ -59,7 +59,13 @@
 //! DIVERGENCE(range-slider-val): likewise the range sliders' `shown` (L1084-1094, L1151-1161) set
 //! `slider.val = modLine.range or slider.val`; the port applies it at the start of the slider's
 //! `Draw`, `OnKeyDown` and `OnKeyUp`, where PoB's preceding `IsShown` did. A `range` that is not a
-//! number raises there (PoB raises at the slider's next arithmetic on it).
+//! number raises there (PoB raises at the slider's next arithmetic on it). While the slider is
+//! dragged, `SliderControl:Draw` itself sets the value (SliderControl.lua:86-89, the changeFunc
+//! re-parses the item) and then evaluates `IsShown` again (L90 `IsMouseOver`), so the knob is
+//! drawn from the re-parsed, rounded `modLine.range` (Item.lua `round(modLine.range, 6)`): a
+//! changeFunc run inside the class `Draw` ends with the same copy (FOLLOWUPS "CCRDOC" 10,
+//! CCR-0124 §5). One run from `OnKeyDown`/`OnKeyUp` does not: PoB reads the unrounded value
+//! there (`dragKnobX = self:GetKnobXForVal()`, L151) before any `IsShown`.
 //! DIVERGENCE(nil-range): `displayItemRangeLine`'s selFunc (L1032) assigns `rangeLineList[index].
 //! range`, which may be nil, to the slider's `val`; SliderControl's `val` is a number, so a nil
 //! keeps the previous value. PoB's nil is only read when the slider is shown, and the slider's
@@ -3616,7 +3622,12 @@ fn foulborn_box_overrides(
 
 /// The range sliders' DIVERGENCE(range-slider-val) overrides: `modLine` is the line their `shown`
 /// reads.
-fn range_slider_overrides(cx: &mut Cx, slider: CtrlId, modLine: Rc<dyn Fn(&Cx) -> Option<Table>>) {
+fn range_slider_overrides(
+    cx: &mut Cx,
+    slider: CtrlId,
+    modLine: Rc<dyn Fn(&Cx) -> Option<Table>>,
+    in_draw: Rc<Cell<bool>>,
+) {
     let m1 = modLine.clone();
     let m2 = modLine.clone();
     let m3 = modLine;
@@ -3624,6 +3635,7 @@ fn range_slider_overrides(cx: &mut Cx, slider: CtrlId, modLine: Rc<dyn Fn(&Cx) -
         o.draw = Some(Rc::new(move |cx, s, vp, no_tooltip| {
             let line = m1(cx);
             sync_range_val(cx, s, line);
+            let _g = InDraw::enter(&in_draw);
             <SliderControl as Widget>::draw(cx, s, vp, no_tooltip);
         }));
         o.on_key_down = Some(Rc::new(move |cx, s, key, dc| {
@@ -3637,6 +3649,31 @@ fn range_slider_overrides(cx: &mut Cx, slider: CtrlId, modLine: Rc<dyn Fn(&Cx) -
             <SliderControl as Widget>::on_key_up(cx, s, key)
         }));
     });
+}
+
+/// Marks a range slider's class `Draw` as running (see [`range_slider_overrides`]); cleared on
+/// return and on unwind.
+struct InDraw(Rc<Cell<bool>>);
+
+impl InDraw {
+    fn enter(flag: &Rc<Cell<bool>>) -> InDraw {
+        flag.set(true);
+        InDraw(flag.clone())
+    }
+}
+
+impl Drop for InDraw {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
+/// The end of a range slider's changeFunc: inside the class `Draw` (the drag step), the copy
+/// PoB's next `IsShown` makes (SliderControl.lua:90; DIVERGENCE(range-slider-val)).
+fn sync_after_drag_step(cx: &mut Cx, in_draw: &Cell<bool>, slider: CtrlId, line: Option<Table>) {
+    if in_draw.get() {
+        sync_range_val(cx, slider, line);
+    }
 }
 
 /// L1012-1095: the range section, the range line dropdown, its foulborn checkbox and slider.
@@ -3785,6 +3822,19 @@ fn ctor_range(cx: &mut Cx, me: CtrlId) {
     cx.base_mut(boxid).x = Prop::f(|cx, b| if cx.is_shown(b) { 25.0 } else { 8.0 });
     // L1076
     cx.put(me, "displayItemMutatedCheckbox", boxid);
+    // L1085 `modLine` of the slider's `shown`
+    let modLine = move |cx: &Cx| -> Option<Table> {
+        let item = display_item(cx, me)?;
+        if show_all(cx) && is_unique(&item) {
+            return None;
+        }
+        let sel = cx
+            .w::<DropDownControl>(ctl(cx, me, "displayItemRangeLine"))
+            .sel_index;
+        range_line_list(&item).get(sel as f64).table()
+    };
+    let in_draw = Rc::new(Cell::new(false));
+    let in_draw_cf = in_draw.clone();
     // L1077-1083
     let slider = cx
         .add_free(
@@ -3804,22 +3854,15 @@ fn ctor_range(cx: &mut Cx, me: CtrlId) {
                     update_display_item_tooltip(cx, me);
                     // L1082
                     update_custom_controls(cx, me);
+                    // DIVERGENCE(range-slider-val)
+                    let slider = ctl(cx, me, "displayItemRangeSlider");
+                    let line = modLine(cx);
+                    sync_after_drag_step(cx, &in_draw_cf, slider, line);
                 })),
                 None,
             ),
         )
         .id();
-    // L1085 `modLine` of the slider's `shown`
-    let modLine = move |cx: &Cx| -> Option<Table> {
-        let item = display_item(cx, me)?;
-        if show_all(cx) && is_unique(&item) {
-            return None;
-        }
-        let sel = cx
-            .w::<DropDownControl>(ctl(cx, me, "displayItemRangeLine"))
-            .sel_index;
-        range_line_list(&item).get(sel as f64).table()
-    };
     // L1084-1094
     cx.base_mut(slider).shown = Prop::f(move |cx, _| {
         // L1085
@@ -3830,7 +3873,7 @@ fn ctor_range(cx: &mut Cx, me: CtrlId) {
             None => false,
         }
     });
-    range_slider_overrides(cx, slider, Rc::new(modLine));
+    range_slider_overrides(cx, slider, Rc::new(modLine), in_draw);
     // L1095
     cx.put(me, "displayItemRangeSlider", slider);
 }
@@ -3914,6 +3957,19 @@ fn ctor_stacked_range(cx: &mut Cx, me: CtrlId) {
         // L1141
         cx.put(me, format!("displayItemStackedMutatedCheckbox{i}"), boxid);
 
+        // L1152 `modLine` of the slider's `shown`
+        let modLine = move |cx: &Cx| -> Option<Table> {
+            if !show_all(cx) {
+                return None;
+            }
+            let item = display_item(cx, me)?;
+            if !is_unique(&item) {
+                return None;
+            }
+            range_line_list(&item).get(i as f64).table()
+        };
+        let in_draw = Rc::new(Cell::new(false));
+        let in_draw_cf = in_draw.clone();
         // L1143-1150
         let slider = cx
             .add_free(
@@ -3933,22 +3989,15 @@ fn ctor_stacked_range(cx: &mut Cx, me: CtrlId) {
                             // L1148
                             update_custom_controls(cx, me);
                         }
+                        // DIVERGENCE(range-slider-val)
+                        let slider = ctl(cx, me, format!("displayItemStackedRangeSlider{i}"));
+                        let line = modLine(cx);
+                        sync_after_drag_step(cx, &in_draw_cf, slider, line);
                     })),
                     None,
                 ),
             )
             .id();
-        // L1152 `modLine` of the slider's `shown`
-        let modLine = move |cx: &Cx| -> Option<Table> {
-            if !show_all(cx) {
-                return None;
-            }
-            let item = display_item(cx, me)?;
-            if !is_unique(&item) {
-                return None;
-            }
-            range_line_list(&item).get(i as f64).table()
-        };
         // L1151-1161
         cx.base_mut(slider).shown = Prop::f(move |cx, _| match modLine(cx) {
             // L1153-1157 (the `val` write: DIVERGENCE(range-slider-val))
@@ -3956,7 +4005,7 @@ fn ctor_stacked_range(cx: &mut Cx, me: CtrlId) {
             // L1159
             None => false,
         });
-        range_slider_overrides(cx, slider, Rc::new(modLine));
+        range_slider_overrides(cx, slider, Rc::new(modLine), in_draw);
 
         // L1163
         cx.put(me, format!("displayItemStackedRangeSlider{i}"), slider);

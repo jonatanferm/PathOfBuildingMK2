@@ -17,7 +17,9 @@
 //! scenario whose input silently stopped reaching the tab, which both sides would agree on),
 //! `#! u43-expect-import ATTR=VALUE` (a Lua snapshot's `Import` element has it),
 //! `#! u43-expect-copy` (the Lua side copied a build code that decodes to a `PathOfBuilding`
-//! document).
+//! document), `#! u43-arg LINK` (the command line's `arg[1]`, set before `OnInit`: Main.lua:71-83
+//! downloads it through `buildSites` with the scenario's `fixture net=` responses; FOLLOWUPS
+//! "CCRDOC" 12).
 //!
 //! The Rust side's calc is U15's LuaCalcBridge (ext:calc), as in u20-u22.
 //!
@@ -238,6 +240,9 @@ fn install_sg_zlib(lua: &mlua::Lua) -> mlua::Result<()> {
 
 struct LuaSide {
     app: LuaApp,
+    /// `#! u43-arg LINK`: SimpleGraphic's `arg[1]` (the oracle sets `arg = {}`, pob-oracle
+    /// `jit.rs`), before `OnInit` runs Main.lua.
+    arg: Option<String>,
 }
 
 impl App for LuaSide {
@@ -248,6 +253,11 @@ impl App for LuaSide {
         self.app.sys()
     }
     fn on_init(&mut self) {
+        if let Some(a) = self.arg.clone() {
+            self.app
+                .with_vm(|pob| pob.lua.globals().get::<mlua::Table>("arg")?.set(1, a))
+                .unwrap_or_else(|e| panic!("arg[1]: {e}"));
+        }
         self.app.on_init();
         self.app
             .with_vm(|pob| {
@@ -716,6 +726,7 @@ fn run_sides(
     screen: pob_sg::ScreenInfo,
     saved: &[String],
     net: &pob_ui_oracle::sg_bridge::NetFixtures,
+    arg: Option<&str>,
 ) -> anyhow::Result<(Side, Side)> {
     let user = UserDir::new(fixture)?;
 
@@ -726,7 +737,10 @@ fn run_sides(
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .net
         .borrow_mut() = net.clone();
-    let mut lua_side = LuaSide { app: lua_app };
+    let mut lua_side = LuaSide {
+        app: lua_app,
+        arg: arg.map(str::to_owned),
+    };
     let mut d = Driver::new(screen, handles, user.path.clone());
     let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
     drop(lua_side);
@@ -744,6 +758,8 @@ fn run_sides(
     let (sg, sys) = boot::oracle_parts(root, &user.path, &handles)?;
     let src = std::fs::canonicalize(root.join("src")).unwrap_or_else(|_| root.join("src"));
     let mut rust_side = RustSide::new(PlatformParts { sg, sys }, src, net.clone());
+    // `arg` (launch.arg), before on_init, as the desktop host sets it
+    rust_side.app.cx.app_mut().launch.arg = arg.map(str::to_owned).into_iter().collect();
     let mut d = Driver::new(screen, handles, user.path.clone());
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         runner::drive(&mut rust_side, script, &mut d)
@@ -996,6 +1012,7 @@ fn u43_scenarios() {
             SCREENS.to_vec()
         };
         let saved = directives(&text, "u43-saved");
+        let arg = directives(&text, "u43-arg").into_iter().next();
         for (w, h, s) in screens {
             let tag = if own_screen {
                 format!("u43_{stem}")
@@ -1009,6 +1026,7 @@ fn u43_scenarios() {
                 runner::screen(w, h, s),
                 &saved,
                 &fx.net,
+                arg.as_deref(),
             ) {
                 Ok(s) => s,
                 Err(e) => {
