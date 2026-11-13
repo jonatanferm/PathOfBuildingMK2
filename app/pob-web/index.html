@@ -17,9 +17,109 @@
     <style>
       html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
       canvas { display: block; width: 100vw; height: 100vh; }
+      /* Loading overlay: shown until the app logs its startup line (main_mode/init.rs) */
+      #pob_loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 18px; background: #000; color: #c8b480;
+        font: 15px/1.4 Georgia, "Times New Roman", serif; z-index: 10; transition: opacity .3s; }
+      #pob_loading.done { opacity: 0; pointer-events: none; }
+      #pob_loading .title { font-size: 26px; letter-spacing: .04em; color: #e8d8a8; }
+      #pob_loading .spinner { width: 42px; height: 42px; border: 3px solid #3a3222; border-top-color: #c8b480;
+        border-radius: 50%; animation: pob-spin 0.9s linear infinite; }
+      #pob_loading .bar { width: 320px; height: 6px; background: #1d1a12; border-radius: 3px; overflow: hidden; }
+      #pob_loading .bar > div { height: 100%; width: 0; background: linear-gradient(90deg, #8a7444, #e8d8a8); transition: width .15s; }
+      #pob_loading .bar.indeterminate > div { width: 30%; animation: pob-slide 1.2s ease-in-out infinite; }
+      #pob_loading .detail { color: #8f8466; font-size: 13px; min-height: 1.4em; }
+      #pob_loading.error .spinner, #pob_loading.error .bar { display: none; }
+      #pob_loading.error .status { color: #ff6a5a; }
+      #pob_crash { position: fixed; left: 0; right: 0; top: 0; padding: 10px 16px; background: #5a1410; color: #fff;
+        font: 14px/1.4 sans-serif; z-index: 11; display: none; }
+      @keyframes pob-spin { to { transform: rotate(360deg); } }
+      @keyframes pob-slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
     </style>
+    <script>
+      // Loading progress for the two large downloads (the wasm and the game data). The wrapper
+      // streams each body through and counts bytes; Pages serves them gzip-encoded, so the
+      // decoded total is unknown and the bar is indeterminate unless the server sends a plain
+      // Content-Length.
+      (function () {
+        var state = { app: 0, data: 0 };
+        function el(id) { return document.getElementById(id); }
+        function show(status, detail, frac) {
+          var s = el('pob_loading_status'), d = el('pob_loading_detail'), bar = el('pob_loading_bar');
+          if (!s) return;
+          s.textContent = status;
+          d.textContent = detail || '';
+          if (frac == null) { bar.className = 'bar indeterminate'; bar.firstChild.style.width = ''; }
+          else { bar.className = 'bar'; bar.firstChild.style.width = Math.min(100, frac * 100).toFixed(1) + '%'; }
+        }
+        function mb(n) { return (n / 1048576).toFixed(1) + ' MB'; }
+        var origFetch = window.fetch.bind(window);
+        window.fetch = function (input, init) {
+          var url = typeof input === 'string' ? input : (input && input.url) || '';
+          var kind = /\.wasm(\?|$)/.test(url) ? 'app' : /data\.bin(\?|$)/.test(url) ? 'data' : null;
+          return origFetch(input, init).then(function (resp) {
+            if (!kind || !resp.body || !resp.ok) return resp;
+            var label = kind === 'app' ? 'Downloading app' : 'Downloading game data';
+            var total = resp.headers.get('content-encoding') ? 0 : +(resp.headers.get('content-length') || 0);
+            var reader = resp.body.getReader(), got = 0;
+            show(label, '', total ? 0 : null);
+            var stream = new ReadableStream({
+              pull: function (ctrl) {
+                return reader.read().then(function (r) {
+                  if (r.done) {
+                    ctrl.close();
+                    state[kind] = got;
+                    show(kind === 'app' ? 'Starting app' : 'Starting', kind === 'data' ? 'Loading the passive tree' : '', null);
+                    return;
+                  }
+                  got += r.value.byteLength;
+                  show(label, mb(got) + (total ? ' / ' + mb(total) : ''), total ? got / total : null);
+                  ctrl.enqueue(r.value);
+                });
+              }
+            });
+            return new Response(stream, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
+          });
+        };
+        // The app logs "Startup time: N ms" at the end of its start-up; its first frame follows.
+        var origLog = console.log.bind(console);
+        console.log = function () {
+          origLog.apply(console, arguments);
+          if (typeof arguments[0] === 'string' && arguments[0].indexOf('Startup time') === 0) {
+            requestAnimationFrame(function () { requestAnimationFrame(function () {
+              var o = el('pob_loading'); if (o) { o.classList.add('done'); setTimeout(function () { o.remove(); }, 400); }
+            }); });
+          }
+        };
+        // A panic (pob_host::web logs "--- SCRIPT ERROR ---") stops the app: say so instead of a
+        // silent freeze.
+        var origErr = console.error.bind(console);
+        console.error = function () {
+          origErr.apply(console, arguments);
+          var msg = String(arguments[0] || '');
+          var fatal = msg.indexOf('--- SCRIPT ERROR ---') === 0;
+          var o = el('pob_loading');
+          if (o && !o.classList.contains('done')) {
+            o.classList.add('error');
+            show('Failed to start', msg.replace('--- SCRIPT ERROR ---', '').trim().slice(0, 300), null);
+          } else if (fatal) {
+            var c = el('pob_crash');
+            if (c) { c.textContent = 'The app crashed and has stopped responding. Please reload the page. (' +
+              msg.replace('--- SCRIPT ERROR ---', '').trim().split('\n')[0].slice(0, 200) + ')'; c.style.display = 'block'; }
+          }
+        };
+      })();
+    </script>
   </head>
   <body>
+    <div id="pob_loading">
+      <div class="title">Path of Building</div>
+      <div class="spinner"></div>
+      <div class="status" id="pob_loading_status">Loading</div>
+      <div class="bar indeterminate" id="pob_loading_bar"><div></div></div>
+      <div class="detail" id="pob_loading_detail"></div>
+    </div>
+    <div id="pob_crash"></div>
     <canvas id="pob_canvas"></canvas>
   </body>
 </html>
