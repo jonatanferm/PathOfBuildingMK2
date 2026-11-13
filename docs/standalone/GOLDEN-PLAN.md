@@ -1,7 +1,7 @@
 # Calc goldens and the PoB cut-over: plan (GOLD-PLAN)
 
-Status: plan for review, 2026-11-13, on rust-port `0dbdab33`. Docs only. The only code is a
-throw-away size probe in the scratchpad (appendix A).
+Status: plan for review, 2026-11-13, on rust-port `0dbdab33`; revised after review (fix round 1).
+Docs only. The only code is a throw-away size probe in the scratchpad (appendix A).
 
 Inputs:
 - the user's decisions of 2026-11-13 (scope file GOLD-PLAN): standalone app, PoB removed from the
@@ -35,11 +35,18 @@ counts. GOLD1 replaces every [E] with a measured number before any golden is com
 - **Format.** Sorted JSON lines, one value per line.
   - E2E goldens are committed as plain `.jsonl`, so `git diff` is the review tool. Git compresses
     them about as well as zstd does: 3.9 MB of CA lines packs to 512 KB [M].
-  - Sets larger than about 4 MB raw are committed as `.jsonl.zst` shards, with a `golden diff`
-    tool for review.
+  - A file whose plain JSONL would exceed about 4 MB is split by key into `.jsonl.zst` shards
+    instead, with a `golden diff` tool for review. The threshold is per file: E2E goldens are one
+    file per build and all stay plain.
   - No CBOR, and no git LFS.
-- **Budget.** About 60 MB of compressed goldens plus about 12 MB of build XML [E]. Hard caps: 80 MB
-  in total and 8 MB per file. Lossless elision and dedup come first. Sampling is used only for
+- **Budget** (§2.3) [E], in two measures:
+  - **packed** (what the history and a clone add, measured as the `git gc` pack of `tests/golden/`):
+    about 61 MB, build XML included. **Cap 80 MB.**
+  - **working tree** (the checked-out files: plain E2E JSONL at full size, shards at zstd size):
+    about 180 MB, of which about 120 MB is plain E2E JSONL. **Cap 250 MB.**
+  - **Per file**: at most 8 MB on disk, plain or zstd.
+
+  Lossless elision and dedup come first. Sampling is used only for
   MS-B's trivial answers, DF-A's 600k random cases, CT's support pairs (as a bitset, not a sample)
   and PT's duplicated tree records. Each one is justified in §2.3.
 - **Intentional behaviour changes** never rewrite PoB's recording. They go into **overlay files**
@@ -51,13 +58,17 @@ counts. GOLD1 replaces every [E] with a measured number before any golden is com
   its negative control. The recorder reproduces the committed goldens byte for byte (VERIFY).
 - **Cut-over** (§5): VENDOR, then the gate, then tag `pob-oracle-final`, then deletion, then a CI
   rewrite.
-- **Units** (§6): GOLD1 (format and runner core) and GOLD2 (fixtures). Then GOLD3-GOLD12 run in
+- **Tests that need no PoB** but live in the crates that CUT1 deletes (BM-A's XML test, the PWR
+  stepping test, U0's data.bin test, the par pool, …) each get a destination and an owning unit, or
+  an explicit drop (§1.7). They move before the gate, and CUT1 checks that none is left behind.
+- **Units** (§6): GOLD1 (format and runner core) and GOLD2 (fixtures). Then GOLD3-GOLD13 run in
   parallel, three at a time. Then GATE, then CUT1. CUT2 (removing the `probe` feature from product
   crates) is optional.
 - **Probe result** for the main open risk, "do the segment-test corpora pass end to end today?":
-  CA L6 was exact on every key of **110 of 110** sampled unit-corpus builds, and of 6 more from an
-  aborted first run: headline 1,430/1,430, keys 86,212/86,212, 0 Rust errors. See appendix B.
-  The other ≈ 300 builds are not checked yet; GOLD3 runs them.
+  CA L6 was exact on every key of **117 of the 418** unit-corpus builds: a sample of 110 (headline
+  1,430/1,430, keys 86,212/86,212, 0 Rust errors), plus 7 from an aborted first run (BM-B ×3, CO-A,
+  CO-B, CO-C and CS0, 749-766 keys each). See appendix B. The other 301 builds are not checked yet;
+  GOLD3 runs them.
 
 Open questions for the user are in §7.
 
@@ -106,10 +117,45 @@ Each build golden is plain JSONL: one `[key, value]` line per value, sorted by k
 | **e2e.d13** (CA `ca_d13_fixed_point`) | nothing new from PoB. The warm-cache values of the `D13_POB_WARM_CACHE` table move into the golden as data. The fixed-point check stays Rust against Rust: build → output → output gives the same output and the same `SaveDB` | Rust-only invariant + tiny golden | build key + output key | < 10 KB |
 | **e2e.levelcost** (CA `ca_level_cost_cleared*`) | the 3 inline XMLs become fixtures. The recorder measures ManaCost and ManaReserved in PoB, in one process, in the test's order. Today these are hand values measured in PoB | E2E fixture with a sequence | fixture + step + key | < 10 KB |
 | **e2e.int3** (INT-3) | `calcsEnv` player and minion breakdowns (10,606 entries), canonicalised as INT-3 does (identities resolved, items and stores as markers; the lists CalcBreakdownControl sorts are sorted on both sides). Every CalcSections Tabulate query and every `Combine` total (38,940 queries, 42,588 rows) | E2E fixture | build key + `bd.<actor>.<entry>` / `tab.<actor>.<modType>.<cfg>.<names>` | int3.json 23.9 / 1.21 MB [M], breakdown part ≤ 24.1 / 2.04 MB [M] → ≈3 MB zstd |
-| **e2e.bm** (BM-A) | PoB's model after load (BM-A's `bma.lua` records), PoB's canonicalised `SaveDB` text, PoB's model after `UpdateSockets` | E2E fixture | build key + model path | the BM-A cache (114 entries) is 26.9 / 2.83 MB [M]. The golden keeps half of it: ≈15 / 1.5 MB [E] |
+| **e2e.bm** (BM-A) | per all57 build, PoB's load of the **original** XML: the build model at the first `BuildOutput`, PoB's `SaveDB` at the same point (canonicalised, per section), and the model after `UpdateSockets`. Key vocabulary and the records left out: below the table | E2E fixture | build key + `model.` / `save.` / `sockets.` + build-file key | the BM-A cache (114 entries: 57 loads of the original XML, 57 of the Rust-saved XML) is 26.9 / 2.83 MB [M]. The golden keeps the 57 original-XML entries: ≈15 / 1.5 MB [E] |
 | **e2e.pwr** (PWR `pwr_l6_report`, `pwr_l5_replay`) | PoB's power report (every node's `power` table, path power, `powerMax`, `clusterNodeMap`) for OccVortex Offence/Defence (7,672 values), and for the 3 replay builds × their modes (Life, PhysicalTakenHit, FullDPS, depth 3) plus the derived Full-DPS fixture | E2E fixture | build key + mode + node id + field | the replay cache is 33.4 / 2.0 MB [M]. Power tables only: ≈8 / 0.8 MB [E] |
 | **e2e.mcq** (new; replaces CS2 `cs2_l4_overrides`, which is Rust-only today) | misc-calculator calls with overrides, per all57 build and per CS2 fixture, ≤ 60 calls per build: `repSlotName`+`repItem` (up to 3 other items from the build's list per slot, two-handed swaps included), `toggleFlask` (each flask), `removeNodes` (each keystone and up to 10 notables), `repItem` of a jewel that carries an `ExtraJewelFunc` mod into an allocated jewel socket (the forced-restart path). Records the headline keys and the power-stat keys | calculator-query golden | build key + override id (`rep:<slot>:<itemId>`, `flask:<slot>`, `rm:<nodeId>`, …) + key | ≈5 / 0.6 MB [E: 57 × 60 × 40 values] |
 | OF-I dps30 strict | nothing extra. `CombinedDPS` and `TotalDot` are main-output keys, which e2e.ca already compares exactly on every build (dps30 is a subset of all57). The manifest lists them as required keys on dps30, so they cannot drop out silently | covered by e2e.ca | - | 0 |
+
+**e2e.bm: which records, and the key vocabulary.**
+
+- **Kept:** the 57 cache entries of PoB loading the original XML. Each holds four parts
+  (BM-A.rs `POB_RUN_CALLS`): `pre` (the model at the first `BuildOutput`), `preSave` (`SaveDB` at
+  that point), `post` (the model after `UpdateSockets`) and `outputs`.
+  - `pre` → `model.<key>`, `post` → `sockets.<key>`, and `preSave` → `save.<Section>`, one
+    canonicalised text per build-file section, as BM-A's `canon_sections` compares them.
+  - `outputs` (`__oracle_outputs`: the player and minion output tables) is not stored again.
+    GOLD5 checks at record time that it equals the build's e2e.ca `main.*` and `main.Minion.*`
+    lines. A key that e2e.ca lacks stays in e2e.bm as `outputs.<key>`.
+- **Left out:** the other 57 entries, PoB loading the Rust-saved XML. Rust's saved XML is a moving
+  input (see "PoB on the Rust-saved XML" below).
+- **Key vocabulary.** A key is `<tab>.<entity>[.<id>].<field>`.
+  - `<tab>` is one of the build file's sections: `build`, `items`, `tree`, `skills`, `config`,
+    `calcs`.
+  - `<id>` is an id from the file: item id, item set id, slot name, spec index, config var name,
+    calcs section and subsection id.
+  - `<field>` names the build-file attribute or element that holds the value, where there is one
+    (sometimes without its suffix: `jewelType` ↔ `jewelTypeId`). Examples:
+    `build.timeless.jewelType` ↔ `<TimelessData jewelTypeId>`,
+    `items.item.<id>.raw` ↔ the `<Item id>` text, `items.set.<id>.slot.<name>.selItemId` ↔
+    `<ItemSet><Slot name itemId>`, `tree.spec.<i>.alloc` ↔ `<Spec nodes>`, `config.input.<var>` ↔
+    `<Input name>`, `calcs.section.<id>.<sub>` ↔ `<Section id subsection collapsed>`.
+  - A few fields have no element of their own. They are model facts the product shows: slot state
+    (`items.slot.<name>.{active,inactive,weaponSet,nodeId,parentSlot,label,items}`),
+    `items.orderedSlots`, `items.sockets`, `items.activeSet`, `tree.buildSpecIsActive`.
+
+  These are the product's file-format and model names, not Lua table paths. bma.lua's paths
+  already follow them, with three exceptions. The recorder handles those through a fixed rename
+  table in `pob-golden/src/encode.rs` (`BM_KEYS`), which the adapter's `model()` uses as well:
+  - the Lua array lengths `tree.n` and `items.statSort.n` become `.count`;
+  - `items.lastSlot` (the slot that last had UI focus) is dropped, because it is UI state;
+  - `items.slot.<name>.activateState` (the state of the flask checkbox control) is dropped. It is
+    a UI control, and the build fact is `.active`.
 
 What changes compared with today:
 
@@ -132,8 +178,9 @@ What changes compared with today:
 ### 1.3 Function-level query sets
 
 A query set is a list of `[key, input, expected]` lines. `input` is `null` when the key is the
-input (for example a mod line). Files are under `tests/golden/fn/<area>/`. Sets over about 4 MB
-raw are split by key into `.jsonl.zst` shards, each ≤ 8 MB compressed.
+input (for example a mod line). Files are under `tests/golden/fn/<area>/`. A set whose plain
+file would exceed about 4 MB is split by key into `.jsonl.zst` shards, each ≤ 8 MB compressed.
+Smaller sets (CO-A/B, for example) stay plain.
 
 | Set (replaces) | What to record | Form | Stable key | Size raw / zstd |
 |---|---|---|---|---|
@@ -147,14 +194,14 @@ raw are split by key into `.jsonl.zst` shards, each ≤ 8 MB compressed.
 | **fn.modstore** (MS-A, MS-B) | per all57 build: the store inputs (stores, mods, actors, items, cfgs, as MS-B's `l3_full.lua` serialises them), the full L3 matrix (Sum BASE/INC, More, Flag, Override, List, Tabulate, HasMod, Max, Min, GetCondition, GetMultiplier ±noMod, GetStat) with every tag path, MS-B's synthetic tag probes, and MS-A's own parts (ScaleAddMod at six scales, ScaleAddList, createMod, the synthetic MAX/MIN stores, the item and buff list stores). **Trivial answers elided** (§2.3) | query set; input = store graph | build key + store label + op + cfg name + mod names | caches: MS-B 587 / 24.8 MB, MS-A 334 / 15.5 MB [M]. With elision and the MS-A/MS-B overlap removed: ≈15 MB zstd [E] |
 | **fn.skills** (AS `as_oracle`) | 5,015 cases (3,790 socket-group × weapon-setup cases over all57, 1,225 granted effects): skillTypes and skillFlags (names), skillData, the ordered skill mod list (mod/1), buffs, minion skills. Stat-map runs are `$unordered` where AS compares them order-free today | query set over fixtures | build key + socket group index + weapon setup, or `effect:<grantedEffectId>` | ≈40 / 3 MB [E] |
 | **fn.config** (CO-A, CO-B merged; CO-C) | CO-A/B: for each of the 539 options × its values (4,148 cases), the resulting modList and enemyModList (mod/1), the error status, the radius placeholder, and the boss pre/post state. CO-C: `ConfigTab:BuildModList` for all57 and the all-vars synthetic build, plus every ModMap affix apply | query set | config var name + value / build key | CO-A/B ≈3 / 0.3 MB [E]. CO-C cache 48.3 / 1.25 MB [M, matched to CO-C by content] |
-| **fn.tabs** (BM-B) | skills, config and party tab Load, UpdateSocketGroups, Save and round trip on all57 and the BM-B synthetics; ParseBuffs and exportBuffs; ProcessGemLevel for every gem × mode × level (> 50k values) | query set over fixtures | build key + tab path / gem id + mode + level | caches 7.7 / 0.95 MB + 4.0 / 0.22 MB + 0.28 / 0.01 MB [M] |
+| **fn.tabs** (BM-B) | skills, config and party tab Load, UpdateSocketGroups, Save and round trip on all57 and the BM-B synthetics; ParseBuffs and exportBuffs; ProcessGemLevel for every gem × mode × level (> 50k values). The 5 values BM-B counts as pending today (`BUFFS_BOUNDS` = (3310, 5, 0): `str.Warcry` exports whose mods lose the tag key `warcryPowerBonus`, which `pob_gamedata::Tag` does not model, CCR-0014) are written as `{"$known":"CCR-0014","pob":…}`, with the count pinned to 5 in MANIFEST | query set over fixtures | build key + tab path / gem id + mode + level | caches 7.7 / 0.95 MB + 4.0 / 0.22 MB + 0.28 / 0.01 MB [M] |
 | **fn.tools** (CT `ct_oracle`) | formatMod, formatSourceMod, formatTags and the round trip on every ModCache mod; type expressions on the frozen random RPN set; support compatibility for all (support, active) pairs × 3 variants **as a bitset**; buildSkillInstanceStats; validateGemLevel; statMap; the gem fns; the breakdown helpers on the frozen random inputs; formatNumSep and formatCalcVal. **Dropped**: the `cacheSkillUUID` check (a GlobalCache key, internal) and copyTableSafe (Lua tables) | query set | function name + input id (gem id, mod line, pair index) | ≈20 / 2 MB [E] |
 
 ### 1.4 Fuzz output sets
 
 | Set (replaces) | What to record | Form | Stable key | Size raw / zstd |
 |---|---|---|---|---|
-| **fuzz.defence** (DF-A `dfa_random_vs_luajit`) | hitChance, armourReduction(F), applyDmgTakenConversion, takenHitFromDamage and reducePoolsByDamage on fixed-seed random inputs: **20,000 per function** (not 100,000, see §2.3), plus every case of the old 100k streams that raised (`$error`) or hit a bucket (inf, NaN, zero). Inputs are not stored: a **frozen copy of today's generator** (seed 0xDFA001) lives in `pob-golden`, and each shard records a digest of its inputs | fuzz output set | function + case index | ≈7 / 3 MB [E: 120k × 3 numbers] |
+| **fuzz.defence** (DF-A `dfa_random_vs_luajit`) | hitChance, armourReduction(F), applyDmgTakenConversion, takenHitFromDamage and reducePoolsByDamage on fixed-seed random inputs: **20,000 per function** (not 100,000, see §2.3), plus every case of the old 100k streams that raised (`$error`) or hit a bucket (inf, NaN, zero). Inputs are not stored: a **frozen copy of today's generator** lives in `pob-golden`, with today's four seeds (DF-A.rs: 0xDFA001 for hitChance and armourReduction(F), 0xDFA002 for applyDmgTakenConversion, 0xDFA003 for takenHitFromDamage, 0xDFA004 for reducePoolsByDamage), and each shard records a digest of its inputs | fuzz output set | function + case index | ≈7 / 3 MB [E: 120k × 3 numbers] |
 | **fuzz.offence** (OF-A `ofa_fuzz_vs_luajit`) | calcDamage, calcAilmentSourceDamage, the area/radius helpers, cooldown, duration, totemLife and calcResistForType on the 1,500-case fixed-seed streams: results, breakdown lines and written tables. Inputs stored, since they include tables | fuzz output set | helper name + case index | ≈5 / 0.5 MB [E] |
 
 ### 1.5 The special corpora that only segment tests reach today
@@ -170,8 +217,8 @@ look at Lua-shaped arms, because the refactor removes them.
 | PF-A (`corpus/PF-A`, 1 build + all57 hits) | CalcPerform 1-635 helpers (mergeBuff, doActorLifeMana, applyEnemyModifiers, …) on injected state | e2e.ca fixture `special/PF-A/*`. all57 is covered by e2e.ca already. No function golden: these are Lua function boundaries |
 | PF-D spectres and Blight (`corpus/PF-D`) | CalcPerform 1943-2307, 100 % on the unit corpus | e2e.ca + e2e.int3 fixtures. The minion outputs are compared under `main.Minion.*` |
 | PF-F party (`corpus/PF-F`) | CalcPerform 2997-3496, party and curses | e2e.ca fixture. Party effects show in main output and the CALCS lists |
-| SK-A (87 builds, one per act_int hook) | every skill hook hit, state per hit | e2e.ca fixtures. At record time, the recorder runs PoB with the hook probes (existing patcher) and checks that every one of the 68 act_int hooks is hit by ≥ 1 fixture (`coverage.json`: hook → fixtures) |
-| SK-B (127 builds) | the other skill files' hooks | e2e.ca fixtures, with the same coverage check. **New**: uncovered hooks fail at record time (SK-B only prints them today) |
+| SK-A (87 builds, one per act_int hook) | every skill hook hit, state per hit | e2e.ca fixtures. At record time, the recorder runs PoB with the hook probes (existing patcher) and checks that every one of the 68 act_int hooks is **reached by a compared key** in ≥ 1 fixture (`coverage.json`: hook → fixtures, with the witness kind). A hit counts only in one of two ways: (a) the hook ran for the fixture's **main skill and main skill part** in the MAIN env, not only inside `calcFullDPS` or for another socket group or part; if no fixture has that, the recorder derives one (main socket group and skill part set to the hook's skill, §3.1), as for TR-B; or (b) a mutation witness: with the hook made a no-op by the patcher, at least one e2e.ca key of that fixture changes. A hook with neither fails the record |
+| SK-B (127 builds) | the other skill files' hooks | e2e.ca fixtures, with the same coverage check and the same two witness kinds. **New**: uncovered hooks fail at record time (SK-B only prints them today) |
 | TR-A (60 builds: PoB's own TestTriggers_spec) | trigger handlers through a 600-line test copy | e2e.ca fixtures (the builds stay, the scaffold goes) |
 | TR-B (35 builds, one per configTable arm the spec does not reach) | the real `calcs.triggers`, all 82 arms, all 3 handlers | e2e.ca fixtures. At record time: all 82 arms and 3 handlers hit by ≥ 1 fixture (`coverage.json`), and each arm's fixture has the triggered skill as main skill, with `main.SkillTriggerRate` present in the golden. If not, the recorder derives a fixture that sets that main socket group (§3.1 derived fixtures) |
 | PS-B (62 synthetic jewel builds, made in code) | BuildAllDependsAndPaths | the recorder **writes them out as XML** under `builds/special/PS-B/`. Then fn.spec (whole spec) **and** e2e.ca (their timeless/abyss mods reach the outputs) |
@@ -193,17 +240,70 @@ group, Full DPS flags, a config toggle. They are committed like any build, with
 | Test(s) | Reason |
 |---|---|
 | all CALC-SEGMENT: CS0, CS1, CS2 L4, CS3, PF-A..PF-G, OF-A L4, OF-B..OF-I, DF-A probe, DF-B..DF-G, AS L4, CA L5, MI, TR-A, TR-B, SK-A/SK-B hook dumps | welded to Lua line boundaries (calc doc §7). Their builds move to E2E (§1.5). Their gates were the softest in the suite (98 % thresholds, unbounded excuse buckets: inventory §3) |
-| MP0 (ModCache tier, scan steps), MP1, the L1 parts of MP2-MP5, all `list_shape` tests | MP1-MP5 L1 are subsets of MP6. The scan trace and the list shape check the Lua layout. MP0's cache test compares the cache with itself |
+| MP0 scan steps (`scan_matches_parse_oracle`, `helpers_match_parse_oracle`, `generated_list_sizes`), MP1, the L1 parts of MP2-MP5, all `list_shape` tests | MP1-MP5 L1 are subsets of MP6. The scan trace, the list sizes (against PoB's source and the dump manifest) and the list shape check the Lua layout. MP0's ModCache-tier test and its hand-value lookups move (§1.7) |
 | MP2-MP6 closure calls in the Lua call shape | replaced by fn.parser.fuzz (the same inputs, as lines) |
 | MS-B `tag_div_no_reader` | PoB against patched PoB; it justified one Lua-mirroring choice |
 | PT `tree_nodes_order_varies` | asserts nothing |
 | CO-A/CO-B/SK-A/SK-B `rows_cover_range`, U0 `registry_complete`, `provenance_check_and_coverage` | provenance |
-| P3, ORC-X, oracle_harness, worker_smoke, u0_smoke, src tests of patcher, replay, schema, nondet | oracle tooling |
+| P3, ORC-X, oracle_harness, worker_smoke, u0_smoke, src tests of `lua/`, patcher, replay, schema, nondet, runner, testkit | oracle tooling. The PoB-free tests of the oracle crates are in §1.7 |
 | CT `cacheSkillUUID`, `ct_copy_table_safe`, `ct_data_census`; AS `as_census` | GlobalCache key internals / Lua-table emulation / data facts frozen with `data.bin` |
 | pob-dump `parse_oracle`, `dump` | validate PoB's own files. With the data frozen, they have nothing left to guard |
-| pob-dump `codegen` | its check compares the generated files with live PoB. After the move (§5 step 7) the generated files are frozen sources |
+| pob-dump `codegen` | its check compares the generated files with live PoB. After the move (§5 step 5) the generated files are frozen sources |
+| pob-dump src tests (4 modules, hand and standard vectors) | they test the dumper, which is deleted with the data frozen |
 | all UI-UNIT and UI-E2E against PoB (pob-ui-oracle) | user decision: no UI goldens. Behavioural UI scenarios come later, out of scope |
 | LUA-SEMANTICS tests that call real LuaJIT (pob-lua L0, luastr, tier0_len, hyg1_len, l0_ljtab) | `mlua` goes. Where product output still depends on emulated Lua semantics (`string.format`, pairs order, `math.random`), §7 asks whether to freeze their LuaJIT vectors as goldens before deletion (cheap: < 5 MB) |
+
+### 1.7 Tests in the deleted crates that need no PoB
+
+CUT1 deletes `crates/pob-oracle` and `crates/pob-ui-oracle` whole (§5 step 5). Some of their tests
+never run PoB. They check Rust against hand values, or Rust against Rust, and the inventory marks
+them KEEP or KEEP-REWRITE (inventory appendix A-D). Each one below gets a destination and an owning
+unit, or an explicit drop with a reason.
+
+- **When.** The owning unit moves the test **before G**. The move deletes it from the oracle crate
+  in the same commit, so there is never a second copy. GATE then runs it at its new place in the
+  PoB-free worktree (§4.3). CUT1's step 4 (§5) checks that nothing in this table is left behind.
+- **Inputs after the move.** `data.bin` comes through the product's own data lookup, which VENDOR
+  points at the asset bundle. Builds come from `tests/golden/builds/` (GOLD2). No moved test reads
+  `data/dump`, `.parity` or `.PathOfBuilding`, and none needs `mlua` or the `probe` feature.
+
+| Test today | Inventory | Destination | Owner | What changes in the move |
+|---|---|---|---|---|
+| BM-A.rs `xml_reader_writer` | KEEP; hand values | `crates/pob-calc/tests/model_xml.rs` | GOLD5 | nothing: it reads no input |
+| BM-B.rs `set_buff_exports`, `fresh_build_entry_points` | KEEP-REWRITE; hand values | `crates/pob-calc/tests/tabs_fresh_build.rs` | GOLD5 | `data.bin` from the product lookup instead of `data/dump`; the file keeps its `SERIAL` lock |
+| PWR.rs `pwr_coroutine_steps` | KEEP-REWRITE; Rust vs Rust | `pob-golden`, binary `golden_e2e`, module `invariants::power_steps` (beside e2e.d13) | GOLD6 | Today the misc calculator answers from PoB's recorded calls (`calc_replay`, a seam CUT2 removes). The rewrite runs the real calculator on the same build (`builds/all57/allflame_exp_000.xml`, `BUILDS[1]`) for both the direct and the stepped runs. The assertions are unchanged: frames = 2 + nodes / 101 with the slow clock, one progress callback per time yield, the callback once per run, monotone progress in 0..100, stepped = direct exactly, an error ends the coroutine, dev mode re-raises it. GOLD6 records the runtime; above 60 s in debug it keeps Offence/Defence only |
+| PWR.rs `pwr_stat_fns` | KEEP-REWRITE; hand values + dump hashes | `crates/pob-calc/tests/power_stats.rs` | GOLD6 | `data.bin` from the product lookup. The transform-hash part stays: `data.bin` is frozen, so it can only fail on a new data snapshot, which is when it is needed |
+| OF-C.rs `ofc_combine_stat_modes` | KEEP-REWRITE; CALC-UNIT | `crates/pob-calc/tests/combine_stat.rs` | GOLD12 | Today env, actor and active skill come from an injected PoB `offence:2174` dump (`pob_oracle::inject`). The rewrite takes them from `initEnv` (MAIN) on an all57 fixture with an attack main skill. The test replaces output, skillFlags, skillData, breakdown and globalOutput anyway, so the hand-made MainHand/OffHand tables and the expected values (the Lua expressions restated) are unchanged |
+| U0.rs `compile_zero_unknown_keys` | KEEP; pinned counts, reads `data/dump` | merged into `crates/pob-gamedata/tests/dump_load.rs` | GOLD1 | `data/dump` goes in step 7, so the test starts from `data.bin`: decode, `Data::from_tree` (the same strict schema path, so an unknown key still fails), the same pins (gems 871, ModCache 23,207, 41 tree versions, the SkillType values, foulbornMap 248, nodeIDList 1,937, powerStatList 85, the Arc identities, the typed/dynamic root split), then encode and decode to an equal tree, and the release-only < 1 s load gate (which CI's release perf job enforces, §5 step 8). Lost: parsing PoB's JSON dump files. That guards the dumper, which goes |
+| U0.rs `unknown_key_is_an_error` | KEEP | `crates/pob-gamedata/tests/dump_load.rs` | GOLD1 | nothing: it builds its own tree |
+| IT-A.rs `parse_raw_units`, IT-B.rs `item_core_units`, IT-C.rs `item_tools_units` | KEEP-REWRITE; the hand-value cases of those files | `crates/pob-calc/tests/item_units.rs` | GOLD9 | `data.bin` from the product lookup. One IT-A case (a crafted RARE re-parse) installs `item_parse::replay` stubs, which need the `probe` feature. GOLD9 moves it onto the real callees and, if that changes the asserted outcome, asserts the real outcome after checking it against PoB, which still exists then |
+| MP0.rs `modcache_tier_serves_cached_lines`, `appendmod_and_lookups` | KEEP-REWRITE; hand values | `crates/pob-modparser/tests/mod_cache.rs` (a new tests dir) | GOLD7 | `data.bin` from the product lookup. Kept: all 23,207 cached lines served exactly, results are copies, a novel line is parsed and memoised, the appendMod and lookup cases. Dropped: the informational comparison with PoB's native parse (`parse_oracle.jsonl`), because fn.parser.lines is that comparison, gated |
+| CT.rs `ct_global_cache` | KEEP-REWRITE (the cache part); hand values | `crates/pob-calc/tests/global_cache.rs` | GOLD11 | `data.bin` from the product lookup |
+| AS.rs `as_copy_actor_keepalive` | KEEP-REWRITE; PERF/MEMORY | `crates/pob-calc/tests/copy_actor_keepalive.rs` (beside `leak1_cycles.rs`) | GOLD11 | `.parity/builds/upstream_Dual_Savior.xml` → `tests/golden/builds/all57/upstream_Dual_Savior.xml` |
+| CS2.rs `cs2_l4_overrides` | RETIRE / KEEP-REWRITE as E2E; hand expectations | replaced by e2e.mcq | GOLD6 | the same overrides, now against PoB (§1.5) |
+| CA.rs `ca_d13_fixed_point`, `ca_level_cost_cleared*` | KEEP | e2e.d13, e2e.levelcost in `golden_e2e` | GOLD3 | §1.2 |
+| `src/par.rs` (6 tests) | KEEP while the pool is used | `crates/pob-golden/src/par.rs` | GOLD1 | moved with the pool (§3.3), tests unchanged |
+| `src/diff.rs` tests `tolerance`, `stores_multiset_and_order`, `nondet_values_and_orders`, `unordered_lists_with_nested_orders`, `store_alternatives_per_name` | KEEP-REWRITE | `crates/pob-golden/src/compare.rs` | GOLD1 | The compare engine takes over num_close, the leaf and tree equality, and the mod-store multiset with its order report (§3.5). The tests move with it, with their inputs rewritten from the oracle's `$store` and nondet-path forms to the golden markers (`$unordered`, `$anyOf`). `units` is dropped: it reads the Lua unit ranges of calc-architecture.md |
+| pob-ui-oracle `u53_perf.rs` | KEEP; PERF, no oracle | `crates/pob-app/tests/tree_perf.rs` | GOLD13 | It drives `PobApp` through pob-ui-oracle's scenario runner and reads the tree assets from the PoB checkout. The move puts a minimal driver in the test file, uses the asset bundle, and reads its 4 builds (all all57: allflame_exp_001, allflame_exp_048, the Cospris CoC and Generals Perforate builds) from `tests/golden/builds/all57/`. CI's release perf job runs it (§5 step 8) |
+| pob-ui-oracle PoB-free UI parts: `u26_progress_steps`, `u48_progress_steps`, `u38_undo_round_trip` | KEEP / KEEP-REWRITE; UI-UNIT | `crates/pob-app/tests/` | GOLD13 | Moved if they run on `PobApp` without pob-ui-oracle's runner. Otherwise they are dropped under the user's decision (no UI goldens, UI scenarios later), and each drop is listed in GOLDEN-GATE.md |
+
+One product test also reads `.parity`: `crates/pob-calc/tests/leak1_cycles.rs`, through
+`pob_testpaths::parity_build` (it is the only one outside the oracle crates and pob-testpaths).
+GOLD2 re-points it at `tests/golden/builds/all57/<stem>.xml`, so it runs in the PoB-free gate
+(§4.3). Its LUT script path, which reads the PoB checkout, moves to the bundle with VENDOR.
+
+**Dropped although they need no PoB:**
+
+| Test | Reason |
+|---|---|
+| CT `ct_data_census`, `ct_copy_table_safe`; AS `as_census` | §1.6: data facts frozen with `data.bin`, Lua-table emulation |
+| MP0 `generated_list_sizes` | it reads PoB's source and the dump manifest (§1.6) |
+| PF-B `pfb_ally_life_pools` | it asserts the identity of a Lua module-level local (inventory: RETIRE) |
+| `u31_rebuilt_slot_controls` | it checks control-table structure (inventory: RETIRE) |
+| CS3 `cs3_object_key_order_class`, PF-G `pfg_replay_hook_roundtrip`, OF-B `ofb_attribution_patterns` | self-tests of the probe and replay harness, which goes |
+| PF-A `pfa_stages_file_patches`, U0 `registry_complete`, `provenance_check_and_coverage`, `stages_*` | provenance and PoB source (§1.6) |
+| `u0_smoke`, `worker_smoke`, `oracle_harness` | smoke tests of the oracle boot. e2e.ca supersedes them |
+| `src/runner.rs` (query cache), `src/testkit.rs` (cache refresh) | they cache PoB runs. The committed goldens replace the cache |
 
 ---
 
@@ -214,7 +314,7 @@ group, Full DPS flags, a config toggle. They are committed like any build, with
 ```
 tests/golden/
   README.md                      how to run, bless, review (from §3.6)
-  MANIFEST.json                  every file: set, path, BLAKE3, line count, compared-count pins, origin
+  MANIFEST.json                  every file: set, path, BLAKE3, line count, compared-count and bitExact pins, sizes, origin
   coverage.json                  record-time coverage witnesses (TR arms, SK hooks, MI families, CS2 restart)
   builds/
     all57/*.xml                  from .parity/builds (2.9 MB raw)
@@ -236,31 +336,46 @@ outlive any crate, and the refactor may split or rename crates.
   added or removed key as a line in `git diff`. Small corrections stay small: the PoC showed git
   packs the 57 plain CA files (3.9 MB) into 512 KB [M], within 10 % of per-file zstd (576 KB)
   [M].
-- **`.jsonl.zst` only above about 4 MB raw per file** (fn.modstore, fn.tree, fn.items, fn.lut,
-  fuzz). Git cannot delta-compress zstd blobs, so each re-record of such a shard adds its full
+- **`.jsonl.zst` only for a file whose plain JSONL would exceed about 4 MB** (fn.modstore, fn.tree,
+  fn.items, fn.lut, the larger fn sets, fuzz). The rule is per file, so the E2E sets, one file per
+  build, are all plain. Git cannot delta-compress zstd blobs, so each re-record of such a shard
+  adds its full
   size to history. Overlays (§3.6) keep shards immutable, so in practice they are written once.
 - **Not CBOR.** It is not diffable, and after zstd its size advantage over JSON is small. We need
   reviewability more than parse speed (the largest set parses in seconds).
-- **No git LFS.** The total is about 60 MB, and every file is ≤ 8 MB (GitHub warns at 50 MB and
-  rejects files at 100 MB). LFS would add a hosting dependency to a standalone repo for no gain.
+- **No git LFS.** The total is about 61 MB packed (about 180 MB checked out), and every file is
+  ≤ 8 MB on disk (GitHub warns at 50 MB and rejects files at 100 MB). LFS would add a hosting
+  dependency to a standalone repo for no gain.
 
 ### 2.3 Budget, elision, dedup and sampling
 
-| Area | Estimated committed size | Reduction used |
-|---|---:|---|
-| e2e.ca (all57 + fresh + special + derived) | ≈5 MB | none (plain JSONL; git pack) |
-| e2e.int3 | ≈3 MB | none |
-| e2e.bm, e2e.pwr, e2e.mcq, d13, levelcost | ≈3 MB | PWR: power tables only, not the recorded calc outputs |
-| fn.parser.* | ≈2.5 MB | `passes` dropped; MP7 empty calls elided (lossless) |
-| fn.lut | ≈5 MB | columnar per (type, seed) |
-| fn.tree | ≈8 MB | cross-version record dedup (lossless) |
-| fn.spec | ≈1 MB | none |
-| fn.items | ≈5 MB | call traces dropped (structural) |
-| fn.modstore | ≈15 MB | trivial answers elided (lossless), MS-A/MS-B overlap removed |
-| fn.skills, fn.config, fn.tabs, fn.tools | ≈7.5 MB | support pairs as a bitset |
-| fuzz.* | ≈3.5 MB | DF-A sampled to 20k per function |
-| builds/ (XML) | ≈12 MB raw (≈ 2 MB packed) | none |
-| **Total** | **≈60 MB + XML** | **cap 80 MB; cap 8 MB per file** |
+Two measures, both [E] until GOLD1 measures them:
+- **Working tree**: the bytes of the checked-out files. Plain files count at full size, `.zst`
+  shards at their compressed size.
+- **Packed**: the `git gc --aggressive` pack of `tests/golden/` alone. This is what the history and
+  a clone add. Plain JSONL packs about as well as zstd ([M]: 3.9 MB of CA lines → 512 KB); `.zst`
+  shards pack at their own size.
+
+| Area | Working tree | Packed | Reduction used |
+|---|---:|---:|---|
+| e2e.ca (all57 3.9 + fresh 7.3 + special and derived 31 + mirage 0.2) | ≈42 MB | ≈5 MB | none (plain JSONL) |
+| e2e.int3 | ≈48 MB | ≈3 MB | none (plain JSONL) |
+| e2e.bm 15, e2e.pwr 8, e2e.mcq 5, d13, levelcost | ≈28 MB | ≈3 MB | e2e.bm: the original-XML loads only. PWR: power tables only, not the recorded calc outputs |
+| fn.parser.* | ≈2.5 MB | ≈2.5 MB | `passes` dropped; MP7 empty calls elided (lossless) |
+| fn.lut | ≈5 MB | ≈5 MB | columnar per (type, seed) |
+| fn.tree | ≈8 MB | ≈8 MB | cross-version record dedup (lossless) |
+| fn.spec | ≈1 MB | ≈1 MB | none |
+| fn.items | ≈5 MB | ≈5 MB | call traces dropped (structural) |
+| fn.modstore | ≈15 MB | ≈15 MB | trivial answers elided (lossless), MS-A/MS-B overlap removed |
+| fn.skills, fn.config, fn.tabs, fn.tools | ≈10 MB | ≈7.5 MB | support pairs as a bitset. CO-A/B (≈3 MB) stays plain |
+| fuzz.* | ≈3.5 MB | ≈3.5 MB | DF-A sampled to 20k per function |
+| builds/ (XML) | ≈12 MB | ≈2 MB | none |
+| **Total** | **≈180 MB** (≈120 MB of it plain E2E JSONL) | **≈61 MB** | **caps: 80 MB packed, 250 MB working tree, 8 MB per file on disk** |
+
+The 80 MB cap is the packed one, because that is what every clone and the history pay. The working
+tree cap guards the disk of each worktree (this machine runs about 11 of them). GOLD1 measures both
+with `scripts/golden/size.sh` (`du -sb tests/golden` and the pack size of a scratch clone after
+`git gc --aggressive`) and writes them to MANIFEST. GATE re-checks them.
 
 Justifications:
 
@@ -378,7 +493,8 @@ Justifications:
   `runSkillFunc`, `mirages`, `initEnv:1433`) writes `coverage.json` and fails if:
   - a TR arm has no fixture;
   - one of the 3 TR handlers has no fixture;
-  - an SK-A or SK-B hook has no fixture;
+  - an SK-A or SK-B hook has no fixture where it reaches a compared key (main skill and part, or
+    the mutation witness, §1.5);
   - a mirage family has no fixture;
   - the CS2 restart expectation does not hold.
 - **Cost bounds.** One PoB process at a time per recorder (the oracle lock), at most about 1 GB
@@ -477,8 +593,10 @@ fn tool(name: &str, input: &Json) -> Result<Json, Error>;   fn fuzz_helper(name:
 - **Numbers:** `num_eq`, `|a-b| ≤ 1e-9·max(1,|a|)`. NaN equals NaN, and ±0 are equal. This is the
   §9.2 rule CA uses today (CA.rs:171).
   - DF-A and CT compare `%.17g` text exactly today. The runner applies num_eq to them as well,
-    because the refactor may reorder float operations. It also reports the count of bit-exact
-    matches as information, so a drift in that count is visible.
+    because the refactor may reorder float operations. This is a deliberate weakening, so the
+    count of bit-exact matches per set is **pinned in MANIFEST** (`bitExact`). A count below the
+    pin fails like a changed value. A bless lowers the pin, with its reason, so every loss of
+    bit-exactness is reviewed (§3.6 checklist item 4).
 - **Strings and booleans:** exact.
 - **Rust-only keys:** a failure. A missing key: a failure. Both as CA does today.
 - **Mod lists:** a multiset per name, with an order check. An order difference is reported, not
@@ -512,7 +630,8 @@ POB_GOLDEN_BLESS=1 POB_GOLDEN_REASON="<why>" [POB_GOLDEN_FILTER=<set>[:<key glob
 2. Each overlay reason names the behaviour, and the issue or PoB commit it follows.
 3. No `$anyOf`, `$unordered`, `$host` or `$known` marker was removed or widened, unless the PR
    explains why.
-4. The MANIFEST pins changed only by the overlaid or added keys.
+4. The MANIFEST pins changed only by the overlaid or added keys. A lowered `bitExact` pin
+   carries its reason.
 5. Fixture XML unchanged, or the set re-recorded with it (the BLAKE3 matches).
 6. The full golden suite is green after the bless, and its negative control still fails (§4).
 
@@ -525,17 +644,29 @@ All on one commit **G** of rust-port: every GOLD unit merged, VENDOR merged, PoB
 ### 4.1 Live PoB tests pass, with their pins
 
 ```sh
-# in a full-corpus worktree with POB_ORACLE_REQUIRE=1 (no silent skips)
+# at the root of a full-corpus worktree, with POB_ORACLE_REQUIRE=1 (no silent skips)
 export POB_ORACLE_REQUIRE=1
-for t in CA INT-3 BM-A PWR MP6 MP7 MP2 MP3 MP4 MP5 LUT PT PS-A PS-B PS-C IT-A IT-B IT-C \
-         MS-A MS-B AS BM-B CO-A CO-B CO-C CT DF-A OF-A SK-A SK-B TR-B MI PF-D PF-F CS2 OF-I; do
-  scripts/port/cargo.sh test -p pob-oracle --test "$t" -- --nocapture > gate/live-$t.log 2>&1 || echo "FAIL $t"
+root="$PWD"
+mkdir -p "$root/gate"
+for f in "$root"/crates/pob-oracle/tests/*.rs; do
+  t=$(basename "$f" .rs)
+  scripts/port/cargo.sh test -p pob-oracle --test "$t" -- --nocapture > "$root/gate/live-$t.log" 2>&1 || echo "FAIL $t"
 done
-CA_CORPUS_DIR=.parity/fresh scripts/port/cargo.sh test -p pob-oracle --test CA -- ca_l6_corpus --nocapture
+# cargo runs integration tests from the package root (crates/pob-oracle), and CA.rs reads
+# CA_CORPUS_DIR relative to it (CA.rs:145, CA.rs:1874): pass an absolute path
+CA_CORPUS_DIR="$root/.parity/fresh" scripts/port/cargo.sh test -p pob-oracle --test CA -- ca_l6_corpus --nocapture \
+  > "$root/gate/live-CA-fresh.log" 2>&1 || echo "FAIL CA fresh"
 ```
 
-Run them one binary at a time, so no two heavy binaries run at once (CA is 2.8 GB, OF-F 3.1 GB).
-Expected: every test passes, at the pinned counts the tests assert today:
+**Every** pob-oracle test binary runs, not a selection. Every segment test's builds become
+fixtures (§1.5): TR-A, PF-A, DF-B..DF-G, OF-B..OF-H, CS0, CS1 and CS3 as much as SK-A, TR-B or MI.
+So the gate must start from a suite that is green on all of them. A segment test that fails at G
+would mean its fixtures' goldens record behaviour that the Rust side does not match, and nobody
+has looked at it. The tooling self-tests (P3, ORC-X, oracle_harness, …) run too. They are cheap,
+and a broken oracle would make every recording suspect.
+
+Run them one binary at a time (the loop does), so no two heavy binaries run at once (CA is
+2.8 GB, OF-F 3.1 GB). Expected: every test passes, at the pinned counts the tests assert today:
 
 | Live test | Expected (asserted in the test) |
 |---|---|
@@ -553,10 +684,11 @@ Expected: every test passes, at the pinned counts the tests assert today:
 | IT-A/B/C | 1,527 corpus items; IT-A ≥ 10,032 parses; IT-B ≥ 239,070 passes; IT-C ≥ (10,042, 71,549) calls |
 | AS | (3,790, 1,225) cases |
 | CO-A / CO-B | (266, 1,741) / (273, 2,407); both-error ≤ 18 / ≤ 108 |
-| BM-B | tabs 148,776; buffs 3,310 (5 pending); synthetic 1,302 |
+| BM-B | tabs 148,776; buffs 3,310 (5 pending: in fn.tabs the `$known` CCR-0014 values, §1.3); synthetic 1,302 |
 | DF-A | 6 × 100,000 cases at the `DFA_BOUNDS` |
 | TR-B | all 82 arms and 3 handlers covered |
 | MS-A, MS-B, CO-C, CT, OF-A, SK-A, SK-B, MI, PF-D, PF-F, CS2, OF-I | pass at their current bounds |
+| every other pob-oracle binary (TR-A, PF-A..PF-G, DF-B..DF-G, OF-B..OF-H, CS0, CS1, CS3, MP0, MP1, U0, the tooling self-tests) | pass at their current bounds |
 
 ### 4.2 The recorder reproduces the committed goldens
 
@@ -576,6 +708,13 @@ cd /tmp/pob-gate
 test ! -e .PathOfBuilding && test ! -e .parity && test ! -e data/dump
 env -u POB_ROOT -u POB_SRC -u POB_DATA_DIR -u POB_PARITY_DIR \
   scripts/port/cargo.sh test -p pob-golden
+# the tests moved out of the oracle crates (§1.7), one binary at a time
+for pt in pob-calc:model_xml pob-calc:tabs_fresh_build pob-calc:power_stats pob-calc:combine_stat \
+          pob-calc:item_units pob-calc:global_cache pob-calc:copy_actor_keepalive pob-calc:leak1_cycles \
+          pob-gamedata:dump_load pob-modparser:mod_cache pob-app:tree_perf; do
+  env -u POB_ROOT -u POB_SRC -u POB_DATA_DIR -u POB_PARITY_DIR \
+    scripts/port/cargo.sh test -p "${pt%%:*}" --test "${pt##*:}" || echo "FAIL $pt"
+done
 scripts/port/cargo.sh tree -p pob-golden | grep -c mlua      # 0
 ```
 
@@ -594,6 +733,8 @@ Expected: 0 failures, and each set compares at least the live counts:
 - **fn.tabs**: 148,776 + 3,310 + 1,302.
 - **fuzz.defence**: 6 × 20,000 + edge cases.
 - **The rest**: the line counts in MANIFEST.
+- **The tests moved out of the oracle crates (§1.7)**: pass, with their own pins (gems 871,
+  ModCache 23,207, …).
 
 The runner prints `golden <set>: compared N (pin N)` lines. A gate script, `scripts/golden/gate.sh`
 (GATE unit), checks every pin.
@@ -644,17 +785,35 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
    ```
 
    Recovering the oracle later means checking out this tag. It also needs the local
-   `.PathOfBuilding`, `data/dump` and `.parity`, so tell the user before step 6 deletes them on
+   `.PathOfBuilding`, `data/dump` and `.parity`, so tell the user before step 7 deletes them on
    disk.
-4. **Delete crates** (one commit; workspace members and `Cargo.lock` updated):
+4. **Move the PoB-free tests out of the oracle crates (§1.7).** Their owning units moved them
+   before G, so this step is normally a check. If one is still there, it is moved now.
+   - For each moved row of §1.7, its test function must no longer exist under `crates/pob-oracle`
+     or `crates/pob-ui-oracle`, and it must exist at its destination. A small script,
+     `scripts/golden/check_moved.sh`, greps for each function name on both sides, using the list
+     in `tests/golden/README.md` that GOLD1 writes from §1.7.
+   - A test still in an oracle crate is moved now as §1.7 says (`git mv` of its body into the
+     destination file, then the input changes listed there). It must then pass in the PoB-free
+     worktree of §4.3 before step 5 runs.
+   - Each dropped row has its reason in `docs/standalone/GOLDEN-GATE.md`.
+   - `crates/pob-calc/tests/leak1_cycles.rs` must read its builds from
+     `tests/golden/builds/all57/` (GOLD2 re-pointed it, §1.7). If it still calls
+     `pob_testpaths::parity_build`, it is re-pointed now. `parity_build` is then removed from
+     pob-testpaths.
+5. **Delete crates** (one commit; workspace members and `Cargo.lock` updated):
    - `crates/pob-oracle`: with `corpus/` and `lua/`, after GOLD2 copied the corpora into
      `tests/golden/builds/special/`;
    - `crates/pob-ui-oracle`: with `scenarios/`;
-   - `crates/pob-dump`: **first** move `generated/{enums,global,misc}.rs` and `FORMAT.md` into
-     `crates/pob-gamedata/src/generated/` and `docs/` (pob-gamedata includes them by path today:
-     `src/generated/mod.rs:6,10`). They become frozen sources;
+   - `crates/pob-dump`: **first** move `generated/global.rs` and `generated/misc.rs` into
+     `crates/pob-gamedata/src/generated/`, and `FORMAT.md` into `docs/`. pob-gamedata includes
+     these two files by path today (`src/generated/mod.rs:6,10`), and they become frozen sources.
+     `generated/enums.rs` does not need to move: pob-gamedata does not include it (its
+     `SkillType`, `ModFlag` and `KeywordFlag` come from `global.rs`), and its only user is
+     pob-dump's own `tests/dump.rs`. It goes with the crate;
    - `crates/pob-testpaths`, if nothing else uses it after the oracle crates go (pob-sg, pob-host
-     and pob-calc test use must be checked; otherwise keep it, reduced to asset lookup);
+     and pob-calc test use must be checked; otherwise keep it, reduced to asset lookup). Its
+     `parity_build` user, `leak1_cycles.rs`, no longer calls it (step 4);
    - `app/pob-desktop`: drop the `lua-calc` feature and the `pob-ui-oracle` dependency
      (`Cargo.toml:12-22`);
    - `mlua` dev-dependencies and their tests:
@@ -664,7 +823,7 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
      - the workspace `mlua` entry;
    - the tests that read the PoB checkout: `pob-sg/tests/font_*` read fonts from the PoB runtime
      (they move to the bundle in VENDOR, or are rewritten), and `pob-app` `party::notes_desc_is_the_long_string`.
-5. **Delete scripts:**
+6. **Delete scripts:**
    - `scripts/port/`:
      - `oracle.sh`, `provenance.py`, `luaast.py`, `globals_lint.py`, `locals_audit.py`,
        `segments.py`, `calcscope.py`, `pairs_inventory.py`;
@@ -680,7 +839,7 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
      `report.py`);
    - **Keep:** `cargo.sh`, `testrun.py`, `full_suite.sh` (rewritten crate list), `oomguard.sh`,
      `bump_version.sh`, `push_remote.sh`, `with_merge_lock.sh`, and their tests.
-6. **Delete docs and data:**
+7. **Delete docs and data:**
    - `docs/port/`, everything that describes porting against PoB:
      - `stages.toml`, `scope.toml`, `known_diffs.toml`, `pairs_inventory.md`;
      - `ccr/`, `research/`, `parity/` (move `fresh-corpus.md`'s provenance table into
@@ -698,7 +857,7 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
      - `data/pob` (418 MB) and `data/dump`, except what VENDOR moved into the bundle
        (`parse_oracle.jsonl` 54 MB goes, because fn.parser.lines holds it);
      - `data/lua`, and the legacy `data/*.json`, if VENDOR does not claim them.
-7. **CI rewrite** (`.github/workflows/ci.yml`). Triggers: pull requests, and pushes to `main` and
+8. **CI rewrite** (`.github/workflows/ci.yml`). Triggers: pull requests, and pushes to `main` and
    `rust-port`. Today it has never run on rust-port (inventory, CI). No PoB checkout, no `.parity`.
    Jobs:
    - **calc-golden**: `cargo test -p pob-golden` (3 binaries), with a cargo cache.
@@ -711,7 +870,7 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
      release so they actually enforce something.
    - Remove `POB_ALLOW_SKIP` from CI.
    - A grep job fails on `\.PathOfBuilding|POB_ROOT|mlua` anywhere outside `docs/history`.
-8. **After the cut-over** (expected; measured in CUT1, which updates this table):
+9. **After the cut-over** (expected; measured in CUT1, which updates this table):
 
    | | Before (inventory, 159 binaries) | After (expected) |
    |---|---|---|
@@ -720,10 +879,10 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
    | Test binaries | 159 | ≈ 45 (3 golden + the remaining unit/render/host/lib) [E] |
    | Debug test binary size | CA alone 238 MB [M] | ≈ 150-200 MB each for the 3 golden binaries, with no LuaJIT and no `probe` feature [E] |
    | Release desktop binary | unchanged by the oracle removal (the oracle never shipped) | same, minus nothing; `lua-calc` was opt-in |
-   | Repo | + 12 MB crates/pob-oracle/corpus, 21 MB oracle crates source | − ≈ 37 MB source/corpus, + ≈ 60 MB goldens + 12 MB XML (≈ 2 MB packed) [E] |
+   | Repo | + 12 MB crates/pob-oracle/corpus, 21 MB oracle crates source | − ≈ 37 MB source/corpus, + `tests/golden/` with XML: ≈ 61 MB packed, ≈ 180 MB checked out [E] |
 
    Fast tier per PR: e2e all57 + special corpora + fn.* + unit. Nightly: e2e fresh, fuzz, perf.
-9. **CUT2 (optional; can fold into the refactor):** remove the `probe` feature (`pob-calc`
+10. **CUT2 (optional; can fold into the refactor):** remove the `probe` feature (`pob-calc`
    `Cargo.toml:35-42`; 17 product source files gate code on it) and the per-unit replay seams
    (`calc_replay`, `callee_replay`, `replay_hook`, `item_parse::replay`, `item_tools::replay`,
    `stub::set_replay_hook`) from the product crates. Nothing uses them once the oracle is gone.
@@ -735,7 +894,7 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
 | Unit | Scope | Depends on | Parallel with | Record cost on this 16 GB aarch64 machine [E] |
 |---|---|---|---|---|
 | **GOLD1** format + runner core | `pob-golden` crate: `golden/1` reader/writer, the compare engine (num_eq, markers), MANIFEST, bless/overlay, `golden diff`, the self-test, the `par` pool (moved), and the adapter skeleton. The `pob_golden_record` bin skeleton in pob-oracle. **Measure the real sizes** of the [E] rows from the existing caches and update §2.3 | - | VENDOR | none (no PoB) |
-| **GOLD2** fixtures | copy all57, fresh and every `corpus/*/*.xml` into `tests/golden/builds/`; write out the PS-B, PS-C and CS2 synthetics and the level-cost XMLs; the derived-fixture generator; privacy step (§7) | GOLD1 (layout only) | VENDOR | ≈ 5 min PoB (SaveDB of the synthetics) |
+| **GOLD2** fixtures | copy all57, fresh and every `corpus/*/*.xml` into `tests/golden/builds/`; write out the PS-B, PS-C and CS2 synthetics and the level-cost XMLs; the derived-fixture generator; privacy step (§7); re-point `leak1_cycles.rs` at `builds/all57/` (§1.7) | GOLD1 (layout only) | VENDOR | ≈ 5 min PoB (SaveDB of the synthetics) |
 | **GOLD3** e2e.ca + d13 + levelcost + mirage block + coverage witnesses | the recorder for CA (ca.lua + mirage block, K = 3..6 runs), the TR/SK/MI/CS2 coverage pass, the runner adapter `e2e.rs`; triage of any special-corpus failure | GOLD1, GOLD2 | GOLD4-GOLD12 | all57 + fresh + ≈ 520 special/derived builds × 3 runs. The probe measured ≈ 4.5 s/build for PoB (uncached, with CA's probes) + Rust, so ≈ 1-1.5 h; coverage pass (patched PoB, probes) ≈ 1 h; RSS ≤ 1 GB (PoB) + ≤ 3 GB (runner) |
 | **GOLD4** e2e.int3 | recorder (int3.lua + the breakdown part of the calcsEnv dump), adapter breakdown/tabulate canonicalisation (moves the CalcBreakdownControl sort logic from the test into the adapter) | GOLD1, GOLD2 | yes | 57 × 3 runs ≈ 30 min (INT-3 takes 88 s warm today); RSS ≈ 1 GB |
 | **GOLD5** e2e.bm + fn.tabs | BM-A model and SaveDB golden, BM-B tabs, buffs and gem levels | GOLD1, GOLD2 | yes | ≈ 20 min (BM-A 16 s warm, 683 s cold in an earlier full suite); ≤ 1 GB |
@@ -746,21 +905,28 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
 | **GOLD10** fn.modstore | MS-B + MS-A unique parts, elision with record-time checks | GOLD1 | yes | ≈ 20-30 min cold (MS-B 1,127 s cold in the latest full suite); ≤ 1 GB |
 | **GOLD11** fn.skills + fn.config + fn.tools | AS, CO-A/B merged, CO-C, CT (bitset) | GOLD1, GOLD2 | yes | ≈ 20 min; ≤ 1 GB |
 | **GOLD12** fuzz.* | frozen generators copied from DF-A and OF-A; outputs; edge cases from the 100k streams | GOLD1 | yes | DF-A ≈ 5 min (the full 100k streams are needed once to extract edge cases), OF-A ≈ 2 min; DF-A 1.8 GB today |
-| **GATE** | §4 in full on commit G; `scripts/golden/gate.sh`; `docs/standalone/GOLDEN-GATE.md` | GOLD1-12, VENDOR | - | live suite ≈ 1.5-3 h (pob-oracle binaries one at a time) + recorder verify ≈ 3-4 h + golden runs ≈ 20 min |
-| **CUT1** | §5 steps 3-8 | GATE | - | none |
-| **CUT2** (optional) | §5 step 9 | CUT1 | the refactor | none |
+| **GOLD13** PoB-free UI tests | the pob-ui-oracle rows of §1.7: `u53_perf` into `crates/pob-app/tests/tree_perf.rs`, and `u26_progress_steps`, `u48_progress_steps`, `u38_undo_round_trip` moved or dropped with a reason | GOLD2, VENDOR (assets) | GOLD3-GOLD12 | none (no PoB); `u53_perf` ≈ 1 min in release |
+| **GATE** | §4 in full on commit G; `scripts/golden/gate.sh`; `docs/standalone/GOLDEN-GATE.md` | GOLD1-13, VENDOR | - | live suite ≈ 1.5-3 h (pob-oracle binaries one at a time) + recorder verify ≈ 3-4 h + golden runs ≈ 20 min |
+| **CUT1** | §5 steps 3-9 | GATE | - | none |
+| **CUT2** (optional) | §5 step 10 | CUT1 | the refactor | none |
 
-- **Scheduling.** GOLD1 → GOLD2 → {GOLD3 … GOLD12}, at most 3 agents at a time. GOLD7, GOLD10
-  and GOLD12 do not need GOLD2 and can start right after GOLD1.
+- **Scheduling.** GOLD1 → GOLD2 → {GOLD3 … GOLD13}, at most 3 agents at a time. GOLD7, GOLD10
+  and GOLD12 do not need GOLD2 and can start right after GOLD1. GOLD13 also waits for VENDOR.
+- **The §1.7 moves.** Each unit also moves the PoB-free tests that §1.7 assigns to it (GOLD1,
+  GOLD5, GOLD6, GOLD7, GOLD9, GOLD11, GOLD12, GOLD13), in the same branch as its goldens.
 - **Machine limits.** One PoB per recorder (the oracle lock). Never two heavy test binaries at
   once. The runner binaries stay ≤ 3 GB. The total recording time of the whole set, cold, is
   about 6-8 h machine time, spread over the parallel units.
 - **Unit acceptance (every GOLD unit):**
-  1. the live test(s) it replaces pass at G;
+  1. the live test(s) it replaces pass at the unit's base commit (the rust-port commit its branch
+     starts from, merged up). G does not exist yet when a unit finishes, so GATE re-checks this at
+     G (§4.1);
   2. its golden runner passes in a PoB-free worktree, with the compared counts ≥ the live pins;
   3. `--verify` reproduces its files;
   4. its negative control fails;
-  5. its files are within the size caps, with measured sizes in MANIFEST.
+  5. its files are within the size caps, with measured sizes in MANIFEST;
+  6. the §1.7 tests it owns are gone from the oracle crates, and they pass at their destination
+     in the PoB-free worktree.
 
 ---
 
@@ -786,7 +952,8 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
 ### Risks
 
 - **The special corpora fail end to end** (they were only segment-checked). Mitigation: GOLD3
-  triages them while PoB exists. The probe (appendix B) found no difference on 116 of the ≈ 418 builds; the rest are unchecked.
+  triages them while PoB exists. The probe (appendix B) found no difference on 117 of the 418
+  builds; the other 301 are unchecked.
 - **Stronger goldens expose hidden differences** (fn.spec unstubbed, fn.items unreplayed, e2e.pwr
   more builds, e2e.mcq). Handled by §4.5: each one is fixed or explicitly accepted before
   deletion.
@@ -865,11 +1032,16 @@ test result: ok. 1 passed; 0 failed; ... finished in 497.44s
 ```
 
 That is 4.5 s per build for PoB (uncached) and Rust together. An earlier attempt over all 418
-corpus XMLs was stopped after 6 builds (BM-B synthetic ×3, CO-A, CO-B and CO-C `empty`), all of
-them exact (756/756 or 749/749 keys).
+corpus XMLs was stopped after 7 builds, all of them exact on every key with the headline exact
+(`scratchpad/goldprobe/unit_l6_full_aborted.log`):
+- BM-B `synthetic_empty` 756/756, `synthetic_legacy` 749/749, `synthetic_sets` 749/749;
+- CO-A, CO-B and CO-C `empty` 756/756 each;
+- CS0 `synthetic_socket_props` 766/766.
 
-Not checked: the other ≈ 300 unit-corpus builds (SK-A 67, SK-B 107, TR-A 50, DF-D 29, OF-D 14,
-DF-F 12, DF-C 3, DF-E 7, DF-G 2, OF-E 4, OF-F 2, OF-B 3, DF-B 1, CS0 1: 302 builds), the PS-B/PS-C synthetic builds
-(they exist only in code until GOLD2), and the derived fixtures. The SK-A, SK-B and TR builds of
-the sample covered only some of the hooks and arms. So this is evidence, not proof, that the
-special corpora carry over without fixes.
+So **117 builds are checked** (110 + 7).
+
+Not checked: the other **301** unit-corpus builds (SK-A 67, SK-B 107, TR-A 50, DF-D 29, OF-D 14,
+DF-F 12, DF-E 7, DF-C 3, OF-B 3, OF-E 4, DF-G 2, OF-F 2, DF-B 1; 117 + 301 = 418), the PS-B/PS-C
+synthetic builds (they exist only in code until GOLD2), and the derived fixtures. The SK-A, SK-B
+and TR builds of the sample covered only some of the hooks and arms. So this is evidence, not
+proof, that the special corpora carry over without fixes.
