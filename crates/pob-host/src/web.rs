@@ -417,7 +417,14 @@ pub async fn run_web<A: App>(
     make: impl FnOnce(PlatformParts) -> A,
 ) -> Result<(), wasm_bindgen::JsValue> {
     std::panic::set_hook(Box::new(|info| {
-        web_sys::console::error_1(&format!("--- SCRIPT ERROR ---\n{info}").into());
+        // `lua_error!` panics with a `LuaError` payload, which `PanicHookInfo`'s Display omits:
+        // print the message itself, then where it was raised.
+        let msg = crate::panic_message(info.payload());
+        let at = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_default();
+        web_sys::console::error_1(&format!("--- SCRIPT ERROR ---\n{msg}\n  at {at}").into());
     }));
     let window = web_sys::window().ok_or_else(|| js("no window"))?;
     let document = window.document().ok_or_else(|| js("no document"))?;

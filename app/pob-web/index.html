@@ -33,6 +33,11 @@
       #pob_loading.error .status { color: #ff6a5a; }
       #pob_crash { position: fixed; left: 0; right: 0; top: 0; padding: 10px 16px; background: #5a1410; color: #fff;
         font: 14px/1.4 sans-serif; z-index: 11; display: none; }
+      #pob_crash button, #pob_loading button { margin: 6px 8px 0 0; padding: 3px 10px; font: 13px sans-serif;
+        background: #2a2a2a; color: #eee; border: 1px solid #888; border-radius: 3px; cursor: pointer; }
+      #pob_crash pre, #pob_loading pre { display: none; max-height: 45vh; overflow: auto; margin: 8px 0 0;
+        padding: 8px; background: #111; color: #ddd; font: 12px/1.35 monospace; white-space: pre-wrap;
+        user-select: text; text-align: left; max-width: 90vw; }
       @keyframes pob-spin { to { transform: rotate(360deg); } }
       @keyframes pob-slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
     </style>
@@ -43,6 +48,55 @@
       // Content-Length.
       (function () {
         var state = { app: 0, data: 0 };
+        // The last console lines, for the crash report.
+        var recent = [];
+        function remember(kind, args) {
+          var line = new Date().toISOString().slice(11, 23) + ' [' + kind + '] ' +
+            Array.prototype.map.call(args, function (a) {
+              try { return typeof a === 'string' ? a : (a && a.stack) || JSON.stringify(a); } catch (e) { return String(a); }
+            }).join(' ');
+          recent.push(line);
+          if (recent.length > 50) recent.shift();
+        }
+        function report(msg, stack) {
+          var v = document.querySelector('meta[name="pob-version"]');
+          return 'PoB Rust Port (web) error report\n' +
+            'Time: ' + new Date().toISOString() + '\n' +
+            'URL: ' + location.href + '\n' +
+            'Browser: ' + navigator.userAgent + '\n\n' +
+            'Error:\n' + msg + '\n\n' +
+            'Stack:\n' + (stack || '(none)') + '\n\n' +
+            'Recent console:\n' + recent.join('\n') + '\n';
+        }
+        function attachReport(box, text) {
+          var pre = document.createElement('pre');
+          pre.textContent = text;
+          var copy = document.createElement('button');
+          copy.textContent = 'Copy error details';
+          copy.onclick = function () {
+            var done = function () { copy.textContent = 'Copied'; setTimeout(function () { copy.textContent = 'Copy error details'; }, 1500); };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(text).then(done, function () { pre.style.display = 'block'; selectPre(pre); });
+            } else { pre.style.display = 'block'; selectPre(pre); }
+          };
+          var toggle = document.createElement('button');
+          toggle.textContent = 'Show details';
+          toggle.onclick = function () {
+            var open = pre.style.display === 'block';
+            pre.style.display = open ? 'none' : 'block';
+            toggle.textContent = open ? 'Show details' : 'Hide details';
+          };
+          var reload = document.createElement('button');
+          reload.textContent = 'Reload';
+          reload.onclick = function () { location.reload(); };
+          var row = document.createElement('div');
+          row.appendChild(copy); row.appendChild(toggle); row.appendChild(reload);
+          box.appendChild(row); box.appendChild(pre);
+        }
+        function selectPre(pre) {
+          var r = document.createRange(); r.selectNodeContents(pre);
+          var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        }
         function el(id) { return document.getElementById(id); }
         function show(status, detail, frac) {
           var s = el('pob_loading_status'), d = el('pob_loading_detail'), bar = el('pob_loading_bar');
@@ -85,6 +139,7 @@
         var origLog = console.log.bind(console);
         console.log = function () {
           origLog.apply(console, arguments);
+          remember('log', arguments);
           if (typeof arguments[0] === 'string' && arguments[0].indexOf('Startup time') === 0) {
             requestAnimationFrame(function () { requestAnimationFrame(function () {
               var o = el('pob_loading'); if (o) { o.classList.add('done'); setTimeout(function () { o.remove(); }, 400); }
@@ -94,20 +149,39 @@
         // A panic (pob_host::web logs "--- SCRIPT ERROR ---") stops the app: say so instead of a
         // silent freeze.
         var origErr = console.error.bind(console);
+        var reported = false;
         console.error = function () {
           origErr.apply(console, arguments);
+          remember('error', arguments);
           var msg = String(arguments[0] || '');
           var fatal = msg.indexOf('--- SCRIPT ERROR ---') === 0;
+          var body = msg.replace('--- SCRIPT ERROR ---', '').trim();
+          var stack = (new Error().stack || '').split('\n').slice(2).join('\n');
           var o = el('pob_loading');
           if (o && !o.classList.contains('done')) {
+            if (reported) return;
+            reported = true;
             o.classList.add('error');
-            show('Failed to start', msg.replace('--- SCRIPT ERROR ---', '').trim().slice(0, 300), null);
-          } else if (fatal) {
+            show('Failed to start', body.split('\n')[0].slice(0, 300), null);
+            attachReport(o, report(body, stack));
+          } else if (fatal && !reported) {
+            reported = true;
             var c = el('pob_crash');
-            if (c) { c.textContent = 'The app crashed and has stopped responding. Please reload the page. (' +
-              msg.replace('--- SCRIPT ERROR ---', '').trim().split('\n')[0].slice(0, 200) + ')'; c.style.display = 'block'; }
+            if (c) {
+              var lines = body.split('\n');
+              var head = document.createElement('div');
+              head.textContent = 'The app crashed and has stopped responding: ' + lines[0].slice(0, 200) +
+                (lines[1] ? ' (' + lines[1].trim().slice(0, 160) + ')' : '');
+              c.appendChild(head);
+              attachReport(c, report(body, stack));
+              c.style.display = 'block';
+            }
           }
         };
+        // Uncaught wasm traps (`RuntimeError: unreachable` after a panic) carry the wasm stack.
+        window.addEventListener('error', function (e) {
+          remember('exception', [e.error ? (e.error.stack || String(e.error)) : e.message]);
+        });
       })();
     </script>
   </head>
