@@ -2,6 +2,8 @@
 target = "index.html"
 dist = "dist"
 release = false
+# The calc web worker loads pob-web.js / pob-web_bg.wasm by their plain names.
+filehash = false
 
 [serve]
 addresses = ["127.0.0.1"]
