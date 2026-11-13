@@ -364,109 +364,114 @@ geometric mean of the step ratios is 1.0058 (wall) and 1.0060 (cpu). So:
 
 ## Baseline
 
-`crates/pob-prof/baseline/baseline.json`: re-blessed in PROF1's fix round 1 from a clean commit
-(2026-11-13T10:14Z, commit `faa9c31b`, not dirty, label "PROF1 fix round 1 baseline",
-`--render none`, CPUs 2-7, governor schedutil, load 2.1 -> 1.1, 5 reps + 1 warm-up, 343 s;
-within-run relative MAD of the steps' `wall_ms`: median 0.22 %, max 1.7 %). Against the first
-baseline (run A of the noise test above, commit `0dbdab33` + the uncommitted unit) it is 0 of 732
-gated metrics REGRESSED, geomean step `wall_ms` ratio 0.9971. The scenarios changed in that round
-only by guards (untimed: the steps' frames and times are those of the first baseline, plus one
-allocation per `expect-text`), except `h_calcs.pin_breakdown`, which gained a frame (the cursor
-leaves the pinned cell for one frame before the unpinning click: 12 frames). Medians; `±%` is the
+`crates/pob-prof/baseline/baseline.json`: re-blessed in PROF1's fix round 2 on the merged
+`rust-port` (VENDOR's asset bundle: the app reads `assets/`, and VENDOR changed how start-up and
+the tree view load their assets), from a clean commit (2026-11-13T10:51Z, commit `45dfabba`, not
+dirty, label "PROF1 fix round 2 baseline (bundle, PoB checkout and data/ hidden)": run under
+`bwrap` with the main checkout's `.PathOfBuilding` and `data/` replaced by empty directories,
+`--render none`, CPUs 2-7, governor schedutil, load 4.3 -> 1.0, 5 reps + 1 warm-up, 0 failed
+repetitions; within-run relative MAD of the steps' `wall_ms`: median 0.28 %, max 2.4 %). Against
+the fix round 1 baseline (commit `faa9c31b`, PoB checkout inputs): 0 of 732 gated metrics
+REGRESSED, 44 `better`, geomean step `wall_ms` ratio 1.0023. The visible differences: start-up's
+`launch:OnInit` is ~11 ms faster (572 ms), the steps' RSS peaks moved (VmHWM; e.g. `l_save`
+405 -> 466 MB after its reset, the scenarios' totals 551 -> 536 MB), and the heap peaks grew by
+~0.2 MB (the bundle's index). The scenarios changed in this round only by guards (untimed),
+except `h_calcs.hover_cells`, whose fifth hover moved from "Uses per second" (no breakdown) to
+Mana Cost (a popup: 14.1 ms, 103,407 allocations, was 13.9 ms, 103,290). Medians; `±%` is the
 relative MAD; `load ms` is `build_load_ms`. Full numbers: `pob-prof show
 crates/pob-prof/baseline/baseline.json`.
 
-Start-up (median of all 12 app scenarios): `main` to the build list on screen **1.09 s** =
-data.bin 380 ms + fonts 66 ms + `launch:OnInit` 582 ms + the first frame 57 ms; `exec` 0.9 ms.
+Start-up (median of all 12 app scenarios): `main` to the build list on screen **1.08 s** =
+data.bin 379 ms + fonts 67 ms + `launch:OnInit` 572 ms + the first frame 57 ms; `exec` 0.9 ms.
 After that the build list keeps loading the item database in the background for ~0.5 s
-(`a_startup.background_load`, 14 frames of 28-50 ms). Peak RSS 551-589 MB per scenario process
-(`i_power` the highest); the calc-only processes peak at 382 MB.
+(`a_startup.background_load`, 14 frames of 28-119 ms). Peak RSS 536-589 MB per scenario process
+(`i_power` the highest); the calc-only processes peak at 381 MB.
 
 | scenario | step | wall ms (±%) | cpu ms | frames | frame p50 / p95 ms | recalcs (ms) | misc calls | allocs | load ms |
 |---|---|---|---|---|---|---|---|---|---|
-| a_startup | first_frames | 125.8 (0.2) | 125.5 | 3 | 34.72 / 56.49 | 0 (0.0) | 0 | 377,630 | - |
-| a_startup | background_load | 508.5 (0.2) | 507.3 | 14 | 27.84 / 49.77 | 0 (0.0) | 0 | 1,654,313 | - |
-| a_startup | list_hover | 0.3 (0.4) | 0.3 | 9 | 0.03 / 0.04 | 0 (0.0) | 0 | 1,618 | - |
-| a_startup | list_idle | 0.8 (0.3) | 0.8 | 30 | 0.03 / 0.03 | 0 (0.0) | 0 | 5,376 | - |
-| b_open_build | _setup | 632.4 (0.1) | 630.8 | 17 | 33.50 / 56.59 | 0 (0.0) | 0 | 2,031,942 | - |
-| b_open_build | open_cold | 550.9 (0.6) | 549.4 | 5 | 2.42 / 540.91 | 1 (34.3) | 0 | 1,048,162 | 541.0 |
-| b_open_build | open_warm | 109.8 (0.0) | 109.4 | 5 | 2.50 / 99.05 | 1 (30.6) | 0 | 766,203 | 99.1 |
-| b_open_build | open_attack_old_tree | 674.5 (0.2) | 672.8 | 5 | 1.88 / 666.33 | 1 (29.0) | 0 | 1,739,265 | 666.4 |
-| b_open_build | open_minion | 118.7 (0.1) | 118.3 | 5 | 2.46 / 108.04 | 1 (27.0) | 0 | 749,734 | 108.1 |
-| b_open_build | open_dot | 114.7 (0.1) | 114.3 | 5 | 2.55 / 103.67 | 1 (19.6) | 0 | 675,293 | 103.7 |
-| b_open_build | open_many_items | 153.8 (0.1) | 153.3 | 5 | 2.49 / 142.90 | 1 (36.3) | 0 | 860,058 | 143.0 |
-| b_open_build | idle_tree | 49.2 (0.1) | 49.0 | 20 | 2.46 / 2.48 | 0 (0.0) | 0 | 275,065 | - |
-| c_tree_alloc | _setup | 1,225.1 (0.5) | 1,222.0 | 20 | 30.61 / 121.60 | 1 (34.0) | 0 | 3,258,684 | 667.5 |
-| c_tree_alloc | alloc_adjacent | 61.1 (0.4) | 60.7 | 7 | 2.57 / 38.80 | 1 (31.3) | 2 | 368,368 | - |
-| c_tree_alloc | dealloc_adjacent | 52.9 (0.1) | 52.7 | 5 | 2.57 / 38.77 | 1 (31.3) | 1 | 328,576 | - |
-| c_tree_alloc | alloc_path | 63.6 (0.1) | 63.2 | 7 | 2.66 / 39.32 | 1 (31.6) | 3 | 379,741 | - |
-| c_tree_alloc | alloc_keystone | 61.4 (0.3) | 61.1 | 7 | 2.61 / 39.29 | 1 (31.6) | 2 | 369,310 | - |
-| c_tree_alloc | dealloc_notable | 61.7 (0.8) | 61.4 | 7 | 2.66 / 39.50 | 1 (31.7) | 2 | 368,964 | - |
-| c_tree_alloc | undo_redo | 156.0 (0.4) | 155.4 | 10 | 11.11 / 37.32 | 3 (95.3) | 0 | 993,480 | - |
-| c_tree_alloc | dealloc_trunk | 101.1 (0.3) | 100.7 | 10 | 5.05 / 34.32 | 2 (48.6) | 5 | 580,828 | - |
-| d_tree_navigate | _setup | 1,218.3 (0.5) | 1,215.1 | 17 | 33.75 / 121.39 | 1 (34.1) | 0 | 3,215,912 | 674.1 |
-| d_tree_navigate | idle | 49.7 (0.4) | 49.5 | 20 | 2.47 / 2.51 | 0 (0.0) | 0 | 277,226 | - |
-| d_tree_navigate | zoom_in | 15.0 (0.8) | 15.0 | 6 | 2.52 / 2.54 | 0 (0.0) | 0 | 84,113 | - |
-| d_tree_navigate | hover_nodes | 59.0 (0.1) | 58.8 | 15 | 2.78 / 7.01 | 0 (0.0) | 7 | 301,234 | - |
-| d_tree_navigate | sweep | 70.4 (0.3) | 70.2 | 20 | 2.58 / 7.31 | 0 (0.0) | 8 | 371,015 | - |
-| d_tree_navigate | zoom_out | 27.3 (0.3) | 27.2 | 9 | 2.53 / 7.04 | 0 (0.0) | 2 | 149,224 | - |
-| d_tree_navigate | zoomed_out_idle | 25.1 (0.5) | 25.0 | 10 | 2.51 / 2.54 | 0 (0.0) | 0 | 140,534 | - |
-| d_tree_navigate | drag | 20.3 (0.3) | 20.2 | 8 | 2.53 / 2.58 | 0 (0.0) | 0 | 111,196 | - |
-| d_tree_navigate | search | 31.1 (0.7) | 31.0 | 8 | 2.69 / 12.56 | 0 (0.0) | 0 | 204,934 | - |
-| e_items | _setup | 1,238.6 (0.2) | 1,234.6 | 17 | 33.76 / 121.48 | 1 (39.1) | 0 | 3,306,612 | 694.0 |
-| e_items | open_tab | 8.4 (0.5) | 8.3 | 5 | 0.85 / 4.49 | 0 (0.0) | 0 | 69,433 | - |
-| e_items | hover_slots | 28.8 (0.1) | 28.7 | 10 | 3.48 / 6.13 | 0 (0.0) | 5 | 134,571 | - |
-| e_items | swap_helmet | 64.6 (0.3) | 64.4 | 13 | 0.93 / 5.43 | 1 (36.5) | 3 | 432,629 | - |
-| e_items | swap_helmet_back | 65.7 (0.1) | 65.5 | 12 | 0.94 / 5.35 | 1 (36.6) | 4 | 448,109 | - |
-| e_items | item_set | 52.0 (0.1) | 51.8 | 12 | 0.88 / 2.85 | 1 (33.7) | 0 | 350,609 | - |
-| e_items | item_set_back | 55.0 (0.1) | 54.9 | 12 | 0.91 / 2.82 | 1 (36.7) | 0 | 385,955 | - |
-| e_items | weapon_swap | 86.2 (0.2) | 85.9 | 12 | 1.00 / 33.56 | 2 (63.8) | 0 | 642,064 | - |
-| f_skills | _setup | 1,227.1 (0.8) | 1,224.1 | 17 | 33.85 / 121.56 | 1 (34.0) | 0 | 3,215,912 | 682.3 |
-| f_skills | open_tab | 0.9 (0.6) | 0.9 | 5 | 0.16 / 0.24 | 0 (0.0) | 0 | 6,882 | - |
-| f_skills | select_group | 3.5 (0.1) | 3.4 | 5 | 0.62 / 1.38 | 0 (0.0) | 0 | 33,060 | - |
-| f_skills | gem_level | 76.5 (0.1) | 76.2 | 10 | 1.10 / 34.26 | 2 (61.7) | 0 | 566,500 | - |
-| f_skills | gem_toggle | 83.3 (0.1) | 83.1 | 10 | 1.30 / 35.85 | 2 (61.5) | 3 | 612,134 | - |
-| f_skills | add_support_type | 314.1 (0.2) | 313.3 | 7 | 50.96 / 57.44 | 0 (0.0) | 153 | 1,784,831 | - |
-| f_skills | add_support_pick | 206.8 (0.2) | 206.2 | 4 | 52.02 / 57.52 | 1 (31.5) | 84 | 1,319,859 | - |
-| f_skills | remove_support | 94.3 (1.7) | 94.0 | 6 | 2.15 / 51.75 | 1 (31.3) | 26 | 629,020 | - |
-| f_skills | main_skill | 116.9 (0.2) | 116.6 | 24 | 1.95 / 35.58 | 2 (63.3) | 0 | 999,318 | - |
-| g_config | _setup | 1,744.7 (0.2) | 1,740.1 | 17 | 33.80 / 120.82 | 1 (39.2) | 0 | 4,124,630 | 1,208.3 |
-| g_config | open_tab | 26.8 (0.1) | 26.8 | 5 | 4.54 / 8.07 | 0 (0.0) | 0 | 152,596 | - |
-| g_config | hover_options | 67.4 (0.3) | 67.2 | 10 | 8.56 / 9.15 | 0 (0.0) | 5 | 389,085 | - |
-| g_config | toggle_onslaught | 150.4 (0.1) | 150.0 | 10 | 5.55 / 50.65 | 2 (78.2) | 4 | 963,850 | - |
-| g_config | toggle_enemy_shocked | 158.5 (0.1) | 157.9 | 10 | 8.71 / 51.27 | 2 (78.9) | 5 | 987,480 | - |
-| g_config | type_power_charges | 151.4 (0.2) | 151.0 | 13 | 4.85 / 47.28 | 2 (79.2) | 0 | 966,944 | - |
-| g_config | scroll | 28.8 (0.2) | 28.7 | 4 | 9.83 / 9.83 | 0 (0.0) | 0 | 150,672 | - |
-| h_calcs | _setup | 1,740.3 (0.3) | 1,735.9 | 17 | 33.78 / 120.86 | 1 (29.3) | 0 | 4,157,917 | 1,203.3 |
-| h_calcs | open_tab | 5.9 (0.1) | 5.9 | 5 | 1.07 / 1.53 | 0 (0.0) | 0 | 41,028 | - |
-| h_calcs | hover_cells | 13.9 (0.1) | 13.9 | 12 | 1.14 / 1.29 | 0 (0.0) | 0 | 103,290 | - |
-| h_calcs | pin_breakdown | 13.2 (0.2) | 13.1 | 12 | 1.10 / 1.11 | 0 (0.0) | 0 | 93,837 | - |
-| h_calcs | scroll | 6.8 (0.1) | 6.8 | 6 | 1.14 / 1.25 | 0 (0.0) | 0 | 48,959 | - |
-| h_calcs | switch_group | 88.6 (0.0) | 88.3 | 24 | 1.11 / 31.60 | 2 (57.8) | 0 | 618,755 | - |
-| i_power | _setup | 1,207.5 (0.1) | 1,204.6 | 17 | 33.81 / 121.41 | 1 (28.8) | 0 | 3,163,119 | 663.6 |
-| i_power | heat_map | 4,049.6 (0.1) | 4,036.0 | 42 | 104.42 / 105.60 | 0 (0.0) | 0 | 23,085,981 | - |
-| i_power | power_report_list | 29.0 (0.3) | 28.9 | 9 | 3.20 / 3.31 | 0 (0.0) | 0 | 98,501 | - |
-| i_power | level_change_rebuild | 4,117.8 (0.1) | 4,104.4 | 42 | 105.00 / 106.05 | 1 (28.3) | 0 | 23,257,410 | - |
-| i_power | heat_map_minion | 4,455.8 (0.5) | 4,440.8 | 48 | 105.17 / 106.26 | 1 (26.8) | 0 | 26,826,648 | 115.4 |
-| j_compare | _setup | 1,219.0 (0.7) | 1,214.7 | 17 | 33.87 / 121.92 | 1 (34.1) | 0 | 3,215,912 | 671.7 |
-| j_compare | open_tab | 5.5 (0.2) | 5.5 | 7 | 0.11 / 2.51 | 0 (0.0) | 0 | 32,092 | - |
-| j_compare | import_comparison | 614.1 (0.2) | 612.4 | 14 | 0.37 / 1.06 | 1 (30.6) | 0 | 1,305,474 | - |
-| j_compare | summary | 3.6 (0.1) | 3.6 | 6 | 0.57 / 0.69 | 0 (0.0) | 0 | 34,352 | - |
-| j_compare | tree_view | 63.0 (0.5) | 62.7 | 10 | 3.21 / 40.97 | 0 (0.0) | 0 | 405,691 | - |
-| j_compare | skills_view | 7.8 (0.2) | 7.8 | 6 | 0.43 / 3.34 | 0 (0.0) | 0 | 47,378 | - |
-| j_compare | items_view | 17.3 (0.3) | 17.2 | 8 | 0.37 / 8.12 | 0 (0.0) | 6 | 117,425 | - |
-| j_compare | calcs_view | 16.7 (0.5) | 16.6 | 8 | 2.42 / 3.76 | 0 (0.0) | 0 | 144,178 | - |
-| k_import | _setup | 1,236.1 (1.6) | 1,232.3 | 17 | 34.00 / 121.99 | 1 (28.9) | 0 | 3,163,119 | 693.1 |
-| k_import | open_tab | 5.5 (0.3) | 5.5 | 7 | 0.15 / 2.44 | 0 (0.0) | 0 | 32,688 | - |
-| k_import | generate_code | 11.6 (0.1) | 11.6 | 5 | 0.30 / 10.70 | 0 (0.0) | 0 | 52,226 | - |
-| k_import | paste_code | 3.9 (0.1) | 3.9 | 6 | 0.51 / 1.89 | 0 (0.0) | 0 | 7,374 | - |
-| k_import | import_new_build | 120.8 (0.4) | 120.4 | 9 | 2.59 / 103.43 | 1 (26.7) | 0 | 768,423 | 104.4 |
-| l_save | _setup | 632.9 (0.2) | 631.4 | 17 | 33.16 / 56.59 | 0 (0.0) | 0 | 2,031,942 | - |
-| l_save | open_from_list | 538.9 (0.3) | 535.8 | 11 | 2.51 / 525.68 | 1 (21.8) | 0 | 970,483 | 525.8 |
-| l_save | edit_level | 33.5 (0.3) | 33.3 | 5 | 2.44 / 23.66 | 1 (19.6) | 0 | 215,309 | - |
-| l_save | save_ctrl_s | 21.7 (0.5) | 21.6 | 3 | 2.41 / 16.82 | 0 (0.0) | 0 | 103,653 | - |
-| l_save | notes | 1.0 (0.2) | 1.0 | 9 | 0.11 / 0.14 | 0 (0.0) | 0 | 7,893 | - |
-| l_save | save_button | 14.3 (0.3) | 14.3 | 5 | 0.10 / 13.92 | 0 (0.0) | 0 | 66,294 | - |
+| a_startup | first_frames | 125.5 (0.1) | 125.1 | 3 | 34.54 / 56.50 | 0 (0.0) | 0 | 377,641 | - |
+| a_startup | background_load | 508.5 (0.2) | 506.8 | 14 | 27.77 / 50.19 | 0 (0.0) | 0 | 1,654,313 | - |
+| a_startup | list_hover | 0.3 (0.7) | 0.3 | 9 | 0.03 / 0.03 | 0 (0.0) | 0 | 1,618 | - |
+| a_startup | list_idle | 0.8 (0.6) | 0.8 | 30 | 0.03 / 0.03 | 0 (0.0) | 0 | 5,376 | - |
+| b_open_build | _setup | 630.6 (0.1) | 629.0 | 17 | 33.42 / 56.45 | 0 (0.0) | 0 | 2,031,953 | - |
+| b_open_build | open_cold | 549.4 (0.7) | 548.1 | 5 | 2.43 / 539.77 | 1 (34.3) | 0 | 1,048,063 | 539.8 |
+| b_open_build | open_warm | 109.9 (0.0) | 109.5 | 5 | 2.48 / 99.22 | 1 (30.6) | 0 | 766,204 | 99.3 |
+| b_open_build | open_attack_old_tree | 668.3 (0.4) | 666.5 | 5 | 1.83 / 659.97 | 1 (28.9) | 0 | 1,739,355 | 660.0 |
+| b_open_build | open_minion | 118.7 (0.0) | 118.2 | 5 | 2.46 / 108.12 | 1 (27.0) | 0 | 749,735 | 108.2 |
+| b_open_build | open_dot | 114.9 (0.2) | 114.5 | 5 | 2.57 / 103.84 | 1 (19.7) | 0 | 675,294 | 103.9 |
+| b_open_build | open_many_items | 153.5 (0.1) | 153.0 | 5 | 2.48 / 142.68 | 1 (36.3) | 0 | 859,885 | 142.7 |
+| b_open_build | idle_tree | 49.0 (0.4) | 48.8 | 20 | 2.45 / 2.46 | 0 (0.0) | 0 | 275,065 | - |
+| c_tree_alloc | _setup | 1,222.2 (0.4) | 1,219.3 | 20 | 30.56 / 121.51 | 1 (34.1) | 0 | 3,258,596 | 668.0 |
+| c_tree_alloc | alloc_adjacent | 60.9 (0.1) | 60.7 | 7 | 2.58 / 38.77 | 1 (31.3) | 2 | 368,376 | - |
+| c_tree_alloc | dealloc_adjacent | 52.9 (0.1) | 52.8 | 5 | 2.57 / 38.95 | 1 (31.4) | 1 | 328,576 | - |
+| c_tree_alloc | alloc_path | 63.1 (0.4) | 62.9 | 7 | 2.64 / 39.08 | 1 (31.5) | 3 | 379,741 | - |
+| c_tree_alloc | alloc_keystone | 61.7 (0.4) | 61.4 | 7 | 2.61 / 39.44 | 1 (31.8) | 2 | 369,316 | - |
+| c_tree_alloc | dealloc_notable | 61.5 (0.2) | 61.3 | 7 | 2.67 / 39.39 | 1 (31.7) | 2 | 368,964 | - |
+| c_tree_alloc | undo_redo | 155.8 (0.4) | 155.2 | 10 | 11.02 / 37.46 | 3 (95.5) | 0 | 993,480 | - |
+| c_tree_alloc | dealloc_trunk | 101.1 (0.2) | 100.7 | 10 | 5.02 / 34.36 | 2 (48.7) | 5 | 580,828 | - |
+| d_tree_navigate | _setup | 1,217.5 (0.3) | 1,214.4 | 17 | 33.57 / 121.42 | 1 (34.0) | 0 | 3,215,824 | 666.7 |
+| d_tree_navigate | idle | 49.6 (0.2) | 49.4 | 20 | 2.47 / 2.52 | 0 (0.0) | 0 | 277,230 | - |
+| d_tree_navigate | zoom_in | 15.9 (0.3) | 15.8 | 6 | 2.73 / 2.77 | 0 (0.0) | 0 | 84,127 | - |
+| d_tree_navigate | hover_nodes | 59.2 (0.2) | 58.8 | 15 | 2.78 / 7.06 | 0 (0.0) | 7 | 301,258 | - |
+| d_tree_navigate | sweep | 70.8 (0.2) | 70.3 | 20 | 2.59 / 7.34 | 0 (0.0) | 8 | 371,027 | - |
+| d_tree_navigate | zoom_out | 27.8 (0.3) | 27.7 | 9 | 2.54 / 7.07 | 0 (0.0) | 2 | 149,238 | - |
+| d_tree_navigate | zoomed_out_idle | 25.4 (0.8) | 25.3 | 10 | 2.53 / 2.68 | 0 (0.0) | 0 | 140,534 | - |
+| d_tree_navigate | drag | 20.4 (0.9) | 20.4 | 8 | 2.54 / 2.61 | 0 (0.0) | 0 | 111,202 | - |
+| d_tree_navigate | search | 31.5 (0.1) | 31.4 | 8 | 2.72 / 12.59 | 0 (0.0) | 0 | 204,934 | - |
+| e_items | _setup | 1,236.4 (0.3) | 1,232.4 | 17 | 33.60 / 121.41 | 1 (39.2) | 0 | 3,306,524 | 689.8 |
+| e_items | open_tab | 8.9 (0.9) | 8.8 | 5 | 0.95 / 4.61 | 0 (0.0) | 0 | 69,433 | - |
+| e_items | hover_slots | 29.6 (1.0) | 29.5 | 10 | 3.58 / 6.22 | 0 (0.0) | 5 | 134,597 | - |
+| e_items | swap_helmet | 66.2 (0.7) | 65.9 | 13 | 1.01 / 5.55 | 1 (36.9) | 3 | 432,633 | - |
+| e_items | swap_helmet_back | 67.0 (0.4) | 66.8 | 12 | 1.03 / 5.44 | 1 (37.0) | 4 | 448,109 | - |
+| e_items | item_set | 53.2 (0.7) | 53.0 | 12 | 0.97 / 2.97 | 1 (33.9) | 0 | 350,609 | - |
+| e_items | item_set_back | 56.6 (0.7) | 56.3 | 12 | 0.99 / 2.94 | 1 (37.1) | 0 | 385,955 | - |
+| e_items | weapon_swap | 87.5 (0.7) | 87.2 | 12 | 1.11 / 33.87 | 2 (64.0) | 0 | 642,064 | - |
+| f_skills | _setup | 1,222.2 (1.3) | 1,219.1 | 17 | 33.60 / 121.45 | 1 (34.1) | 0 | 3,215,824 | 675.7 |
+| f_skills | open_tab | 0.9 (0.7) | 0.9 | 5 | 0.17 / 0.24 | 0 (0.0) | 0 | 6,882 | - |
+| f_skills | select_group | 3.5 (0.8) | 3.5 | 5 | 0.62 / 1.39 | 0 (0.0) | 0 | 33,060 | - |
+| f_skills | gem_level | 76.4 (0.1) | 76.2 | 10 | 1.09 / 34.25 | 2 (61.7) | 0 | 566,500 | - |
+| f_skills | gem_toggle | 83.3 (0.1) | 83.0 | 10 | 1.28 / 35.86 | 2 (61.5) | 3 | 612,134 | - |
+| f_skills | add_support_type | 314.7 (0.4) | 313.6 | 7 | 51.29 / 57.56 | 0 (0.0) | 153 | 1,784,831 | - |
+| f_skills | add_support_pick | 206.2 (0.3) | 205.6 | 4 | 52.16 / 56.43 | 1 (31.5) | 83 | 1,308,718 | - |
+| f_skills | remove_support | 96.9 (2.4) | 96.6 | 6 | 4.11 / 52.01 | 1 (31.3) | 27 | 639,764 | - |
+| f_skills | main_skill | 116.9 (0.1) | 116.6 | 24 | 1.95 / 35.63 | 2 (63.4) | 0 | 999,318 | - |
+| g_config | _setup | 1,749.7 (0.1) | 1,745.7 | 17 | 33.59 / 120.64 | 1 (39.3) | 0 | 4,124,805 | 1,216.3 |
+| g_config | open_tab | 26.7 (0.1) | 26.6 | 5 | 4.53 / 8.05 | 0 (0.0) | 0 | 152,596 | - |
+| g_config | hover_options | 67.1 (0.3) | 66.9 | 10 | 8.52 / 9.14 | 0 (0.0) | 5 | 389,087 | - |
+| g_config | toggle_onslaught | 150.3 (0.3) | 149.8 | 10 | 5.55 / 50.70 | 2 (78.2) | 4 | 963,850 | - |
+| g_config | toggle_enemy_shocked | 158.3 (0.2) | 157.8 | 10 | 8.66 / 51.22 | 2 (79.1) | 5 | 987,480 | - |
+| g_config | type_power_charges | 151.1 (0.4) | 150.6 | 13 | 4.83 / 47.30 | 2 (79.3) | 0 | 966,944 | - |
+| g_config | scroll | 28.7 (0.4) | 28.6 | 4 | 9.79 / 9.79 | 0 (0.0) | 0 | 150,672 | - |
+| h_calcs | _setup | 1,743.8 (0.3) | 1,739.3 | 17 | 33.63 / 120.73 | 1 (29.5) | 0 | 4,158,092 | 1,203.7 |
+| h_calcs | open_tab | 5.9 (0.7) | 5.9 | 5 | 1.08 / 1.52 | 0 (0.0) | 0 | 41,028 | - |
+| h_calcs | hover_cells | 14.1 (0.1) | 14.1 | 12 | 1.15 / 1.31 | 0 (0.0) | 0 | 103,407 | - |
+| h_calcs | pin_breakdown | 13.1 (0.2) | 13.1 | 12 | 1.09 / 1.12 | 0 (0.0) | 0 | 93,837 | - |
+| h_calcs | scroll | 6.8 (0.1) | 6.7 | 6 | 1.15 / 1.24 | 0 (0.0) | 0 | 48,959 | - |
+| h_calcs | switch_group | 88.8 (0.2) | 88.5 | 24 | 1.11 / 31.69 | 2 (58.0) | 0 | 618,755 | - |
+| i_power | _setup | 1,197.9 (0.1) | 1,194.8 | 17 | 33.59 / 121.25 | 1 (28.8) | 0 | 3,163,031 | 655.0 |
+| i_power | heat_map | 4,067.7 (0.3) | 4,054.2 | 42 | 104.62 / 105.70 | 0 (0.0) | 0 | 23,085,981 | - |
+| i_power | power_report_list | 29.0 (0.2) | 28.9 | 9 | 3.21 / 3.32 | 0 (0.0) | 0 | 98,501 | - |
+| i_power | level_change_rebuild | 4,144.8 (0.3) | 4,125.6 | 42 | 104.91 / 106.01 | 1 (28.4) | 0 | 23,257,410 | - |
+| i_power | heat_map_minion | 4,470.7 (0.4) | 4,454.9 | 49 | 105.38 / 106.53 | 1 (26.8) | 0 | 26,837,294 | 115.4 |
+| j_compare | _setup | 1,214.0 (0.6) | 1,210.9 | 17 | 33.63 / 121.46 | 1 (34.0) | 0 | 3,215,824 | 670.3 |
+| j_compare | open_tab | 5.5 (0.2) | 5.5 | 7 | 0.11 / 2.50 | 0 (0.0) | 0 | 32,092 | - |
+| j_compare | import_comparison | 611.6 (0.2) | 610.1 | 14 | 0.37 / 1.06 | 1 (30.6) | 0 | 1,305,474 | - |
+| j_compare | summary | 3.6 (0.2) | 3.6 | 6 | 0.57 / 0.69 | 0 (0.0) | 0 | 34,352 | - |
+| j_compare | tree_view | 61.0 (0.1) | 60.8 | 10 | 3.02 / 40.01 | 0 (0.0) | 0 | 405,780 | - |
+| j_compare | skills_view | 7.5 (0.3) | 7.4 | 6 | 0.43 / 3.13 | 0 (0.0) | 0 | 47,378 | - |
+| j_compare | items_view | 17.3 (0.1) | 17.3 | 8 | 0.37 / 8.15 | 0 (0.0) | 4 | 117,433 | - |
+| j_compare | calcs_view | 16.6 (0.1) | 16.5 | 8 | 2.41 / 3.72 | 0 (0.0) | 0 | 144,178 | - |
+| k_import | _setup | 1,203.7 (0.3) | 1,200.6 | 17 | 33.65 / 121.70 | 1 (28.9) | 0 | 3,163,031 | 660.7 |
+| k_import | open_tab | 5.5 (0.2) | 5.5 | 7 | 0.14 / 2.43 | 0 (0.0) | 0 | 32,688 | - |
+| k_import | generate_code | 11.6 (0.5) | 11.6 | 5 | 0.30 / 10.70 | 0 (0.0) | 0 | 52,226 | - |
+| k_import | paste_code | 3.9 (0.5) | 3.9 | 6 | 0.51 / 1.89 | 0 (0.0) | 0 | 7,374 | - |
+| k_import | import_new_build | 120.4 (0.5) | 120.0 | 9 | 2.58 / 102.96 | 1 (26.0) | 0 | 768,423 | 104.0 |
+| l_save | _setup | 633.8 (0.0) | 632.2 | 17 | 33.49 / 56.60 | 0 (0.0) | 0 | 2,031,953 | - |
+| l_save | open_from_list | 537.6 (0.3) | 536.2 | 11 | 2.52 / 524.60 | 1 (21.5) | 0 | 970,383 | 524.8 |
+| l_save | edit_level | 33.6 (0.3) | 33.5 | 5 | 2.43 / 23.82 | 1 (19.8) | 0 | 215,309 | - |
+| l_save | save_ctrl_s | 21.7 (0.4) | 21.6 | 3 | 2.43 / 16.82 | 0 (0.0) | 0 | 103,662 | - |
+| l_save | notes | 1.0 (0.6) | 1.0 | 9 | 0.11 / 0.14 | 0 (0.0) | 0 | 7,894 | - |
+| l_save | save_button | 14.4 (0.4) | 14.4 | 5 | 0.10 / 13.99 | 0 (0.0) | 0 | 66,303 | - |
 
 Calc stages per fixture build (`calc_<build>`, main-thread CPU ms; `full` is the app's recalc,
 `buildOutput_MAIN` includes `initEnv` + `perform` + `calcFullDPS` + the cost-warning
@@ -474,13 +479,13 @@ Calc stages per fixture build (`calc_<build>`, main-thread CPU ms; `full` is the
 
 | calc stages (ms, median of 5 iterations, median over reps) | full | initEnv | perform | buildOutput_MAIN | buildOutput_CALCS | getMiscCalculator | misc_call |
 |---|---|---|---|---|---|---|---|
-| allflame_exp_001 | 32.62 | 1.14 | 1.90 | 25.25 | 3.07 | 2.41 | 1.86 |
-| allflame_exp_005 | 38.30 | 1.44 | 1.98 | 29.64 | 3.52 | 2.87 | 2.17 |
-| allflame_exp_016 | 20.75 | 1.05 | 1.45 | 14.31 | 2.76 | 2.24 | 1.64 |
-| allflame_exp_032 | 27.26 | 1.35 | 1.47 | 19.74 | 2.91 | 2.51 | 1.84 |
-| allflame_exp_048 | 27.41 | 1.18 | 1.70 | 20.17 | 3.08 | 2.48 | 1.84 |
-| upstream_Dual_Wield_Cospris_CoC | 40.90 | 1.31 | 3.52 | 30.14 | 4.76 | 4.03 | 3.51 |
-| upstream_Generals_Perforate_Zerker | 30.47 | 1.05 | 3.08 | 22.70 | 2.54 | 3.46 | 2.95 |
+| allflame_exp_001 | 32.65 | 1.14 | 1.90 | 25.27 | 3.07 | 2.41 | 1.87 |
+| allflame_exp_005 | 38.45 | 1.45 | 1.99 | 29.75 | 3.53 | 2.88 | 2.18 |
+| allflame_exp_016 | 20.77 | 1.05 | 1.44 | 14.34 | 2.77 | 2.24 | 1.65 |
+| allflame_exp_032 | 27.23 | 1.34 | 1.47 | 19.79 | 2.91 | 2.52 | 1.85 |
+| allflame_exp_048 | 27.44 | 1.18 | 1.70 | 20.18 | 3.09 | 2.48 | 1.85 |
+| upstream_Dual_Wield_Cospris_CoC | 40.95 | 1.31 | 3.52 | 30.17 | 4.78 | 4.04 | 3.52 |
+| upstream_Generals_Perforate_Zerker | 30.46 | 1.04 | 3.07 | 22.73 | 2.54 | 3.47 | 2.95 |
 
 A `wgpu` run of `d_tree_navigate` (Asahi Vulkan, offscreen 1080p, GPU waited for) gave tree frames
 of ~8.5 ms p50 against 2.5 ms with `--render none`; the CPU rasteriser takes ~200 ms per frame.
