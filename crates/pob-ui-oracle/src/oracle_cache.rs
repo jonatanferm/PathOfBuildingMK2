@@ -192,16 +192,24 @@ fn private_tmp(dst: &Path) -> PathBuf {
 /// Write `data` to `path` atomically (temp file + rename). Errors are reported, not fatal: the
 /// cache is an optimisation.
 fn write_entry(path: &Path, data: &[u8]) {
+    match zstd::encode_all(data, 3) {
+        Ok(body) => write_entry_body(path, blake3::hash(data).as_bytes(), &body),
+        Err(e) => eprintln!("pob-ui-oracle cache: cannot write {}: {e}", path.display()),
+    }
+}
+
+/// [`write_entry`] of an already compressed payload: `sum` is the BLAKE3 of the uncompressed
+/// payload, `body` its zstd stream.
+fn write_entry_body(path: &Path, sum: &[u8; 32], body: &[u8]) {
     let r = (|| -> std::io::Result<()> {
         let dir = path.parent().expect("entry dir");
         std::fs::create_dir_all(dir)?;
         let tmp = private_tmp(path);
-        let body = zstd::encode_all(data, 3)?;
         let res = (|| {
             let mut f = std::fs::File::create(&tmp)?;
             f.write_all(MAGIC)?;
-            f.write_all(blake3::hash(data).as_bytes())?;
-            f.write_all(&body)?;
+            f.write_all(sum)?;
+            f.write_all(body)?;
             f.sync_data()?;
             drop(f);
             std::fs::rename(&tmp, path)
@@ -288,46 +296,144 @@ pub fn get_or_compute_json<T: serde::Serialize + serde::de::DeserializeOwned>(
     compute: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
     get_or_compute_json_with(key, compute, |a: &T, b: &T| {
-        serde_json::to_vec(a).ok() == serde_json::to_vec(b).ok()
+        let h = json_hash(a);
+        h.is_some() && h == json_hash(b)
     })
 }
 
 /// [`get_or_compute_json`] with the comparison [`Mode::Verify`] uses (`same(cached, fresh)`).
+///
+/// Memory (TP4 fix round 1): a UI Lua side's traces are up to ~0.5 GB of JSON, so a miss never
+/// holds the JSON text whole. The value is serialised once, streamed through BLAKE3 into the zstd
+/// encoder; the round-trip check decodes the compressed stream into a second value and compares
+/// the BLAKE3 of its serialisation (two values alive at once, no text). TP2's `to_vec` +
+/// `from_slice` + `to_vec` held two values and two texts at once: u25/u26 peaked at 3.7-4.1 GB
+/// serially, against 2.4-2.6 GB before TP4. The computed value itself is returned on a miss.
 pub fn get_or_compute_json_with<T: serde::Serialize + serde::de::DeserializeOwned>(
     key: &Key,
     compute: impl FnOnce() -> Result<T, String>,
     same: impl FnOnce(&T, &T) -> bool,
 ) -> Result<T, String> {
-    let mut direct: Option<T> = None;
-    let decode = |b: &[u8]| serde_json::from_slice::<T>(b).ok();
-    let same_bytes = |a: &[u8], b: &[u8]| {
-        a == b
-            || match (decode(a), decode(b)) {
-                (Some(x), Some(y)) => same(&x, &y),
-                _ => false,
+    let mode = mode();
+    if mode == Mode::Off {
+        BYPASSED.fetch_add(1, Ordering::Relaxed);
+        return timed(compute);
+    }
+    let root = root();
+    let path = key.path(&root);
+    if let Some(cached) = read_entry(&path).and_then(|b| serde_json::from_slice::<T>(&b).ok()) {
+        HITS.fetch_add(1, Ordering::Relaxed);
+        if mode == Mode::Verify {
+            let fresh = timed(compute)?;
+            if !same(&cached, &fresh) {
+                let dir = root.join("verify-mismatch");
+                let _ = std::fs::create_dir_all(&dir);
+                let c = serde_json::to_vec(&cached).unwrap_or_default();
+                let f = serde_json::to_vec(&fresh).unwrap_or_default();
+                let _ = std::fs::write(dir.join(format!("{}.cached", key.hex)), &c);
+                let _ = std::fs::write(dir.join(format!("{}.fresh", key.hex)), &f);
+                let at = c
+                    .iter()
+                    .zip(&f)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(c.len().min(f.len()));
+                return Err(format!(
+                    "pob-ui-oracle cache verify: {}/{} differs from a fresh Lua run ({} cached bytes, {} fresh, first byte difference at {at}; both kept in {})",
+                    key.kind,
+                    key.hex,
+                    c.len(),
+                    f.len(),
+                    dir.display()
+                ));
             }
+        }
+        return Ok(cached);
+    }
+    MISSES.fetch_add(1, Ordering::Relaxed);
+    let v = timed(compute)?;
+    match encode_json_checked(&v) {
+        Ok((sum, body)) => write_entry_body(&path, &sum, &body),
+        Err(why) => eprintln!(
+            "pob-ui-oracle cache: {}/{} not stored: {why}",
+            key.kind, key.hex
+        ),
+    }
+    Ok(v)
+}
+
+/// A `Write` that feeds BLAKE3 with what it passes on to `inner`.
+struct HashTee<W> {
+    hasher: blake3::Hasher,
+    inner: W,
+}
+
+impl<W: std::io::Write> std::io::Write for HashTee<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        self.hasher.update(&buf[..n]);
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// BLAKE3 of `v`'s JSON, streamed (the text is never held whole).
+fn json_hash<T: serde::Serialize>(v: &T) -> Option<[u8; 32]> {
+    let mut w = std::io::BufWriter::with_capacity(1 << 16, blake3::Hasher::new());
+    serde_json::to_writer(&mut w, v).ok()?;
+    let h = w.into_inner().ok()?;
+    Some(*h.finalize().as_bytes())
+}
+
+/// The 160 bytes of the zstd-compressed one-line JSON `body` before the column `e` names (a
+/// diagnostic: which field did not read back).
+fn json_context(body: &[u8], e: &serde_json::Error) -> String {
+    use std::io::Read as _;
+    let at = u64::try_from(e.column()).unwrap_or(0);
+    let skip = at.saturating_sub(160);
+    let Ok(mut dec) = zstd::Decoder::new(body) else {
+        return String::new();
     };
-    let bytes = get_or_compute_with(
-        key,
-        || {
-            let v = compute()?;
-            let s = serde_json::to_vec(&v).map_err(|e| format!("cache encode: {e}"))?;
-            let round = serde_json::from_slice::<T>(&s)
-                .ok()
-                .and_then(|r| serde_json::to_vec(&r).ok());
-            if round.as_deref() == Some(&s[..]) {
-                Ok(s)
-            } else {
-                direct = Some(v);
-                Err(String::from(NOT_CACHEABLE))
-            }
+    if std::io::copy(&mut (&mut dec).take(skip), &mut std::io::sink()).is_err() {
+        return String::new();
+    }
+    let mut buf = Vec::new();
+    let _ = dec.take(at - skip).read_to_end(&mut buf);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+/// `v` as an entry payload, (BLAKE3 of its JSON, the zstd stream of that JSON), when the JSON
+/// reads back as a value with the same JSON; else why not.
+fn encode_json_checked<T: serde::Serialize + serde::de::DeserializeOwned>(
+    v: &T,
+) -> Result<([u8; 32], Vec<u8>), String> {
+    let enc = zstd::Encoder::new(Vec::new(), 3).map_err(|e| format!("zstd: {e}"))?;
+    let mut w = std::io::BufWriter::with_capacity(
+        1 << 16,
+        HashTee {
+            hasher: blake3::Hasher::new(),
+            inner: enc,
         },
-        same_bytes,
     );
-    match bytes {
-        Ok(b) => serde_json::from_slice(&b).map_err(|e| format!("cache decode {}: {e}", key.hex)),
-        Err(e) if e == NOT_CACHEABLE && direct.is_some() => Ok(direct.expect("computed value")),
-        Err(e) => Err(e),
+    serde_json::to_writer(&mut w, v).map_err(|e| format!("encode: {e}"))?;
+    let tee = w.into_inner().map_err(|e| format!("encode: {e}"))?;
+    let sum = *tee.hasher.finalize().as_bytes();
+    let body = tee.inner.finish().map_err(|e| format!("zstd: {e}"))?;
+    let dec = zstd::Decoder::new(&body[..]).map_err(|e| format!("zstd: {e}"))?;
+    let back: T = serde_json::from_reader(std::io::BufReader::with_capacity(1 << 16, dec))
+        .map_err(|e| {
+            format!(
+                "its JSON does not read back ({e}: ...{})",
+                json_context(&body, &e)
+            )
+        })?;
+    if json_hash(&back) == Some(sum) {
+        Ok((sum, body))
+    } else {
+        Err(String::from(
+            "its JSON reads back as a value with other JSON (no round trip)",
+        ))
     }
 }
 
@@ -362,7 +468,6 @@ pub fn same_state_doc(a: &str, b: &str) -> bool {
 }
 
 const NOT_STORED: &str = "\0pob-ui-oracle cache: a run that failed is not stored";
-const NOT_CACHEABLE: &str = "\0pob-ui-oracle cache: value does not round-trip through JSON";
 
 // ---- source fingerprints -------------------------------------------------------------------------
 
@@ -447,7 +552,10 @@ pub fn third_party_lock(lock: &str) -> String {
 /// this crate's `src/` (boot, runner, the SG bridge, patches, markers, this cache's value types)
 /// but not the parts that run only outside a Lua UI side (`lua_calc.rs`: the bridge, keyed and
 /// cached on its own and never started inside [`cached_lua_run`]; `diff_report.rs`: comparison
-/// after both sides ran; `bin/`: the CLI tools), its `lua/`, `probe/`, `build.rs` and
+/// after both sides ran; `oracle_cache.rs`: this cache, its keys, its pool and its VERIFY
+/// comparisons, which decide where a Lua side's result is kept and when it runs, never what it
+/// returns; a change to what the keys must cover bumps [`EPOCH`]; `bin/`: the CLI tools), its
+/// `lua/`, `probe/`, `build.rs` and
 /// `Cargo.toml` (features); pob-sg (the `Sg` the Lua side draws through, its fonts and trace
 /// recorder), pob-host (scripts, the headless image loader, key delivery) and pob-lua; of
 /// pob-oracle what `boot.rs` takes from it (`jit`: the prelude, the natives, the JIT switch; and
@@ -487,6 +595,7 @@ pub fn lua_side_code_hash() -> &'static str {
             &[
                 "crates/pob-ui-oracle/src/lua_calc.rs",
                 "crates/pob-ui-oracle/src/diff_report.rs",
+                "crates/pob-ui-oracle/src/oracle_cache.rs",
                 "crates/pob-ui-oracle/src/bin",
             ],
         ));
@@ -759,7 +868,8 @@ pub fn cached_lua_run(
 /// Verify comparison of two Lua-side runs: the same error, traces equal up to PoB's own
 /// per-process `pairs` order (`diff_report::order_only_difference`: every frame has the same
 /// calls and side effects as multisets), and the same snapshots and `extra` up to that order
-/// ([`same_text_unordered`]: PoB's `SaveDB` writes attributes and some sections in `pairs` order).
+/// ([`same_text_unordered`], [`same_extra_unordered`]: PoB's `SaveDB` writes attributes and some
+/// sections in `pairs` order).
 #[must_use]
 pub fn same_lua_run(a: &LuaRun, b: &LuaRun) -> bool {
     a.error == b.error
@@ -772,19 +882,51 @@ pub fn same_lua_run(a: &LuaRun, b: &LuaRun) -> bool {
         && a.extra
             .iter()
             .zip(&b.extra)
-            .all(|(x, y)| same_text_unordered(x, y))
+            .all(|(x, y)| same_extra_unordered(x, y))
         && crate::diff_report::order_only_difference(&a.frames, &b.frames).is_ok()
 }
 
+/// One `extra` of [`same_lua_run`]: most are JSON (`serde_json::to_string` of what the test read
+/// back, e.g. saved `Builds/*.xml` texts), where the XML's quotes are escaped (`name=\"v\"`) and
+/// [`same_text_unordered`] would see no attribute. Two JSON texts compare as values with every
+/// string leaf compared by [`same_text_unordered`]; anything else (u16's `Settings.xml` text) as
+/// text.
+#[must_use]
+pub fn same_extra_unordered(a: &str, b: &str) -> bool {
+    fn same(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+        use serde_json::Value as V;
+        match (a, b) {
+            (V::String(x), V::String(y)) => same_text_unordered(x, y),
+            (V::Array(x), V::Array(y)) => {
+                x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same(x, y))
+            }
+            (V::Object(x), V::Object(y)) => {
+                x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
+            }
+            _ => a == b,
+        }
+    }
+    if a == b {
+        return true;
+    }
+    match (
+        serde_json::from_str::<serde_json::Value>(a),
+        serde_json::from_str::<serde_json::Value>(b),
+    ) {
+        (Ok(x), Ok(y)) => same(&x, &y),
+        _ => same_text_unordered(a, b),
+    }
+}
+
 /// `a == b`, or the same multiset of lines once the `name="value"` attributes of each line are
-/// sorted (XML written in `pairs` order; JSON-escaped newlines count as line breaks). A verify
-/// check: it catches a stale or wrong entry, not an order difference.
+/// sorted (XML written in `pairs` order; JSON-escaped newlines count as line breaks, except inside
+/// a `name="..."` value, see [`text_lines`]). A verify check: it catches a stale or wrong entry,
+/// not an order difference.
 #[must_use]
 pub fn same_text_unordered(a: &str, b: &str) -> bool {
     fn norm(t: &str) -> Vec<String> {
-        let mut lines: Vec<String> = t
-            .split('\n')
-            .flat_map(|l| l.split("\\n"))
+        let mut lines: Vec<String> = text_lines(t)
+            .iter()
             .map(|l| {
                 let l = l.trim();
                 // split at `"` boundaries: odd parts are values; a part before a value ending in
@@ -819,6 +961,41 @@ pub fn same_text_unordered(a: &str, b: &str) -> bool {
         lines
     }
     a == b || norm(a) == norm(b)
+}
+
+/// `t` split at line breaks (`\n`, or a JSON-escaped `\\n`) outside `name="..."` values (TP4 fix
+/// round 1). PoB writes values with line breaks in them (u27's `TimelessData searchList`). With
+/// the attributes in `pairs` order such a break falls between other attributes on each run, so
+/// splitting there made one element two different lines per run, and VERIFY failed every u27
+/// entry. A value opens at `="` and closes at the next `"` (an XML value has no raw `"`).
+fn text_lines(t: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    let mut in_value = false;
+    let mut rest = t;
+    while let Some(c) = rest.chars().next() {
+        let step = if !in_value && rest.starts_with("=\"") {
+            in_value = true;
+            cur.push_str("=\"");
+            2
+        } else if in_value && c == '"' {
+            in_value = false;
+            cur.push('"');
+            1
+        } else if !in_value && c == '\n' {
+            lines.push(std::mem::take(&mut cur));
+            1
+        } else if !in_value && rest.starts_with("\\n") {
+            lines.push(std::mem::take(&mut cur));
+            2
+        } else {
+            cur.push(c);
+            c.len_utf8()
+        };
+        rest = &rest[step..];
+    }
+    lines.push(cur);
+    lines
 }
 
 // ---- the bounded pool ---------------------------------------------------------------------------
@@ -1047,6 +1224,7 @@ impl CasePool {
     }
 
     fn give(&self, site: &Site, start: Option<(u64, u64)>) {
+        release_free_heap();
         if let (Some((r0, h0)), Some((r1, h1))) = (start, rss_hwm_kb()) {
             let grew = r1.saturating_sub(r0).max(h1.saturating_sub(h0.max(r0)));
             let mut c = site
@@ -1093,6 +1271,29 @@ fn limit_malloc_arenas(n: usize) {
 
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn limit_malloc_arenas(_n: usize) {}
+
+/// Give the free memory of every glibc malloc arena back to the system (`malloc_trim(0)`), when a
+/// case ends (TP4 fix round 1). The arena cap above comes too late for the arenas libtest's test
+/// threads already have, and each arena keeps its peak heap: u26 (one case at a time, no cache)
+/// peaked at 4.1 GB with the cap alone, against 2.4 GB with `MALLOC_ARENA_MAX=1` from the start.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[allow(unsafe_code)]
+fn release_free_heap() {
+    if std::env::var("POB_TEST_MALLOC_ARENAS").is_ok_and(|v| v == "0") {
+        return;
+    }
+    extern "C" {
+        fn malloc_trim(pad: usize) -> std::ffi::c_int;
+    }
+    // SAFETY: `malloc_trim` is glibc's (this cfg); it takes each arena's lock and returns free
+    // pages to the system; no Rust state, a plain integer in and out.
+    unsafe {
+        malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn release_free_heap() {}
 
 /// A running case of the process-wide pool (released on drop; see `CasePool`).
 pub struct Permit {
@@ -1224,6 +1425,59 @@ mod tests {
             "<A x=\"1\" y=\"3\"/>\n<B z=\"3\"/>"
         ));
         assert!(!same_text_unordered(a, "<A x=\"1\" y=\"2\"/>"));
+        // a value with a line break, with the attributes in another order (u27's searchList)
+        let m1 = "<T s=\"a, 1\nb, 2\" c=\"1\" d=\"\"/>\n</X>";
+        let m2 = "<T c=\"1\" s=\"a, 1\nb, 2\" d=\"\"/>\n</X>";
+        assert!(same_text_unordered(m1, m2));
+        assert!(!same_text_unordered(
+            m1,
+            "<T c=\"1\" s=\"a, 1\nb, 3\" d=\"\"/>\n</X>"
+        ));
+        assert_eq!(text_lines("a\\nb=\"x\ny\"\nc").len(), 3);
+    }
+
+    /// TP4 fix round 1: an `extra` holding saved XML as JSON (`[["Builds/x.xml", "<A ...>"]]`)
+    /// compares up to attribute order, as the raw XML does; a value change still fails.
+    #[test]
+    fn unordered_extra_decodes_json_first() {
+        let saved = |xml: &str| serde_json::to_string(&vec![("Builds/x.xml", Some(xml))]).unwrap();
+        let orig = saved("<Build level=\"90\" mainSocketGroup=\"3\"/>\n<Tree v=\"1\"/>");
+        let reordered = saved("<Tree v=\"1\"/>\n<Build mainSocketGroup=\"3\" level=\"90\"/>");
+        assert!(
+            !same_text_unordered(&orig, &reordered),
+            "the escaped form defeats the text normaliser"
+        );
+        assert!(same_extra_unordered(&orig, &reordered));
+        let changed = saved("<Build level=\"90\" mainSocketGroup=\"2\"/>\n<Tree v=\"1\"/>");
+        assert!(!same_extra_unordered(&orig, &changed));
+        let missing = serde_json::to_string(&vec![("Builds/x.xml", None::<&str>)]).unwrap();
+        assert!(!same_extra_unordered(&orig, &missing));
+        assert!(same_extra_unordered(
+            "<A x=\"1\" y=\"2\"/>",
+            "<A y=\"2\" x=\"1\"/>"
+        ));
+    }
+
+    /// TP4 fix round 1: the streamed JSON payload is the one `to_vec` + `encode_all` gave (the
+    /// entry format is unchanged) and a value whose JSON does not read back is refused.
+    #[test]
+    fn json_payload_is_streamed_and_round_trip_checked() {
+        let v = (
+            vec![1.5_f64, -0.0, 1e300, 0.1 + 0.2],
+            String::from("a\"b\n"),
+            Some(3_u8),
+        );
+        let (sum, body) = encode_json_checked(&v).unwrap();
+        let text = serde_json::to_vec(&v).unwrap();
+        assert_eq!(&sum, blake3::hash(&text).as_bytes());
+        assert_eq!(zstd::decode_all(&body[..]).unwrap(), text);
+        assert_eq!(json_hash(&v), Some(sum));
+        let dir = std::env::temp_dir().join(format!("puoc-json-{}", std::process::id()));
+        let p = KeyBuilder::new("t").part("j").finish().path(&dir);
+        write_entry_body(&p, &sum, &body);
+        assert_eq!(read_entry(&p), Some(text));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(encode_json_checked(&vec![f64::NAN]).is_err());
     }
 
     /// TP4: a fresh scratch directory holding `files`.

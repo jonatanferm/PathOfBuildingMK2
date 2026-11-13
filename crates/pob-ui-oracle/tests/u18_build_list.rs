@@ -430,6 +430,7 @@ fn lua_run(
             &format!("{script:?}"),
             &format!("{screen:?}"),
             &format!("{setups:?}"),
+            &user.path.to_string_lossy(),
         ],
     );
     oracle_cache::cached_lua_run(key, || {
@@ -463,6 +464,28 @@ fn lua_run(
     })
 }
 
+/// TP4 fix round 1: the user dir of one case at a fixed path, `<tmp>/pob-ui-oracle/named/<tag>`,
+/// and an exclusive lock on `<tag>.lock` that keeps another process running the same case out of
+/// it while it lives (bind it first, so the dir goes before the lock). This test's Lua side draws
+/// the user dir's path (the build list's file paths), and the text's width moves the layout, so a
+/// cached Lua side matches only a Rust side run in the same directory (a per-process
+/// `UserDir::new` path failed every warm run); the path goes into the key.
+fn case_user_dir(fixture: Option<&Path>, tag: &str) -> anyhow::Result<(std::fs::File, UserDir)> {
+    let base = std::env::temp_dir().join("pob-ui-oracle").join("named");
+    std::fs::create_dir_all(&base)?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(base.join(format!("{tag}.lock")))?;
+    lock.lock()?;
+    let mut user = UserDir::new(fixture)?;
+    let _ = std::fs::remove_dir_all(&user.path);
+    user.path = base.join(tag);
+    user.reset()?;
+    Ok((lock, user))
+}
+
 /// Run `script` on both sides with `fixture` as the user dir (fresh copies per side).
 fn run_sides(
     root: &Path,
@@ -470,8 +493,9 @@ fn run_sides(
     fixture: Option<&Path>,
     screen: pob_sg::ScreenInfo,
     setups: &[String],
+    tag: &str,
 ) -> anyhow::Result<Sides> {
-    let user = UserDir::new(fixture)?;
+    let (_lock, user) = case_user_dir(fixture, tag)?;
     let builds = user.path.join("Path of Building/Builds");
     let settings_file = user.path.join("Path of Building/Settings.xml");
 
@@ -634,6 +658,7 @@ fn u18_scenarios() {
                 fx.user_dir.as_deref(),
                 runner::screen(w, h, s),
                 &setups(&text),
+                &tag,
             ) {
                 Ok(s) => s,
                 Err(e) => {

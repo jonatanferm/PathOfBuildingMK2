@@ -282,19 +282,21 @@ What is cached and under which key (BLAKE3 over length-prefixed parts plus `EPOC
 
 | kind | value | key |
 |---|---|---|
-| `bridge-build-output` | the two pob-state documents of `LuaSession::load` + `dump_build_output` | `pob_oracle::runner::source_key(PoB src)` (stat fingerprint of every PoB file, `JitPob`'s runtime `jit.rs`/`headless.rs`/`oracle.rs`/`oracle.lua`, mlua/LuaJIT versions, JIT mode), the canonical root, the pre chunk (state encoder), `BRIDGE_INIT_LUA`, build name, build XML, `DUMP_BUILD_OUTPUT_LUA` |
+| `bridge-build-output` | the two pob-state documents of `LuaSession::load` + `dump_build_output` | `oracle_cache::pob_tree_key(PoB src)` (TP4: the relative path and BLAKE3 content hash of every PoB file but the jewel `.bin` caches, `JitPob`'s runtime `jit.rs`/`headless.rs`/`oracle.rs`/`oracle.lua`, mlua/LuaJIT versions, JIT mode), the pre chunk (state encoder; hashed with an empty root, see TP4), `BRIDGE_INIT_LUA`, build name, build XML, `DUMP_BUILD_OUTPUT_LUA` |
 | `bridge-call-misc` | the document of `calcFunc(override, useFullDPS)` | as above, plus the override chunk, `useFullDPS`, `CALL_MISC_LUA` |
-| `ui-<test>` | a test's Lua UI side (`LuaRun`: traces, error, snapshots, what the test reads from the VM or the user dir afterwards) | `ui_key`: content hash of the Lua-side code (`crates/pob-ui-oracle/{src,lua,probe,build.rs}`, `crates/{pob-sg,pob-host,pob-lua,pob-oracle}/{src,Cargo.toml}`, `Cargo.lock`), the test file's own source (its Lua stubs and Lua-side wrapper), `source_key` of PoB `src/` and `runtime/`, the content of the fixture user dir and of the test's script directory, and the case parameters (script, screen, mode, stubs, query chunk) |
+| `ui-<test>` | a test's Lua UI side (`LuaRun`: traces, error, snapshots, what the test reads from the VM or the user dir afterwards) | `ui_key`: `lua_side_code_hash` (TP4 set, see below), the test file's own source as compiled in (`test_source!()`: its Lua stubs and Lua-side wrapper), `pob_tree_key` of PoB `src/` and `runtime/`, the content of the fixture user dir and of the test's script directory (relative names and bytes, no paths), and the case parameters (script, screen, mode, stubs, query chunk, directives the script's steps do not show) |
 
 The bridge keys do not include this crate's Rust code: the cached value is what the VM returned,
 and everything after it (`StateDump::from_json`, injection, adoption) runs on every hit. A Lua UI
 run that ends in an error is returned but not stored.
 
-The `ui-*` keys are deliberately conservative: any edit under the hashed crate directories (this
-crate's `src/`, pob-sg, pob-host, pob-lua, pob-oracle) or to the test file retires that test's
-entries, and the next run recomputes its Lua sides (a "UI-cold, bridge-warm" run). The bridge
-keys survive such edits; they change only with PoB, the oracle runtime and the build XML the
-Rust model saves.
+The `ui-*` keys are deliberately conservative: any edit to the code a Lua UI side runs
+(`lua_side_code_hash`, TP4's set: this crate's `src/` without `lua_calc.rs`, `diff_report.rs`,
+`oracle_cache.rs` and `bin/`, its `lua/`, `probe/`, `build.rs`, `Cargo.toml`; pob-sg, pob-host and pob-lua `src/` and
+`Cargo.toml`; pob-oracle's `lib.rs`, `jit.rs`, `headless.rs`, `lua/` and `Cargo.toml`; the
+third-party packages of `Cargo.lock`) or to the test file retires that test's entries, and the
+next run recomputes its Lua sides (a "UI-cold, bridge-warm" run). The bridge keys survive such
+edits; they change only with PoB, the oracle runtime and the build XML the Rust model saves.
 
 Only the Lua side is cached; the Rust side always runs, so a change to the port is always
 tested. The cached value is one sample of PoB's per-process nondeterminism (LuaJIT's seeded
@@ -369,11 +371,13 @@ take the machine-wide oracle lock per operation, so a bridge-cold run is bound b
 
 Converted call sites: u15 (reference sessions through `LuaSession::cached_*`), u21 (4 tests),
 u29 (3 tests), u32, u41, and `tests/parity.rs` (gallery and scenario cases on the pool, the
-`oracle/` cases after them, one at a time). Every UI test that uses `LuaCalcBridge` gets the
-bridge cache without changes. To convert another test: build the case list, run it through
-`par_map`, return per-case lines/failures and print/assert them in order; wrap the Lua half in
-`oracle_cache::cached_lua_run(oracle_cache::ui_key("ui-<test>", file!(), root, &[fixtures],
-&[params]), || ...)`.
+`oracle/` cases after them, one at a time); TP4 converted the rest (see "TP4" below). Every UI
+test that uses `LuaCalcBridge` gets the bridge cache without changes. To convert another test:
+build the case list, run it through `par_map`, return per-case lines/failures and print/assert
+them in order; wrap the Lua half in
+`oracle_cache::cached_lua_run(oracle_cache::ui_key("ui-<test>", pob_ui_oracle::test_source!(),
+root, &[fixtures], &[params]), || ...)`; a test that keeps a Lua side outside `par_map` holds an
+`oracle_cache::Permit` instead of a per-binary lock.
 
 ### Measurements (TP2, rust-port 4870179 + TP2, 8 cores, ~10 other agents)
 
@@ -404,3 +408,220 @@ Same code, other worker settings (warm): u29 with 2 fixed workers 58 s (3.3 GB),
 workers 54 s (3.4 GB); u32 with 2 fixed workers 39 s; u41 with 2 fixed workers 45-61 s. The
 pool trades those for memory. `POB_ORACLE_CACHE_VERIFY=1` on u41 (114 entries, UI and bridge):
 all matched fresh runs.
+
+## pob-ui-oracle: stable keys and the remaining binaries (TP4)
+
+### Why the converted binaries were slow in the 2026-11-12 07:27 full suite
+
+1. That run did not have the cache at all. `full_suite.sh` checks out rust-port when it starts:
+   it started at 07:27:04 on f571987 (`Merge port/U46`, 07:13), and TP2 was merged three minutes
+   later (91c97a3, 07:30:16). `git merge-base --is-ancestor 91c97a3 f571987` fails, and
+   f571987 has no `crates/pob-ui-oracle/src/oracle_cache.rs`. Its u41 (1943 s), u32, u29, u21
+   and u15 times are pre-TP2 times (slower than TP2's "before" column: the two lanes shared the
+   machine with the pob-oracle crate and other agents). No later full suite had run when TP4
+   started, so TP2 was never measured in the full suite.
+2. With TP2 it would have missed most of the time anyway, for reasons in the keys:
+   - `ui_key` hashed each fixture's path (`f.to_string_lossy()`): the test's script directory
+     and the fixture user dir, both under `CARGO_MANIFEST_DIR`. The `../pob-fullsuite` worktree,
+     the main checkout and every agent worktree had keys of their own, so entries an agent's run
+     wrote were never hits for the full suite (and the reverse).
+   - `lua_side_code_hash` covered all of `crates/pob-oracle/src` and the whole `Cargo.lock`. The
+     Lua UI side uses only `jit` of pob-oracle (`boot.rs`), but the calc oracle's `diff.rs`,
+     `inject.rs`, `patcher.rs`, `runner.rs`, a new bin, or any workspace dependency edit
+     retired every `ui-*` entry: 9 of the 49 rust-port merges of 2026-11-11/12 (FUP3, INT-2,
+     TP2, U54, TP1, CSPLIT, RETYPE, U45, U41), about every other full-suite run.
+   - The bridge keys (and the PoB part of the `ui-*` keys) used
+     `pob_oracle::runner::source_key`: the canonical path plus size and mtime of every PoB file.
+     They happened to match across worktrees here (every worktree's `.PathOfBuilding` is a
+     symlink to the main checkout's), but a touched or copied PoB tree missed everything, and
+     the canonical root went in twice (raw and inside the pre chunk).
+   - `ui_key` read the test file at run time: a test edited after its binary was built keyed
+     the old binary's Lua side under the new source (a stale entry, not only a miss).
+
+### Fixes (`oracle_cache.rs`, `lua_calc.rs::session_key`)
+
+- `pob_tree_key(dir)`: content-addressed. Every file's path relative to `dir` and the BLAKE3 of
+  its content (PoB's derived jewel `.bin`s left out, `patcher::is_derived_cache`), plus the
+  oracle runtime (`jit.rs`, `headless.rs`, `oracle.rs`, `oracle.lua`, compiled in), the
+  mlua/LuaJIT versions and the JIT mode. The per-file hashes are kept in a stat index
+  (`<root>/stat-index/<hash of the dir>.json`: size, mtime, inode, when it was read) so only
+  changed files are read again; a record is used only when the file's mtime is more than 2 s
+  older than the read ("racy git"), and the index never decides the result: a moved or copied
+  tree reads its files and gets the same key. Cold, the 770 MB of PoB's `src/` take a few
+  seconds per process; with the index, a stat walk.
+- `ui_key`: fixtures and script directories go in as `dir`/`file` plus their content hash
+  (names relative to the directory), never their paths; the test file's text is the one
+  compiled into the binary (`pob_ui_oracle::test_source!()`, `include_str!`).
+- `lua_side_code_hash`: the code a Lua UI side runs (the TP2 table above): this crate's `src/`
+  without `lua_calc.rs` (the bridge: keyed and cached on its own, never started inside a
+  `cached_lua_run`), `diff_report.rs` (comparison after both sides ran), `oracle_cache.rs` (the
+  cache itself, since fix round 1, see below) and `bin/`; pob-oracle's
+  `lib.rs`, `jit.rs`, `headless.rs`, `lua/`; and only the third-party packages of `Cargo.lock`
+  (`third_party_lock`: blocks with a `source`). It is still read from the worktree at run time,
+  once per test process: an edit to a hashed file during a multi-binary run gives the binaries
+  that start after it other keys than the ones before it (a warm run after that misses for the
+  early binaries). Do not edit the crate while a measurement runs.
+- `session_key`: no path. The pre chunk is hashed with an empty root: the root only shortens
+  chunk names in the documents (`state_dump.lua` `S.relSource`, which falls back to the last
+  `/src/` of a name), so the documents do not depend on it.
+
+These change every key once: the first run after TP4 is cold.
+
+Tests: `oracle_cache::tests::{keys_are_content_addressed, stat_index_rehashes_racy_files,
+third_party_lock_keeps_registry_packages_only}`.
+
+### Converted binaries
+
+All of u16-u49 that run a Lua side are on the pool with the Lua UI side cached (`ui-uNN`
+kinds): u16-u20, u22-u27, u30, u31, u33-u40 (u38: `ui-u38-unique`, `ui-u38-sd`), u42-u49,
+besides TP2's u15, u21, u29, u32, u41. Same scripts, screens, case sets and comparisons; the
+per-case output lines and failures are collected and printed in case order, then asserted as
+before. Per-binary `static LOCK`s are gone: a scenario loop runs on `par_map`, every other test
+that runs a PoB holds an `oracle_cache::Permit` (a case of the pool of its own). Parameters
+that decide the Lua side but are not in the script's steps go into the key: `#!` directives
+(`u20-setup`, `u20-panes`, saved files, `u35-settings`, `u42-visibility`, `u31-fake-calc`), the
+net fixtures (u27, u43, u44), the compare import (u47, u49), `save_settings` (u16).
+
+u27 keeps its one child process per run, one at a time (16 runs in one process passed the 5 GB
+scope cap); each child's Lua side is cached, and the child prints its cache line as a `u27_`
+line. Not converted: u50 and u52 (concurrent units U50/U53 own them), `tests/parity.rs` (TP2:
+pool, no Lua cache).
+
+### Fix round 1
+
+- **VERIFY compared `extra` wrongly.** Most `extra`s are JSON (`serde_json::to_string` of what a
+  test read back: u20, u22, u31, u33-u37, u43-u45 save `Builds/*.xml` texts into it), so the XML's
+  quotes are escaped (`mainSocketGroup=\"3\"`). `same_text_unordered` splits at `"`, so every
+  name part ended in `=\` instead of `=`. It never found an attribute and fell back to an exact
+  compare, and PoB's `pairs`-order attributes failed the check (4 u45 entries in review). Now
+  `same_extra_unordered` decodes two JSON texts and compares them as values, with every string
+  leaf compared by `same_text_unordered`; anything else (u16's `Settings.xml`) is compared as
+  text (test `unordered_extra_decodes_json_first`).
+- **Multi-line attribute values defeated the text normaliser too** (found by the VERIFY run
+  below: every u27 entry failed). u27's saved `TimelessData searchList` holds line breaks. With
+  the attributes in `pairs` order the break falls between other attributes, so splitting at
+  every `\n` gave different lines per run. `text_lines` now splits only outside `name="..."`
+  values.
+- **`oracle_cache.rs` is out of `lua_side_code_hash`**, like `lua_calc.rs` and
+  `diff_report.rs`. It holds the cache, its keys, the pool and the VERIFY comparisons: they
+  decide where a Lua side's result is kept and when it runs, never what it returns. A change
+  to what the keys must cover bumps `EPOCH`. Each of this round's verifier fixes had retired
+  every UI entry, a 2.4 h cold crate run.
+- **u17 and u18 failed every warm run.** Their Lua sides draw the user dir's path (the Options
+  dialog's build path tooltip, the build list's file paths), and `UserDir::new` is
+  `<tmp>/pob-ui-oracle/<pid>-<n>`. A cached Lua side showed another process's path, and the
+  path's text width also moves the layout. The cold runs passed, because both sides ran in the
+  same dir. Each case of these two tests now runs in a fixed dir,
+  `<tmp>/pob-ui-oracle/named/<case tag>`, under an exclusive `flock` on `<tag>.lock`, so a
+  second process that runs the same case waits. The path also goes into the key
+  (`case_user_dir` in each test). Every other converted binary passed warm, so no other Lua side
+  shows its path.
+- **Memory.** In the first cold run after TP4, u25 (4032 MB) and u29 were SIGKILLed by
+  `oomguard`. u26 reached 4057 MB, u23 3318 MB and u21 3395 MB; before TP4, serially, they took
+  2.0-2.6 GB. `limit_par(1)` did not help: u26 serially still peaked at 4110 MB, and at 4056 MB
+  with `POB_ORACLE_NOCACHE=1`. The growth came from glibc arenas. Each case thread works in an
+  arena, and an arena keeps its peak heap. The in-process `M_ARENA_MAX` cap comes after libtest's
+  test threads have their arenas (u26 serially with a cap of 1: 4123 MB). With
+  `MALLOC_ARENA_MAX=1` in the environment u26 took 2385 MB. Now the pool calls `malloc_trim(0)`
+  when a case ends (`release_free_heap`, in `CasePool::give`, before the case's growth is
+  measured). u26: 2397 MB, same time. A miss also no longer holds the Lua side's JSON text. The
+  value is streamed through BLAKE3 into the zstd encoder, and the round-trip check decodes the
+  compressed stream and compares the BLAKE3 of the re-serialisation (`encode_json_checked`). The
+  entry format is unchanged. TP2's `to_vec` + `from_slice` + `to_vec` held two values and two
+  texts at once, and a u25 entry is up to 30 MB compressed. On a miss the computed value is
+  returned. In the final cold run every binary but u21 (3077 MB) and u25 (3156 MB) stays under
+  3 GB (table below). No binary was killed in it.
+- **u26's Lua side is not cached** (it was not cached under TP4 either: no `ui-u26` entries).
+  With a power report of all-zero power, PoB's heat map draws `SetDrawColor(NaN, ...)`
+  (PassiveTreeView.lua:828-1018: 0/0). JSON writes NaN as `null`, so the trace does not read back,
+  and the cache now says so: `pob-ui-oracle cache: ui-u26/... not stored: its JSON does not read
+  back (invalid type: null, expected f64 ... "SetDrawColor":[null`. u26 warm (156 s) is
+  therefore its cold time. FOLLOWUPS "TP4" has the fix.
+
+### Measurements (TP4 fix round 1, port/TP4 23c5910 on rust-port e0e39e5)
+
+The whole pob-ui-oracle crate ran one binary at a time (`POB_PORT_TEST_JOBS=1`) under
+`scripts/port/cargo.sh test -p pob-ui-oracle --no-fail-fast`, with the full suite's environment
+(`POB_FULL_SUITE=1`, `POB_ORACLE_REQUIRE=1`, `POB_PARITY_DIR`/`POB_ROOT`/`POB_DATA_DIR` of the
+main checkout; these binaries read `fixtures/user1` and their own `tests/uNN`, so the full and
+the quick corpus give the same runs). Cold means a fresh `POB_UI_ORACLE_CACHE` root, so the UI and
+bridge entries were both cold. Warm means the same root again. VERIFY is
+`POB_ORACLE_CACHE_VERIFY=1` on that warm root. Time and peak RSS are the `cargo.sh: bin-time`
+values. The machine is shared with ~10 agents, and a full suite of its own ran during the
+first cold run. The "07:27 full suite" column is the last full suite (binary times, no cache: it
+ran before TP2's merge, see above; u37 was killed there). The parenthesised RSS is from the
+first cold run after TP4, before this round's memory fixes. u17/u18 cold and warm come from a
+rerun after their user-dir fix (their earlier entries were keyed without the path).
+
+| binary | 07:27 full suite (no cache) | cold | warm | VERIFY | peak RSS cold / warm (first TP4 cold) |
+|---|---|---|---|---|---|
+| parity | 156 s | 89 s | 89 s | - | 1288 / 1267 MB (1401) |
+| u15_lua_calc | 611 s | 355 s | 46 s | 310 s | 2015 / 2341 MB (2563) |
+| u16_main | 197 s | 151 s | 63 s | 151 s | 1433 / 1254 MB (1736) |
+| u17_popups | 115 s | 71 s | 23 s | 71 s | 1339 / 1363 MB (1775) |
+| u18_build_list | 154 s | 93 s | 30 s | 92 s | 1438 / 1493 MB (1909) |
+| u19_build | 137 s | 84 s | 37 s | 89 s | 2022 / 1718 MB (2161) |
+| u20_build | 669 s | 111 s | 40 s | 222 s (rc 101) | 1914 / 1698 MB (2145) |
+| u21_stats | 882 s | 400 s | 154 s | 700 s | 3077 / 2858 MB (3395) |
+| u22_notes | 121 s | 54 s | 22 s | 101 s | 1696 / 1667 MB (1896) |
+| u23_tree_view | 461 s | 330 s | 146 s | 352 s | 2636 / 2430 MB (3318) |
+| u24_tree_tooltips | 569 s | 226 s | 46 s | 332 s | 2058 / 1892 MB (2331) |
+| u25_tree_tab | 468 s | 390 s | 205 s | 502 s | 3156 / 2871 MB (4032 killed) |
+| u26_power | 248 s | 169 s | 156 s | 162 s (rc 101) | 2205 / 2200 MB (4057) |
+| u27_timeless | 556 s | 585 s | 314 s | 333 s (rc 101) | 1623 / 1569 MB (1632) |
+| u29_gem_select | 1322 s | 535 s | 66 s | 1787 s (rc 101) | 2798 / 2659 MB (3029 killed) |
+| u30_skills | 325 s | 129 s | 33 s | 254 s (rc 101) | 1817 / 1800 MB (2046) |
+| u31_skills | 550 s | 161 s | 40 s | 418 s | 1950 / 1909 MB (2303) |
+| u32_items | 1325 s | 425 s | 43 s | 538 s | 2099 / 1930 MB (2195) |
+| u33_items_ctor | 224 s | 83 s | 31 s | 118 s | 1800 / 1675 MB (2046) |
+| u34_items_core | 681 s | 196 s | 62 s | 318 s | 1960 / 1721 MB (2147) |
+| u35_display_item | 1766 s | 793 s | 51 s | 1468 s | 2050 / 1949 MB (2187) |
+| u36_craft_a | - | 131 s | 22 s | 575 s | 1754 / 1573 MB (2167) |
+| u37_craft | 106 s (rc -15) | 835 s | 43 s | 2004 s | 1940 / 1775 MB (2509) |
+| u38_tooltips | 559 s | 351 s | 28 s | 262 s (rc 101) | 2233 / 1561 MB (2043) |
+| u39_calcs | 267 s | 127 s | 41 s | 240 s | 2349 / 2249 MB (2443) |
+| u40_breakdown | 251 s | 106 s | 48 s | 212 s | 2301 / 2063 MB (2469) |
+| u41_config | 1944 s | 335 s | 48 s | 384 s | 1828 / 1921 MB (2103) |
+| u42_config | 589 s | 178 s | 50 s | 321 s | 2111 / 1872 MB (2415) |
+| u43_import | 268 s | 93 s | 38 s | 103 s (rc 101) | 1851 / 1835 MB (2104) |
+| u44_character | 260 s | 101 s | 28 s | 67 s (rc 101) | 1713 / 1457 MB (1957) |
+| u45_party | 210 s | 86 s | 23 s | 95 s | 1632 / 1417 MB (1831) |
+| u46_compare | - | 165 s | 51 s | 313 s | 2459 / 2348 MB (2754) |
+| u47_compare | - | 160 s | 59 s | 281 s | 2505 / 2359 MB (2745) |
+| u48_compare_power | - | 44 s | 23 s | 82 s | 1291 / 1214 MB (1597) |
+| u49_compare | - | 251 s | 82 s | 314 s | 2855 / 2176 MB (2805) |
+| u50_compare_draw_b | - | 152 s | 130 s | - | 1443 / 1443 MB (1488) |
+| u52_ext_build_list | - | 103 s | 103 s | - | 1044 / 1091 MB (1052) |
+| total | 15990 s | 8651 s | 2512 s | | |
+
+- Crate total, one binary at a time: cold 8651 s (2.4 h), warm 2512 s (42 min). The 07:27 full
+  suite took 15990 s for the binaries it ran. The warm target ("well under 1 h") holds serially.
+  With `testrun.py`'s default `POB_PORT_TEST_JOBS=3`, free run slots make it shorter. Warm, u27
+  (314 s: 16 child processes, Rust-bound timeless generation), u25 (205 s), u26 (156 s,
+  uncached Lua side), u21 (154 s) and u23 (146 s) are the long ones.
+- `POB_FULLSUITE_TIMEOUT` (default 14400 s per crate) needs no change for this crate. Warm fits
+  with a wide margin. A cold crate run (8651 s here) happens after any edit to the
+  `lua_side_code_hash` set, PoB or the oracle runtime, and it also fits, with 1.6 h to spare
+  for slot waits. The per-crate timeout counts waiting time. If a cold pob-ui-oracle run ever
+  shares the machine with a cold pob-oracle run (6585 s serially) and both wait for slots, raise
+  the timeout to 21600 s for that run.
+- VERIFY ran on all 34 cached binaries (u15-u49 without u28) on the warm root at 23c5910:
+  26 passed and 8 failed. 27 of about 2,600 verified entries differed (13572 s). Every
+  difference is either PoB not reproducing its own output from one process to the next, or one
+  more verifier gap. None is a stale or wrong entry:
+  | class | PoB source | entries (binaries) |
+  |---|---|---|
+  | line breaks inside an attribute value (verifier gap, fixed above) | u27's `TimelessData searchList` | 14 ui-u27 |
+  | gem variant pick | SkillsTab.lua:472-478, `pairs(possibleVariants)` (Vaal Righteous Fire vs its AltX) | 1 each ui-u20, ui-u29, ui-u30 |
+  | flask buff source | CalcPerform.lua:1773, `pairs(flasks)` (item tables as keys): the first flask with an identical mod names `source` | 3 bridge-build-output (u26, u29) |
+  | unique flavour text | ItemsTab.lua:4578-4580, first of `pairs(flavourTable)` | 2 ui-u38-unique |
+  | `masteryEffects` value order | PassiveSpec.lua:203, `pairs(self.masterySelections)` | 3 ui-u44 |
+  | export code | the deflated, `pairs`-ordered build XML (u43's round trip) | 2 ui-u43 |
+
+  The tests themselves accept every one of these: they passed cold and warm on the same
+  entries, and u20's T4 compare sets the variant pick aside explicitly. The binaries that failed under VERIFY did so only because the verify error aborted
+  their Lua or bridge side: u26 and u30 then report Rust-side divergences. After the line-break
+  fix, cold + VERIFY on a fresh root passed u27 (16 entries), u45 (the review's 4 failing
+  entries: 26 hits, 0 mismatches) and u16 (`Settings.xml` text `extra`s) with 0 mismatches
+  (1009 s). The other classes stay VERIFY failures, by design: the check is exact up to order,
+  and these values differ between PoB runs. FOLLOWUPS "TP4" has the options.
