@@ -1,6 +1,6 @@
 # Calc goldens and the PoB cut-over: plan (GOLD-PLAN)
 
-Status: plan for review, 2026-11-13, on rust-port `0dbdab33`; revised after review (fix round 1).
+Status: plan for review, 2026-11-13, on rust-port `0dbdab33`; revised after review (fix rounds 1 and 2).
 Docs only. The only code is a throw-away size probe in the scratchpad (appendix A).
 
 Inputs:
@@ -55,12 +55,20 @@ counts. GOLD1 replaces every [E] with a measured number before any golden is com
 - **Gate before deletion** (§4). Every live PoB test that guards behaviour passes at the gate
   commit, with its pinned counts. Every golden runner passes with zero failures, compares at least
   those counts, runs in a worktree that has no `.PathOfBuilding`, `data` or `.parity`, and fails
-  its negative control. The recorder reproduces the committed goldens byte for byte (VERIFY).
+  its negative control. In the same worktree, every test target of every crate in CI's unit job
+  passes, with no skip variable set and no `SKIP` in any log. The recorder reproduces the
+  committed goldens byte for byte (VERIFY).
 - **Cut-over** (§5): VENDOR, then the gate, then tag `pob-oracle-final`, then deletion, then a CI
   rewrite.
 - **Tests that need no PoB** but live in the crates that CUT1 deletes (BM-A's XML test, the PWR
   stepping test, U0's data.bin test, the par pool, …) each get a destination and an owning unit, or
   an explicit drop (§1.7). They move before the gate, and CUT1 checks that none is left behind.
+- **Product tests outside the oracle crates** that read the PoB checkout, `data/dump`, `.parity` or
+  files inside the deleted crates (pob-app's `fup5_teardown` and `u54_worker_calc`, pob-sg's font
+  and image tests, pob-sg-wgpu's T5 text frames, pob-host's asset test, pob-calc's INT-2 bench,
+  `leak1_cycles`, `dump_load`, …) are listed one by one in §1.8, each with an owner and a
+  destination (the asset bundle or `tests/golden/builds/`) or a drop. The gate runs every product
+  crate's test suite in the PoB-free worktree, with no skip variable set (§4.3).
 - **Units** (§6): GOLD1 (format and runner core) and GOLD2 (fixtures). Then GOLD3-GOLD13 run in
   parallel, three at a time. Then GATE, then CUT1. CUT2 (removing the `probe` feature from product
   crates) is optional.
@@ -194,15 +202,84 @@ Smaller sets (CO-A/B, for example) stay plain.
 | **fn.modstore** (MS-A, MS-B) | per all57 build: the store inputs (stores, mods, actors, items, cfgs, as MS-B's `l3_full.lua` serialises them), the full L3 matrix (Sum BASE/INC, More, Flag, Override, List, Tabulate, HasMod, Max, Min, GetCondition, GetMultiplier ±noMod, GetStat) with every tag path, MS-B's synthetic tag probes, and MS-A's own parts (ScaleAddMod at six scales, ScaleAddList, createMod, the synthetic MAX/MIN stores, the item and buff list stores). **Trivial answers elided** (§2.3) | query set; input = store graph | build key + store label + op + cfg name + mod names | caches: MS-B 587 / 24.8 MB, MS-A 334 / 15.5 MB [M]. With elision and the MS-A/MS-B overlap removed: ≈15 MB zstd [E] |
 | **fn.skills** (AS `as_oracle`) | 5,015 cases (3,790 socket-group × weapon-setup cases over all57, 1,225 granted effects): skillTypes and skillFlags (names), skillData, the ordered skill mod list (mod/1), buffs, minion skills. Stat-map runs are `$unordered` where AS compares them order-free today | query set over fixtures | build key + socket group index + weapon setup, or `effect:<grantedEffectId>` | ≈40 / 3 MB [E] |
 | **fn.config** (CO-A, CO-B merged; CO-C) | CO-A/B: for each of the 539 options × its values (4,148 cases), the resulting modList and enemyModList (mod/1), the error status, the radius placeholder, and the boss pre/post state. CO-C: `ConfigTab:BuildModList` for all57 and the all-vars synthetic build, plus every ModMap affix apply | query set | config var name + value / build key | CO-A/B ≈3 / 0.3 MB [E]. CO-C cache 48.3 / 1.25 MB [M, matched to CO-C by content] |
-| **fn.tabs** (BM-B) | skills, config and party tab Load, UpdateSocketGroups, Save and round trip on all57 and the BM-B synthetics; ParseBuffs and exportBuffs; ProcessGemLevel for every gem × mode × level (> 50k values). The 5 values BM-B counts as pending today (`BUFFS_BOUNDS` = (3310, 5, 0): `str.Warcry` exports whose mods lose the tag key `warcryPowerBonus`, which `pob_gamedata::Tag` does not model, CCR-0014) are written as `{"$known":"CCR-0014","pob":…}`, with the count pinned to 5 in MANIFEST | query set over fixtures | build key + tab path / gem id + mode + level | caches 7.7 / 0.95 MB + 4.0 / 0.22 MB + 0.28 / 0.01 MB [M] |
+| **fn.tabs** (BM-B) | skills, config and party tab Load, UpdateSocketGroups, Save and round trip on all57 and the BM-B synthetics; ParseBuffs and exportBuffs; ProcessGemLevel for every gem × mode × level (> 50k values). The 5 values BM-B counts as pending today (`BUFFS_BOUNDS` = (3310, 5, 0): `str.Warcry` exports whose mods lose the tag key `warcryPowerBonus`, which `pob_gamedata::Tag` does not model, CCR-0014) are written as `{"$known":"CCR-0014","pob":…}`, with the count pinned to 5 in MANIFEST. BM-B's other buckets are declared up front (below the table), not left to K runs | query set over fixtures | build key + tab path / gem id + mode + level | caches 7.7 / 0.95 MB + 4.0 / 0.22 MB + 0.28 / 0.01 MB [M] |
 | **fn.tools** (CT `ct_oracle`) | formatMod, formatSourceMod, formatTags and the round trip on every ModCache mod; type expressions on the frozen random RPN set; support compatibility for all (support, active) pairs × 3 variants **as a bitset**; buildSkillInstanceStats; validateGemLevel; statMap; the gem fns; the breakdown helpers on the frozen random inputs; formatNumSep and formatCalcVal. **Dropped**: the `cacheSkillUUID` check (a GlobalCache key, internal) and copyTableSafe (Lua tables) | query set | function name + input id (gem id, mod line, pair index) | ≈20 / 2 MB [E] |
+
+**fn.tabs: BM-B's buckets.** BM-B tolerates three kinds of values today (BM-B.rs:1512-1526). Each
+gets a fixed encoding at record time, because K = 2 runs cannot be relied on to see PoB's other
+`pairs` orders (the tabs LUA-ORDER count went 12 → 18/19 between two runs of the same code,
+BM-B.rs:1517-1518):
+
+- **Flipped gems** (LUA-ORDER, `lua_order_gem`). An old-format `<Gem>` whose `gemId` and `skillId`
+  match several variants (Vaal X / Vaal X AltX) gets the first variant in `pairs` order
+  (SkillsTab.lua:474-479). The ambiguous gems are known from the data alone (BM-B's
+  `ambiguous_variants`: same `gameId` and `grantedEffectId`; 10 in the corpus). For each one, the
+  recorder loads the build once per variant, with that gem's `variantId` written into the XML,
+  and records the gem's whole record (every load field under its `gems[n]` prefix, plus the
+  `variantId` and `nameSpec` its Save writes) as one line:
+  `{"$anyOf":[{record with variant A}, {record with variant B}, …]}`. The runner compares the
+  Rust gem record as one object, so fields cannot mix variants. Record-time check: the
+  forced-variant record of the variant PoB actually picked equals the record of the original
+  load, byte for byte; otherwise the record fails and GOLD5 resolves it. MANIFEST pins the number
+  of such gems (`orderDependent.gems`).
+- **Reordered multi-line party labels** (LUA-ORDER, `lua_order_label`). The labels PoB builds
+  with `pairs` (ParseBuffs `enemyModList`, PartyTab.lua:748; `otherEffects`, 939) are written as
+  `{"$unordered":[line, …]}`, split on the newline as `label_lines` does today. The adapter
+  encodes the Rust label for the same keys as its list of lines. Every multi-line party label is
+  written this way (BM-B's `label_candidates`), whatever order PoB used in the recording run.
+  MANIFEST pins their number (`orderDependent.labels`).
+- **The `expected` bucket** (the third element, 1, of `TABS_BOUNDS` and `SYNTHETIC_BOUNDS`). It is
+  a config input equal to its default, which a Save leaves out (ConfigTab.lua:969-970), so a
+  round trip does not bring it back. BM-B checks the round trip Rust against Rust today
+  (BM-B.rs:1412-1450). The golden records PoB's own round trip (PoB Save, then PoB Load into a
+  fresh build), where PoB drops the same input, so the key is `{"$absent":true}` in the
+  round-trip record and needs no tolerance. The two values are listed in GOLDEN-GATE.md.
 
 ### 1.4 Fuzz output sets
 
 | Set (replaces) | What to record | Form | Stable key | Size raw / zstd |
 |---|---|---|---|---|
-| **fuzz.defence** (DF-A `dfa_random_vs_luajit`) | hitChance, armourReduction(F), applyDmgTakenConversion, takenHitFromDamage and reducePoolsByDamage on fixed-seed random inputs: **20,000 per function** (not 100,000, see §2.3), plus every case of the old 100k streams that raised (`$error`) or hit a bucket (inf, NaN, zero). Inputs are not stored: a **frozen copy of today's generator** lives in `pob-golden`, with today's four seeds (DF-A.rs: 0xDFA001 for hitChance and armourReduction(F), 0xDFA002 for applyDmgTakenConversion, 0xDFA003 for takenHitFromDamage, 0xDFA004 for reducePoolsByDamage), and each shard records a digest of its inputs | fuzz output set | function + case index | ≈7 / 3 MB [E: 120k × 3 numbers] |
+| **fuzz.defence** (DF-A `dfa_random_vs_luajit`) | hitChance, armourReduction(F), applyDmgTakenConversion, takenHitFromDamage and reducePoolsByDamage on fixed-seed random inputs: **20,000 per function** (not 100,000, see §2.3), plus every case of the old 100k streams that raised (`$error`) or hit a bucket (inf, NaN, zero). The generated inputs are not stored: a **frozen copy of today's generator** lives in `pob-golden`, with today's four seeds (DF-A.rs: 0xDFA001 for hitChance and armourReduction(F), 0xDFA002 for applyDmgTakenConversion, 0xDFA003 for takenHitFromDamage, 0xDFA004 for reducePoolsByDamage), and each shard records a digest of its inputs. **PoB's `pairs` orders are stored**, as a recorded input, for the two functions that take them (below the table) | fuzz output set | function + case index (the index into that function's full 100k stream) | ≈7.5 / 3.2 MB [E: 120k × 3 numbers + 60k orders] |
 | **fuzz.offence** (OF-A `ofa_fuzz_vs_luajit`) | calcDamage, calcAilmentSourceDamage, the area/radius helpers, cooldown, duration, totemLife and calcResistForType on the 1,500-case fixed-seed streams: results, breakdown lines and written tables. Inputs stored, since they include tables | fuzz output set | helper name + case index | ≈5 / 0.5 MB [E] |
+
+**fuzz.defence: generation and the recorded orders.**
+
+- **Regeneration rule.** The runner always generates each function's **full** stream, exactly as
+  DF-A does with `DFA_N` = 100,000 today, and then picks the stored case indices from it. A case
+  index is the position in that function's 100k stream. This matters because hitChance,
+  armourReductionF and armourReduction draw from **one** `Rng(0xDF_A001)`, in that order
+  (DF-A.rs:468-470): armourReductionF's case 0 comes after all 100,000 hitChance draws. Cutting
+  the generation to 20,000 would change the inputs of the second and third functions, and the
+  edge-case indices (which point into the full streams) would name other inputs. The generator is
+  cheap: 600,000 small tuples, well under a second [E]. The input digest in each shard header covers
+  the full generated streams.
+- **The orders are inputs.** Two of the functions see PoB's `pairs` order, which LuaJIT
+  randomises per process, and the Rust tables are built in that order today:
+  - **takenHitFromDamage**: the Lua side returns its shift-table key order (`DFA_T`,
+    DF-A.rs:319-325), and Rust builds `damageShiftTable[dtype]` in that order (DF-A.rs:797-806).
+  - **reducePoolsByDamage**: `keyOrder(dmg)` and `keyOrder(dmg2)` (`DFA_P`, DF-A.rs:327-356)
+    give the orders of both damage tables, and Rust builds them in those orders
+    (DF-A.rs:1137-1176). With a NaN pool, `m_min` over `pairs(damageTable)` (CalcDefence
+    401-404) depends on the order, not only the rounding.
+
+  So the golden line of a case of these two functions is
+  `[<function>#<case index>, {"orders":[o1, o2, …]}, {"$perOrder":[v1, v2, …]}]`. Each `o` is the
+  order PoB used in one recording run, as a list of damage-type names (for reducePoolsByDamage a
+  pair `[dmg order, dmg2 order]`, the second empty when the case has no `dmg2`). Each `v` is PoB's output in that run. Runs that saw the same order are
+  stored once.
+- **How the adapter uses them.** `fuzz_helper("takenHitFromDamage" | "reducePoolsByDamage", input)`
+  receives the generated case plus one order, and builds the Rust tables in that order, as DF-A
+  does today. The runner calls it once per stored order and compares each result with its `v`.
+  When the refactor replaces the order-dependent tables with ordered or keyed types, the adapter
+  still takes the order and inserts the keys in it. If a refactor makes a result independent of
+  the order on purpose, the cases whose `v`s differ between orders fail, and are blessed with a
+  reason (§3.6).
+- **K runs.** The K = 2 recording runs (§3.1) each produce their own (order, output) pair, and
+  both pairs are kept. `--verify` (§4.2) treats a new order like a new `$anyOf` alternative: it is
+  reported and folded in. A known order must give byte-identical output.
+- **bitExact.** The `bitExact` pin of these two functions (§3.5) counts (case, order) pairs, and
+  is only meaningful because Rust runs on PoB's order. Without the stored orders the NaN-pool
+  cases would fail, and the others would lose bit-exactness through summation order.
 
 ### 1.5 The special corpora that only segment tests reach today
 
@@ -285,7 +362,7 @@ unit, or an explicit drop with a reason.
 | `src/par.rs` (6 tests) | KEEP while the pool is used | `crates/pob-golden/src/par.rs` | GOLD1 | moved with the pool (§3.3), tests unchanged |
 | `src/diff.rs` tests `tolerance`, `stores_multiset_and_order`, `nondet_values_and_orders`, `unordered_lists_with_nested_orders`, `store_alternatives_per_name` | KEEP-REWRITE | `crates/pob-golden/src/compare.rs` | GOLD1 | The compare engine takes over num_close, the leaf and tree equality, and the mod-store multiset with its order report (§3.5). The tests move with it, with their inputs rewritten from the oracle's `$store` and nondet-path forms to the golden markers (`$unordered`, `$anyOf`). `units` is dropped: it reads the Lua unit ranges of calc-architecture.md |
 | pob-ui-oracle `u53_perf.rs` | KEEP; PERF, no oracle | `crates/pob-app/tests/tree_perf.rs` | GOLD13 | It drives `PobApp` through pob-ui-oracle's scenario runner and reads the tree assets from the PoB checkout. The move puts a minimal driver in the test file, uses the asset bundle, and reads its 4 builds (all all57: allflame_exp_001, allflame_exp_048, the Cospris CoC and Generals Perforate builds) from `tests/golden/builds/all57/`. CI's release perf job runs it (§5 step 8) |
-| pob-ui-oracle PoB-free UI parts: `u26_progress_steps`, `u48_progress_steps`, `u38_undo_round_trip` | KEEP / KEEP-REWRITE; UI-UNIT | `crates/pob-app/tests/` | GOLD13 | Moved if they run on `PobApp` without pob-ui-oracle's runner. Otherwise they are dropped under the user's decision (no UI goldens, UI scenarios later), and each drop is listed in GOLDEN-GATE.md |
+| pob-ui-oracle PoB-free UI parts: `u26_progress_steps`, `u48_progress_steps`, `u38_undo_round_trip`, `u43_share_rust`, `u44_rust_unit`, `u45_disable_party_effects` | KEEP / KEEP-REWRITE; UI-UNIT | `crates/pob-app/tests/` | GOLD13 | Moved if they run on `PobApp` without pob-ui-oracle's runner. Otherwise they are dropped under the user's decision (no UI goldens, UI scenarios later), and each drop is listed in GOLDEN-GATE.md |
 
 One product test also reads `.parity`: `crates/pob-calc/tests/leak1_cycles.rs`, through
 `pob_testpaths::parity_build` (it is the only one outside the oracle crates and pob-testpaths).
@@ -304,6 +381,55 @@ GOLD2 re-points it at `tests/golden/builds/all57/<stem>.xml`, so it runs in the 
 | PF-A `pfa_stages_file_patches`, U0 `registry_complete`, `provenance_check_and_coverage`, `stages_*` | provenance and PoB source (§1.6) |
 | `u0_smoke`, `worker_smoke`, `oracle_harness` | smoke tests of the oracle boot. e2e.ca supersedes them |
 | `src/runner.rs` (query cache), `src/testkit.rs` (cache refresh) | they cache PoB runs. The committed goldens replace the cache |
+| pob-ui-oracle `u29_data_invariants` | it checks data facts that the UI port's ORDER notes rely on (inventory: RETIRE); the facts are frozen with `data.bin` |
+| pob-ui-oracle src tests: `markers` (2), `oracle_cache` (9), `patches` (4), `runner` (4), `sg_bridge` (4) | self-tests of the UI oracle tooling: patch anchors in the pinned PoB, the Lua-side cache, the scenario runner against `run_headless`, the bridge's glob and net fixtures (inventory: RETIRE with the oracle tooling) |
+
+### 1.8 Product tests outside the oracle crates that read PoB, `data/dump` or the deleted crates
+
+VENDOR moves the product's **runtime** reads to the asset bundle and leaves the tests alone
+(VENDOR item 5: "Tests and oracle crates may keep reading the PoB checkout. They are deleted at
+the cut-over"). So this plan owns every product test that still reads `.PathOfBuilding`,
+`data/dump`, `.parity`, or a file inside pob-oracle, pob-ui-oracle or pob-dump. Without this
+section they would first fail in CUT1's CI unit job.
+
+How the list was made (rust-port `0dbdab33`):
+`grep -rnE '\.PathOfBuilding|POB_ROOT|POB_SRC|pob_testpaths|data/dump|\.parity|pob-ui-oracle/|pob-oracle/|pob-dump/'`
+over `src/`, `tests/` and `benches/` of every workspace crate except pob-oracle, pob-ui-oracle,
+pob-dump and pob-testpaths, then each hit read. The hits in product code (app/pob-desktop with
+its `sg_demo` bin, app/pob-web, pob-host's checkout search in `loader_native.rs`, pob-gamedata's `#[path]` includes
+of pob-dump's generated files) are VENDOR's and §5 step 5's.
+
+Rules for every row:
+- **The bundle** means VENDOR's asset bundle, found through the lookup the product uses. No test
+  searches ancestors for `.PathOfBuilding` any more.
+- **A missing input fails.** No `pob_testpaths::require` skip, no early `SKIP:` or `PENDING`
+  return, no `POB_ALLOW_SKIP`.
+- **Timing.** GOLD13 waits for VENDOR. GOLD1 and GOLD2 can finish before VENDOR merges. A test they
+  move or re-point keeps reading `data/dump` for its data.bin until then, and GOLD13 switches it to
+  the bundle. §4.3 fails on any test that still reads the old places.
+
+| Test | Reads today | Destination | Owner | What changes |
+|---|---|---|---|---|
+| pob-app `tests/fup5_teardown.rs` (2 tests), `tests/u54_worker_calc.rs` (4 tests) | `pob_testpaths::require(pob_root(), …)` and `require(dump_dir(), "data/dump")` (fup5_teardown.rs:36-37, u54_worker_calc.rs:39-40): PoB's `src` and `runtime` as the headless host's assets, `data/dump` for data.bin, PoB's `src` as the timeless LUT script path. Also the fixture user dir `crates/pob-ui-oracle/fixtures/user1` (fup5_teardown.rs:50, u54_worker_calc.rs:53): `Settings.xml` and 6 builds | stay in pob-app. Assets, data.bin and LUT data from the bundle. `Settings.xml` and the README move to `crates/pob-app/tests/fixtures/user1/`. The 6 builds are copied at test start into a temporary user dir from `tests/golden/builds/all57/` (all 6 are byte-identical to their `.parity/builds` files today, checked with `cmp`), so they are not committed twice | GOLD13 | `root()` becomes a bundle lookup that panics when the bundle is missing |
+| pob-app `src/tabs/party.rs` `notes_desc_is_the_long_string` | `pob_src()`: PartyTab.lua's `notesDesc` | dropped | GOLD13 | It checks the port's copy `NOTES_DESC` against PoB's source. After VENDOR the copy is the source (VENDOR item 3 moves such text into code or the bundle) |
+| pob-sg `tests/font_atlases.rs`, `font_cursor.rs`, `font_draw.rs`, `font_width.rs`, and `font_goldens.rs` `goldens_match_reference` (all through `font_util::locate`) | PoB's `runtime/SimpleGraphic/Fonts` (`$POB_ROOT` or an ancestor) | stay. `font_util::locate` becomes the bundle lookup | GOLD13 | `font_goldens.json` stays as committed data. Its generator `crates/pob-ui-oracle/probe/rfont_ref.py` (an independent transcription of SimpleGraphic's `r_font.cpp`; it reads only the font files) moves to `crates/pob-sg/tests/font_ref/rfont_ref.py`, and the regenerate line in `font_goldens.rs` points at it and at the bundle's fonts |
+| pob-sg `font_goldens.rs` `probe_cases_match_goldens` | `crates/pob-ui-oracle/probe/cases.lua` (font_goldens.rs:170-176) | dropped | GOLD13 | it checks that the Wine probe's case table equals the goldens' strings. The probe goes with pob-ui-oracle |
+| pob-sg `tests/font_probe.rs` (`real_simplegraphic_metrics`, `comparator_self_test`) | `crates/pob-ui-oracle/probe/expected/metrics.json` | dropped | GOLD13 | That file was never recorded, so the test prints `PENDING` and passes (a silent skip today). Its purpose is parity with the real `SimpleGraphic.dll` under Wine: UI parity with PoB, which the user ruled out. The self-test only tests that comparator |
+| pob-sg `src/font/mod.rs` tests that load fonts (`tgf_parse_counts`, `height_map`, `known_widths`, `tofu_width`, `cursor_index`, `layout_alignment_and_escapes`, `offscreen_line_still_applies_escapes`, `atlases_white_rgb`, `glyph_cell_has_ink_top_down`) | `pob_testpaths::pob_root()` fonts; skip with `POB_ALLOW_SKIP` | stay. `tests::locate` becomes the bundle lookup; pob-sg's `pob-testpaths` dev-dependency goes | GOLD13 | - |
+| pob-sg `src/image.rs` `pob_assets_decode` (and the ignored `pob_all_tree_versions_decode`) | PoB's `src/Assets` and `src/TreeData/*` images; returns early with `SKIP:` (image.rs:1611-1614) | stay, on the bundle's images (the art and tree sheets VENDOR bundles) | GOLD13 | the `SKIP` return becomes a failure. The floor of 130 images stays, or is re-pinned to the bundle's count with the reason in GOLDEN-GATE.md |
+| pob-sg `src/color.rs` `palette_equals_dll_table` | PoB's `runtime/SimpleGraphic.dll`; returns early with `SKIP:` | dropped | GOLD13 | It checks the port's `PALETTE` against the colour table inside PoB's DLL. The DLL is PoB's Windows runtime, not an app asset, so the bundle does not carry it. `PALETTE` is a constant, and the `read_color_escape` hand tests stay |
+| pob-host `src/loader_native.rs` `pob_assets_load_async` | PoB's `src/Assets` and `src/TreeData/3_27` (`locate_src`); returns early with `SKIP:` | stay, on the bundle | GOLD13 | as `image.rs`: `SKIP` becomes a failure |
+| pob-sg-wgpu `tests/t5.rs` `t5_text`, `t5_text_dpi_1_5` | PoB's fonts (`locate_pob`, t5.rs:160-191). A missing font skips under `POB_T5_ALLOW_SKIP=1`, the same variable that allows a missing GPU adapter | stay; fonts from the bundle | GOLD13 | The font load no longer consults `allow_skip`: missing fonts always fail. `POB_T5_ALLOW_SKIP` then covers only "no GPU adapter" (t5.rs:533-556). A new GPU-free test, `t5_fonts_load`, loads the bundle's `FontSet` and renders the text frame on the CPU raster, so CI, which sets `POB_T5_ALLOW_SKIP=1`, still checks the font part |
+| pob-calc `benches/INT-2.rs` | `data/dump/data.bin` (`POB_DUMP_DIR` or an ancestor) and `.PathOfBuilding/src` for the timeless LUT data (`POB_SRC`), INT-2.rs:254-268 | stays (it is Rust-only). data.bin and LUT data from the bundle; builds are command-line paths (`tests/golden/builds/…`) | GOLD13 | A per-build error and "no builds given" exit non-zero. Its doc stops naming the LuaJIT side. If PROF1 has replaced the bench by then, GOLD13 deletes it instead and says so in GOLDEN-GATE.md |
+| pob-calc `tests/leak1_cycles.rs` | `dump_dir()`, `pob_src()` (LUT data), `parity_build()` | builds from `tests/golden/builds/all57/`; data.bin and LUT data from the bundle | GOLD2 (builds, §1.7), GOLD13 (bundle) | - |
+| pob-gamedata `tests/dump_load.rs` | `data_bin()`: `data/dump/data.bin` | the bundle's `data.bin` | GOLD1 (merges U0's tests in, §1.7), GOLD13 (bundle) | - |
+| pob-lua `tests/common/mod.rs` (`pob_src()`, used by `l0_format`, `l0_math`, `l0_string`); pob-ui-core `tests/tier0_*.rs` (`.PathOfBuilding/src`) | PoB's source, LuaJIT through `mlua` | deleted with the `mlua` tests (§5 step 5) | CUT1 | they test the emulated Lua semantics against real LuaJIT (§1.6; §7 question 3) |
+
+**pob-testpaths.** Its dev-dependents today are **pob-app, pob-calc, pob-gamedata, pob-lua and
+pob-sg** (each `crates/*/Cargo.toml`), besides the deleted crates. pob-host and pob-sg-wgpu do
+not use it. After the rows above, none of the five calls it: GOLD13 removes the dev-dependency
+from pob-app, pob-calc, pob-gamedata and pob-sg, and pob-lua's goes with its L0 tests. CUT1 then
+deletes the crate (§5 step 5).
 
 ---
 
@@ -368,7 +494,7 @@ Two measures, both [E] until GOLD1 measures them:
 | fn.items | ≈5 MB | ≈5 MB | call traces dropped (structural) |
 | fn.modstore | ≈15 MB | ≈15 MB | trivial answers elided (lossless), MS-A/MS-B overlap removed |
 | fn.skills, fn.config, fn.tabs, fn.tools | ≈10 MB | ≈7.5 MB | support pairs as a bitset. CO-A/B (≈3 MB) stays plain |
-| fuzz.* | ≈3.5 MB | ≈3.5 MB | DF-A sampled to 20k per function |
+| fuzz.* | ≈3.7 MB | ≈3.7 MB | DF-A sampled to 20k per function; its `pairs` orders stored (§1.4) |
 | builds/ (XML) | ≈12 MB | ≈2 MB | none |
 | **Total** | **≈180 MB** (≈120 MB of it plain E2E JSONL) | **≈61 MB** | **caps: 80 MB packed, 250 MB working tree, 8 MB per file on disk** |
 
@@ -403,11 +529,21 @@ Justifications:
     division) is kept as well, so the rare branches are not left to chance.
   - Storing all 600k outputs would cost about 15 MB, almost entirely random doubles that compress
     poorly. Section 7 offers that option if the user prefers it.
+  - The sample is a set of case indices into the full 100k streams, which the runner always
+    generates in full (§1.4 regeneration rule), so sampling never shifts another function's
+    inputs.
 - **CT support compatibility (1.1M pairs × 3 variants)**: a bitset (1 bit per pair, about 0.4 MB
   raw), keyed by the sorted support list and the sorted active-effect list in the header. Nothing
   is sampled.
 - **PT (903,303 records over 41 versions)**: most nodes repeat across versions. Records are stored
   once by content hash, and each version is a list of hashes. This is lossless.
+- **Build XML**: GOLD2 stores each XML once, by BLAKE3. A second path with the same content
+  becomes a manifest alias, not a second file. Measured on `0dbdab33`: none of the 418
+  `crates/pob-oracle/corpus/**/*.xml` is byte-identical to another corpus file or to any
+  `.parity/builds` or `.parity/fresh` XML (sha256 over all of them). The U0 slice5 builds
+  (`slice5_allflame_exp_007/024/030/031/048`) are not copies of their all57 sources: each has 2-12
+  lines changed (`derive_slice5.py` disables every socket group but the main one), so they are
+  separate fixtures. Git's pack deltas them against their sources.
 - **LUT (2,380,556 results)**: kept in full, columnar. They are small integers and compress well.
   Reducing seeds from 200 to 50 per type would save about 3 MB. Not proposed: the bugs that matter
   here are in seed arithmetic at range edges, and the 200-seed spread covers them.
@@ -470,6 +606,11 @@ Justifications:
   - Function-level sets run twice (K = 2), to catch value nondeterminism such as AltX/AltY gem
     variants (CT, AS). Their known order-free fields are declared `$unordered` up front, as the
     tests compare them today (AS stat-map runs, PT `pairs()` orders, PS-A `leap`, CO-B `bossSkills`).
+    Two more sets depend on PoB's per-process `pairs` order in ways that K runs cannot be trusted
+    to see, so they are encoded up front as well: BM-B's flipped gems (`$anyOf` over whole gem
+    records, one PoB load per variant) and reordered party labels (`$unordered` lines) in fn.tabs
+    (§1.3), and the shift-table and damage-table orders of fuzz.defence, which are recorded as
+    inputs (`$perOrder`, §1.4).
 - **Host artefacts.**
   - The oracle host is aarch64, where LuaJIT runs in dual-number mode. The product follows x64 PoB
     semantics (port decision).
@@ -525,13 +666,23 @@ Value markers:
 - `{"$error":msg}`: Rust must fail;
 - `{"$host":{"arm64":a,"x64":b}}`: Rust must equal `b`;
 - `{"$known":id,"pob":v}`: counted, not compared, with a bounded count;
+- `{"$perOrder":[v…]}`: only in a query line whose input carries `"orders":[o…]` (fuzz.defence,
+  §1.4). The adapter is called once per order, and its result for `o[i]` must equal `v[i]`;
 - `{"$absent":true}`: PoB produced nothing. The key is listed because a Rust-only key is a
   failure.
 
 ### 3.3 Runner: crate `pob-golden` (dev-only; no PoB, no mlua, no pob-oracle)
 
-- **Dependencies:** pob-calc, pob-gamedata, pob-modparser, serde_json, zstd, blake3. Nothing else.
-  `cargo tree -p pob-golden | grep -c mlua` = 0 is a test in the crate.
+- **Dependencies.** Any product crate the adapters need: pob-calc (and its split crates through
+  it), pob-gamedata, pob-modparser, and pob-lua, whose `Table` and `Name` the fuzz and tool
+  adapters build (the ordered damage tables of §1.4, for example). Plus serde_json, zstd and
+  blake3. The real constraint is what it must **not** pull in:
+  - no `mlua`, no `pob-oracle`, no `pob-ui-oracle`, no `pob-dump`, no `pob-testpaths`;
+  - no `probe` feature of any product crate (the replay seams that CUT2 removes).
+
+  A test in the crate checks this: `cargo tree -p pob-golden -e normal,dev` has no line matching
+  `mlua|pob-oracle|pob-ui-oracle|pob-dump|pob-testpaths`, and
+  `cargo tree -p pob-golden -e features` has no `probe` feature.
 - **Test binaries: three**, so link time and disk stay low. Today a single CA test binary is
   238 MB in debug [M].
   - `golden_e2e`: all `e2e.*` sets;
@@ -696,27 +847,53 @@ Run them one binary at a time (the loop does), so no two heavy binaries run at o
 scripts/port/cargo.sh run -p pob-oracle --bin pob_golden_record -- all --verify   # takes the machine-wide OracleLock itself
 ```
 
-Expected: every file is byte-identical. The one exception: `$anyOf` and `$unordered` sets may
-**grow**, when a run finds a new PoB alternative. Any growth is reported, folded in, and the
-verify is repeated until it is clean.
+Expected: every file is byte-identical. The one exception: `$anyOf` and `$unordered` sets, and
+the `orders` lists of fuzz.defence, may **grow**, when a run finds a new PoB alternative or a new
+`pairs` order. Any growth is reported, folded in, and the verify is repeated until it is clean.
+For an order that is already stored, the output must be byte-identical.
 
-### 4.3 The golden runners pass without PoB
+### 4.3 The golden runners and every product test pass without PoB
 
 ```sh
 git worktree add --detach /tmp/pob-gate G     # a fresh worktree has no .PathOfBuilding, data/ or .parity (gitignored)
 cd /tmp/pob-gate
 test ! -e .PathOfBuilding && test ! -e .parity && test ! -e data/dump
-env -u POB_ROOT -u POB_SRC -u POB_DATA_DIR -u POB_PARITY_DIR \
-  scripts/port/cargo.sh test -p pob-golden
-# the tests moved out of the oracle crates (§1.7), one binary at a time
-for pt in pob-calc:model_xml pob-calc:tabs_fresh_build pob-calc:power_stats pob-calc:combine_stat \
-          pob-calc:item_units pob-calc:global_cache pob-calc:copy_actor_keepalive pob-calc:leak1_cycles \
-          pob-gamedata:dump_load pob-modparser:mod_cache pob-app:tree_perf; do
-  env -u POB_ROOT -u POB_SRC -u POB_DATA_DIR -u POB_PARITY_DIR \
-    scripts/port/cargo.sh test -p "${pt%%:*}" --test "${pt##*:}" || echo "FAIL $pt"
-done
-scripts/port/cargo.sh tree -p pob-golden | grep -c mlua      # 0
+mkdir -p gate
+# nothing points back at the main checkout, and nothing is allowed to skip
+clean() { env -u POB_ROOT -u POB_SRC -u POB_DATA_DIR -u POB_DUMP_DIR -u POB_PARITY_DIR \
+              -u POB_ALLOW_SKIP -u POB_T5_ALLOW_SKIP "$@"; }
+clean scripts/port/cargo.sh test -p pob-golden > gate/golden.log 2>&1 || echo "FAIL pob-golden"
+# every product crate of the CI unit job, one test target at a time (scripts/golden/gate_unit.sh)
+clean scripts/golden/gate_unit.sh gate/
+scripts/port/cargo.sh tree -p pob-golden -e normal,dev | grep -cE 'mlua|pob-oracle|pob-ui-oracle|pob-dump|pob-testpaths'   # 0
+scripts/port/cargo.sh tree -p pob-golden -e features | grep -c '"probe"'                                                 # 0
+grep -lE '\b(SKIP|SKIPPED|PENDING)\b' gate/*.log                                                   # no file
 ```
+
+`scripts/golden/gate_unit.sh` (GATE unit) does this:
+- **Crates.** It reads `scripts/golden/unit_crates.txt`, the same file CI's unit job reads (§5
+  step 8), so the gate and CI cannot drift: pob-lua, pob-gamedata, pob-modparser, pob-calc,
+  pob-calc-core, pob-calc-setup, pob-calc-config, pob-calc-defence, pob-calc-offence,
+  pob-calc-perform, pob-host, pob-sg, pob-sg-wgpu, pob-ui-core, pob-app.
+- **One target at a time.** Per crate: `cargo.sh test -p <crate> --lib`, then `--bins` and
+  `--doc` where the crate has them, then `--test <t>` for each `tests/*.rs` target, each with its
+  own log `gate/unit-<crate>-<target>.log`. Never two test binaries at once.
+- **Left out by name:** only the targets that §5 step 5 deletes before CI exists, listed in
+  `scripts/golden/cut1_deleted_tests.txt`: pob-lua `l0_*` and `oracle_dualnum_feature`, pob-calc
+  `hyg1_len`, pob-ui-core `tier0_*` and `compile_shape`. Everything else runs, including the
+  moved tests of §1.7 (`model_xml`, `tabs_fresh_build`, `power_stats`, `combine_stat`,
+  `item_units`, `global_cache`, `copy_actor_keepalive`, `dump_load`, `mod_cache`, `tree_perf`)
+  and every row of §1.8 that stays (`fup5_teardown`, `u54_worker_calc`, the pob-sg font and
+  image tests, pob-host's `pob_assets_load_async`, `leak1_cycles`).
+- **T5.** pob-sg-wgpu runs with `POB_T5_ALLOW_SKIP` **unset**: the gate machine has a Vulkan
+  adapter (Asahi), so a skip of any kind fails. Its font part, including the new GPU-free
+  `t5_fonts_load` (§1.8), loads the bundle's fonts.
+- **INT-2.** `cargo.sh test -p pob-calc --bench INT-2 -- --recalc 1 --warmup 0 --power 0
+  "$PWD/tests/golden/builds/all57/allflame_exp_000.xml"`: the bench runs once in the test
+  profile, on the bundle's data, and must exit 0.
+- **No silent skip.** After the runs, no log may contain `SKIP`, `SKIPPED` (pob-testpaths'
+  `POB_ALLOW_SKIP` message) or `PENDING` (the last line of the block above). The tests of §1.8
+  that printed them no longer return early, so a match means an input was not found.
 
 Expected: 0 failures, and each set compares at least the live counts:
 - **e2e.ca all57**: headline 741, keys 45,954, lists 171, used 513, misc 1,248.
@@ -735,6 +912,8 @@ Expected: 0 failures, and each set compares at least the live counts:
 - **The rest**: the line counts in MANIFEST.
 - **The tests moved out of the oracle crates (§1.7)**: pass, with their own pins (gems 871,
   ModCache 23,207, …).
+- **Every other product test target** of the unit crates (§1.8 included): passes, with no `SKIP`
+  or `PENDING` in its log.
 
 The runner prints `golden <set>: compared N (pin N)` lines. A gate script, `scripts/golden/gate.sh`
 (GATE unit), checks every pin.
@@ -745,8 +924,20 @@ The runner prints `golden <set>: compared N (pin N)` lines. A gate script, `scri
 POB_GOLDEN_SELFTEST=1 scripts/port/cargo.sh test -p pob-golden
 ```
 
-The runner changes one expected value per set (the first number, × (1 + 1e-6)) and must report
-exactly one failure per set. This proves that no set passes vacuously.
+The runner changes one expected value per set and must report exactly one failure per set. This
+proves that no set passes vacuously. The value is picked by a fixed rule, so the check cannot pass
+by accident:
+- **Which value.** In key order, the first number that is **compared**, **finite** and
+  **non-zero**. A zero is skipped, because 0 × (1 + 1e-6) is still 0, and zeros are common (MS
+  answers, many e2e outputs). Values inside `$known`, `$anyOf`, `$unordered`, `$host` or
+  `$perOrder`, `$absent` lines and elided (regenerated) answers are skipped too: they are not
+  compared one to one, or not stored at all.
+- **The change.** That number × (1 + 1e-6), which is well outside `num_eq` (1e-9 relative).
+- **A set with no such number** (a string-only or bitset set): the first compared string gets
+  `"\u0001"` appended, or the first compared boolean is negated, or the first bit of the bitset
+  is flipped.
+- **The report** names the changed key, and the self-test checks that the one failure is on that
+  key.
 
 ### 4.5 Where a golden is stronger than its live test
 
@@ -797,10 +988,14 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
      destination file, then the input changes listed there). It must then pass in the PoB-free
      worktree of §4.3 before step 5 runs.
    - Each dropped row has its reason in `docs/standalone/GOLDEN-GATE.md`.
-   - `crates/pob-calc/tests/leak1_cycles.rs` must read its builds from
-     `tests/golden/builds/all57/` (GOLD2 re-pointed it, §1.7). If it still calls
-     `pob_testpaths::parity_build`, it is re-pointed now. `parity_build` is then removed from
-     pob-testpaths.
+   - The same check for **§1.8**: each row that stays reads the bundle and
+     `tests/golden/builds/`, and each dropped row is gone. `check_moved.sh` also greps the
+     product crates (everything but the three deleted crates and pob-testpaths) for
+     `\.PathOfBuilding|POB_ROOT|POB_SRC|pob_testpaths|data/dump|\.parity|pob-ui-oracle/|pob-oracle/|pob-dump/`
+     in `src/`, `tests/` and `benches/`. The only hits allowed are the targets step 5 deletes
+     (`scripts/golden/cut1_deleted_tests.txt`), pob-gamedata's `#[path]` includes and
+     app/pob-desktop's `lua-calc` feature, which step 5 handles. A hit elsewhere is fixed as
+     §1.8 says before step 5 runs.
 5. **Delete crates** (one commit; workspace members and `Cargo.lock` updated):
    - `crates/pob-oracle`: with `corpus/` and `lua/`, after GOLD2 copied the corpora into
      `tests/golden/builds/special/`;
@@ -811,18 +1006,22 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
      `generated/enums.rs` does not need to move: pob-gamedata does not include it (its
      `SkillType`, `ModFlag` and `KeywordFlag` come from `global.rs`), and its only user is
      pob-dump's own `tests/dump.rs`. It goes with the crate;
-   - `crates/pob-testpaths`, if nothing else uses it after the oracle crates go (pob-sg, pob-host
-     and pob-calc test use must be checked; otherwise keep it, reduced to asset lookup). Its
-     `parity_build` user, `leak1_cycles.rs`, no longer calls it (step 4);
+   - `crates/pob-testpaths`. Its dev-dependents besides the deleted crates are pob-app,
+     pob-calc, pob-gamedata, pob-lua and pob-sg (each `crates/*/Cargo.toml`; pob-host does not
+     use it). After §1.8, the first four no longer call it (GOLD13 removed their
+     dev-dependency) and pob-lua's use goes with its L0 tests below, so the crate and its
+     workspace entry are deleted. If step 4's grep found a caller, this waits until it is fixed;
    - `app/pob-desktop`: drop the `lua-calc` feature and the `pob-ui-oracle` dependency
      (`Cargo.toml:12-22`);
    - `mlua` dev-dependencies and their tests:
-     - pob-lua: `tests/l0_*.rs` and `oracle_dualnum_feature`;
+     - pob-lua: `tests/l0_*.rs`, `tests/common/`, `oracle_dualnum_feature`, the `oracle-dualnum`
+       feature with its `cfg` code in `src/profile.rs`, and the `pob-testpaths` dev-dependency;
      - pob-calc: `hyg1_len`;
      - pob-ui-core: `luastr` (its LuaJIT parts), `tier0_*`, `compile_shape`;
      - the workspace `mlua` entry;
-   - the tests that read the PoB checkout: `pob-sg/tests/font_*` read fonts from the PoB runtime
-     (they move to the bundle in VENDOR, or are rewritten), and `pob-app` `party::notes_desc_is_the_long_string`.
+   - nothing else: every other product test that read the PoB checkout, `data/dump`, `.parity` or
+     the deleted crates' files was re-pointed or dropped before G (§1.8, owners GOLD1, GOLD2,
+     GOLD13), and step 4 checked it.
 6. **Delete scripts:**
    - `scripts/port/`:
      - `oracle.sh`, `provenance.py`, `luaast.py`, `globals_lint.py`, `locals_audit.py`,
@@ -861,14 +1060,16 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
    `rust-port`. Today it has never run on rust-port (inventory, CI). No PoB checkout, no `.parity`.
    Jobs:
    - **calc-golden**: `cargo test -p pob-golden` (3 binaries), with a cargo cache.
-   - **unit**: `cargo test` for pob-lua, pob-gamedata, pob-modparser, the pob-calc crates,
-     pob-host, pob-sg, pob-sg-wgpu (GPU tests skip with `POB_T5_ALLOW_SKIP=1`), pob-ui-core and
-     pob-app.
+   - **unit**: `cargo test` for each crate in `scripts/golden/unit_crates.txt` (the list §4.3
+     ran: pob-lua, pob-gamedata, pob-modparser, the pob-calc crates, pob-host, pob-sg,
+     pob-sg-wgpu, pob-ui-core and pob-app). The CI runner has no GPU, so it sets
+     `POB_T5_ALLOW_SKIP=1`, which after §1.8 skips only the GPU read-back. The fonts load from
+     the bundle or fail, and `t5_fonts_load` checks the text frame on the CPU raster.
    - **wasm**: `cargo check --target wasm32-unknown-unknown` (the runtime crates).
    - **lint**: `fmt --check`, `clippy -D warnings`.
    - **perf** (nightly, release): u53_perf, `dump_load`, PROF1's compare. The perf gates run in
      release so they actually enforce something.
-   - Remove `POB_ALLOW_SKIP` from CI.
+   - Remove `POB_ALLOW_SKIP` from CI. It has no effect any more: pob-testpaths is gone.
    - A grep job fails on `\.PathOfBuilding|POB_ROOT|mlua` anywhere outside `docs/history`.
 9. **After the cut-over** (expected; measured in CUT1, which updates this table):
 
@@ -894,26 +1095,28 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
 | Unit | Scope | Depends on | Parallel with | Record cost on this 16 GB aarch64 machine [E] |
 |---|---|---|---|---|
 | **GOLD1** format + runner core | `pob-golden` crate: `golden/1` reader/writer, the compare engine (num_eq, markers), MANIFEST, bless/overlay, `golden diff`, the self-test, the `par` pool (moved), and the adapter skeleton. The `pob_golden_record` bin skeleton in pob-oracle. **Measure the real sizes** of the [E] rows from the existing caches and update §2.3 | - | VENDOR | none (no PoB) |
-| **GOLD2** fixtures | copy all57, fresh and every `corpus/*/*.xml` into `tests/golden/builds/`; write out the PS-B, PS-C and CS2 synthetics and the level-cost XMLs; the derived-fixture generator; privacy step (§7); re-point `leak1_cycles.rs` at `builds/all57/` (§1.7) | GOLD1 (layout only) | VENDOR | ≈ 5 min PoB (SaveDB of the synthetics) |
+| **GOLD2** fixtures | copy all57, fresh and every `corpus/**/*.xml` into `tests/golden/builds/`, stored once per BLAKE3 (§2.3); write out the PS-B, PS-C and CS2 synthetics and the level-cost XMLs; the derived-fixture generator; privacy step (§7); re-point `leak1_cycles.rs` at `builds/all57/` (§1.7) | GOLD1 (layout only) | VENDOR | ≈ 5 min PoB (SaveDB of the synthetics) |
 | **GOLD3** e2e.ca + d13 + levelcost + mirage block + coverage witnesses | the recorder for CA (ca.lua + mirage block, K = 3..6 runs), the TR/SK/MI/CS2 coverage pass, the runner adapter `e2e.rs`; triage of any special-corpus failure | GOLD1, GOLD2 | GOLD4-GOLD12 | all57 + fresh + ≈ 520 special/derived builds × 3 runs. The probe measured ≈ 4.5 s/build for PoB (uncached, with CA's probes) + Rust, so ≈ 1-1.5 h; coverage pass (patched PoB, probes) ≈ 1 h; RSS ≤ 1 GB (PoB) + ≤ 3 GB (runner) |
 | **GOLD4** e2e.int3 | recorder (int3.lua + the breakdown part of the calcsEnv dump), adapter breakdown/tabulate canonicalisation (moves the CalcBreakdownControl sort logic from the test into the adapter) | GOLD1, GOLD2 | yes | 57 × 3 runs ≈ 30 min (INT-3 takes 88 s warm today); RSS ≈ 1 GB |
-| **GOLD5** e2e.bm + fn.tabs | BM-A model and SaveDB golden, BM-B tabs, buffs and gem levels | GOLD1, GOLD2 | yes | ≈ 20 min (BM-A 16 s warm, 683 s cold in an earlier full suite); ≤ 1 GB |
+| **GOLD5** e2e.bm + fn.tabs | BM-A model and SaveDB golden, BM-B tabs, buffs and gem levels; BM-B's flipped gems, reordered labels and `expected` values encoded as §1.3 says (one extra PoB load per ambiguous variant, about 10 gems) | GOLD1, GOLD2 | yes | ≈ 20 min (BM-A 16 s warm, 683 s cold in an earlier full suite); ≤ 1 GB |
 | **GOLD6** e2e.pwr + e2e.mcq | power reports (3 builds × modes + the Full-DPS fixture + OccVortex); the misc-calculator override queries; **show that the E2E power on the replay builds passes** before the replay retires | GOLD1, GOLD2 | yes | PoB power runs ≈ 30-60 min (each report runs the calc per node); MCQ ≈ 57 × 60 calls ≈ 30 min; ≤ 1.5 GB |
 | **GOLD7** fn.parser.* | lines (from parse_oracle.jsonl, no PoB needed), fuzz lines (PoB parseMod), jewel funcs (MP7 Lua) | GOLD1 | yes | ≈ 15 min; MP7 1.3 GB today |
 | **GOLD8** fn.tree + fn.spec + fn.lut | PT records (with dedup), whole spec unstubbed (triage new differences), LUT columnar | GOLD1, GOLD2 | yes | PT ≈ 10 min (2.0 GB today: build one version at a time), PS ≈ 30 min, LUT ≈ 10 min (1.2 GB) |
 | **GOLD9** fn.items | item records without traces or replay; triage new differences | GOLD1, GOLD2 | yes | ≈ 30 min (IT-A/IT-C ≈ 150-170 s each warm; their PoB halves dominate cold) |
 | **GOLD10** fn.modstore | MS-B + MS-A unique parts, elision with record-time checks | GOLD1 | yes | ≈ 20-30 min cold (MS-B 1,127 s cold in the latest full suite); ≤ 1 GB |
 | **GOLD11** fn.skills + fn.config + fn.tools | AS, CO-A/B merged, CO-C, CT (bitset) | GOLD1, GOLD2 | yes | ≈ 20 min; ≤ 1 GB |
-| **GOLD12** fuzz.* | frozen generators copied from DF-A and OF-A; outputs; edge cases from the 100k streams | GOLD1 | yes | DF-A ≈ 5 min (the full 100k streams are needed once to extract edge cases), OF-A ≈ 2 min; DF-A 1.8 GB today |
-| **GOLD13** PoB-free UI tests | the pob-ui-oracle rows of §1.7: `u53_perf` into `crates/pob-app/tests/tree_perf.rs`, and `u26_progress_steps`, `u48_progress_steps`, `u38_undo_round_trip` moved or dropped with a reason | GOLD2, VENDOR (assets) | GOLD3-GOLD12 | none (no PoB); `u53_perf` ≈ 1 min in release |
-| **GATE** | §4 in full on commit G; `scripts/golden/gate.sh`; `docs/standalone/GOLDEN-GATE.md` | GOLD1-13, VENDOR | - | live suite ≈ 1.5-3 h (pob-oracle binaries one at a time) + recorder verify ≈ 3-4 h + golden runs ≈ 20 min |
+| **GOLD12** fuzz.* | frozen generators copied from DF-A and OF-A, always generating the full 100k streams; outputs; edge cases from the 100k streams; PoB's `pairs` orders of takenHitFromDamage and reducePoolsByDamage stored per case, and the adapter that builds the Rust tables in them (§1.4) | GOLD1 | yes | DF-A ≈ 5 min (the full 100k streams are needed once to extract edge cases), OF-A ≈ 2 min; DF-A 1.8 GB today |
+| **GOLD13** PoB-free UI tests and the product tests of §1.8 | the pob-ui-oracle rows of §1.7: `u53_perf` into `crates/pob-app/tests/tree_perf.rs`, and `u26_progress_steps`, `u48_progress_steps`, `u38_undo_round_trip`, `u43_share_rust`, `u44_rust_unit`, `u45_disable_party_effects` moved or dropped with a reason. Every §1.8 row it owns: pob-app `fup5_teardown` and `u54_worker_calc` (bundle, user-dir fixture), the pob-sg font, image and colour tests, pob-host's asset test, T5's font part and `t5_fonts_load`, the INT-2 bench, and the bundle switch of `leak1_cycles` and `dump_load`; the `pob-testpaths` dev-dependency removed from pob-app, pob-calc, pob-gamedata and pob-sg | GOLD2, VENDOR (assets) | GOLD3-GOLD12 | none (no PoB); `u53_perf` ≈ 1 min in release |
+| **GATE** | §4 in full on commit G; `scripts/golden/gate.sh`, `gate_unit.sh`, `unit_crates.txt`, `cut1_deleted_tests.txt`; `docs/standalone/GOLDEN-GATE.md` | GOLD1-13, VENDOR | - | live suite ≈ 1.5-3 h (pob-oracle binaries one at a time) + recorder verify ≈ 3-4 h + golden runs ≈ 20 min |
 | **CUT1** | §5 steps 3-9 | GATE | - | none |
 | **CUT2** (optional) | §5 step 10 | CUT1 | the refactor | none |
 
 - **Scheduling.** GOLD1 → GOLD2 → {GOLD3 … GOLD13}, at most 3 agents at a time. GOLD7, GOLD10
   and GOLD12 do not need GOLD2 and can start right after GOLD1. GOLD13 also waits for VENDOR.
-- **The §1.7 moves.** Each unit also moves the PoB-free tests that §1.7 assigns to it (GOLD1,
-  GOLD5, GOLD6, GOLD7, GOLD9, GOLD11, GOLD12, GOLD13), in the same branch as its goldens.
+- **The §1.7 moves and the §1.8 re-points.** Each unit also moves the PoB-free tests that §1.7
+  assigns to it (GOLD1, GOLD5, GOLD6, GOLD7, GOLD9, GOLD11, GOLD12, GOLD13) and re-points the
+  product tests that §1.8 assigns to it (GOLD1, GOLD2, GOLD13), in the same branch as its
+  goldens.
 - **Machine limits.** One PoB per recorder (the oracle lock). Never two heavy test binaries at
   once. The runner binaries stay ≤ 3 GB. The total recording time of the whole set, cold, is
   about 6-8 h machine time, spread over the parallel units.
@@ -925,8 +1128,9 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
   3. `--verify` reproduces its files;
   4. its negative control fails;
   5. its files are within the size caps, with measured sizes in MANIFEST;
-  6. the §1.7 tests it owns are gone from the oracle crates, and they pass at their destination
-     in the PoB-free worktree.
+  6. the §1.7 tests it owns are gone from the oracle crates, the §1.8 tests it owns read no PoB,
+     `data/dump` or `.parity` path, and both pass at their destination in the PoB-free worktree,
+     with no skip variable set.
 
 ---
 
