@@ -63,10 +63,8 @@ use pob_sg::{Key, Sg, Sys};
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
 use pob_ui_oracle::lua_calc::LuaCalcBridge;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
-
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
 
@@ -738,6 +736,54 @@ fn drop_image_loads(frames: &mut [FrameTrace]) {
     }
 }
 
+/// The Lua side of one run through the Lua-side cache (TP4, as u41): PoB boot, `script` and what
+/// the test keeps of the VM and the user dir afterwards (`extra`, JSON). The key covers this file
+/// (stubs and Lua-side wrapper), the Lua-side code, PoB, this test's scripts and fixtures, the
+/// fixture user dir, the script, the screen and the other arguments.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+    net: &pob_ui_oracle::sg_bridge::NetFixtures,
+) -> anyhow::Result<LuaRun> {
+    let scripts = test_dir();
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u27",
+        pob_ui_oracle::test_source!(),
+        root,
+        &inputs,
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+            &format!("{net:?}"),
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        *pob_ui_oracle::sg_bridge::bridge(&lua_app.pob.lua)
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+            .net
+            .borrow_mut() = net.clone();
+        let mut lua_side = LuaSide { app: lua_app };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
+        drop(lua_side);
+        let images = tree_image_loads(&frames);
+        drop_image_loads(&mut frames);
+        Ok(LuaRun {
+            frames,
+            error: r.err().map(|e| e.to_string()),
+            snapshots: std::mem::take(&mut d.snapshots),
+            extra: vec![serde_json::to_string(&images)?],
+        })
+    })
+}
+
 struct Side {
     frames: Vec<FrameTrace>,
     error: Option<String>,
@@ -754,24 +800,13 @@ fn run_sides(
 ) -> anyhow::Result<(Side, Side)> {
     let user = UserDir::new(fixture)?;
 
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    *pob_ui_oracle::sg_bridge::bridge(&lua_app.pob.lua)
-        .map_err(|e| anyhow::anyhow!("{e}"))?
-        .net
-        .borrow_mut() = net.clone();
-    let mut lua_side = LuaSide { app: lua_app };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
-    drop(lua_side);
-    let images = tree_image_loads(&frames);
-    drop_image_loads(&mut frames);
+    // Lua (cached, TP4)
+    let run = lua_run(root, script, &user, fixture, screen, net)?;
     let lua = Side {
-        frames,
-        error: r.err().map(|e| e.to_string()),
-        snapshots: std::mem::take(&mut d.snapshots),
-        images,
+        frames: run.frames,
+        error: run.error,
+        snapshots: run.snapshots,
+        images: serde_json::from_str(run.extra.first().map_or("null", String::as_str))?,
     };
 
     // Rust
@@ -1185,6 +1220,8 @@ fn child_run(spec: &str) {
         o.t4_bytes,
         peak_rss_kb().unwrap_or(0)
     );
+    // TP4: the child's Lua-side cache use (forwarded by the parent, as the `u27_` lines)
+    println!("u27_{spec}: {}", oracle_cache::summary());
 }
 
 /// Every `tests/u27` run, each in a child process of this test binary (`U27_CHILD_RUN`), one at a
@@ -1199,9 +1236,8 @@ fn u27_scenarios() {
         child_run(&spec);
         return;
     }
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
+    let _permit = oracle_cache::Permit::acquire();
     // the inputs are checked here, loaded only in the children
     if pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)").is_none()
         || pob_testpaths::require(pob_testpaths::dump_dir(), "data/dump").is_none()

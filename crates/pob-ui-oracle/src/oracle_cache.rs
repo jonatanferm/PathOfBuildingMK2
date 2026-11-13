@@ -192,16 +192,24 @@ fn private_tmp(dst: &Path) -> PathBuf {
 /// Write `data` to `path` atomically (temp file + rename). Errors are reported, not fatal: the
 /// cache is an optimisation.
 fn write_entry(path: &Path, data: &[u8]) {
+    match zstd::encode_all(data, 3) {
+        Ok(body) => write_entry_body(path, blake3::hash(data).as_bytes(), &body),
+        Err(e) => eprintln!("pob-ui-oracle cache: cannot write {}: {e}", path.display()),
+    }
+}
+
+/// [`write_entry`] of an already compressed payload: `sum` is the BLAKE3 of the uncompressed
+/// payload, `body` its zstd stream.
+fn write_entry_body(path: &Path, sum: &[u8; 32], body: &[u8]) {
     let r = (|| -> std::io::Result<()> {
         let dir = path.parent().expect("entry dir");
         std::fs::create_dir_all(dir)?;
         let tmp = private_tmp(path);
-        let body = zstd::encode_all(data, 3)?;
         let res = (|| {
             let mut f = std::fs::File::create(&tmp)?;
             f.write_all(MAGIC)?;
-            f.write_all(blake3::hash(data).as_bytes())?;
-            f.write_all(&body)?;
+            f.write_all(sum)?;
+            f.write_all(body)?;
             f.sync_data()?;
             drop(f);
             std::fs::rename(&tmp, path)
@@ -212,10 +220,7 @@ fn write_entry(path: &Path, data: &[u8]) {
         res
     })();
     if let Err(e) = r {
-        eprintln!(
-            "pob-ui-oracle cache: cannot write {}: {e}",
-            path.display()
-        );
+        eprintln!("pob-ui-oracle cache: cannot write {}: {e}", path.display());
     }
 }
 
@@ -291,42 +296,144 @@ pub fn get_or_compute_json<T: serde::Serialize + serde::de::DeserializeOwned>(
     compute: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
     get_or_compute_json_with(key, compute, |a: &T, b: &T| {
-        serde_json::to_vec(a).ok() == serde_json::to_vec(b).ok()
+        let h = json_hash(a);
+        h.is_some() && h == json_hash(b)
     })
 }
 
 /// [`get_or_compute_json`] with the comparison [`Mode::Verify`] uses (`same(cached, fresh)`).
+///
+/// Memory (TP4 fix round 1): a UI Lua side's traces are up to ~0.5 GB of JSON, so a miss never
+/// holds the JSON text whole. The value is serialised once, streamed through BLAKE3 into the zstd
+/// encoder; the round-trip check decodes the compressed stream into a second value and compares
+/// the BLAKE3 of its serialisation (two values alive at once, no text). TP2's `to_vec` +
+/// `from_slice` + `to_vec` held two values and two texts at once: u25/u26 peaked at 3.7-4.1 GB
+/// serially, against 2.4-2.6 GB before TP4. The computed value itself is returned on a miss.
 pub fn get_or_compute_json_with<T: serde::Serialize + serde::de::DeserializeOwned>(
     key: &Key,
     compute: impl FnOnce() -> Result<T, String>,
     same: impl FnOnce(&T, &T) -> bool,
 ) -> Result<T, String> {
-    let mut direct: Option<T> = None;
-    let decode = |b: &[u8]| serde_json::from_slice::<T>(b).ok();
-    let same_bytes = |a: &[u8], b: &[u8]| {
-        a == b
-            || match (decode(a), decode(b)) {
-                (Some(x), Some(y)) => same(&x, &y),
-                _ => false,
+    let mode = mode();
+    if mode == Mode::Off {
+        BYPASSED.fetch_add(1, Ordering::Relaxed);
+        return timed(compute);
+    }
+    let root = root();
+    let path = key.path(&root);
+    if let Some(cached) = read_entry(&path).and_then(|b| serde_json::from_slice::<T>(&b).ok()) {
+        HITS.fetch_add(1, Ordering::Relaxed);
+        if mode == Mode::Verify {
+            let fresh = timed(compute)?;
+            if !same(&cached, &fresh) {
+                let dir = root.join("verify-mismatch");
+                let _ = std::fs::create_dir_all(&dir);
+                let c = serde_json::to_vec(&cached).unwrap_or_default();
+                let f = serde_json::to_vec(&fresh).unwrap_or_default();
+                let _ = std::fs::write(dir.join(format!("{}.cached", key.hex)), &c);
+                let _ = std::fs::write(dir.join(format!("{}.fresh", key.hex)), &f);
+                let at = c
+                    .iter()
+                    .zip(&f)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(c.len().min(f.len()));
+                return Err(format!(
+                    "pob-ui-oracle cache verify: {}/{} differs from a fresh Lua run ({} cached bytes, {} fresh, first byte difference at {at}; both kept in {})",
+                    key.kind,
+                    key.hex,
+                    c.len(),
+                    f.len(),
+                    dir.display()
+                ));
             }
-    };
-    let bytes = get_or_compute_with(key, || {
-        let v = compute()?;
-        let s = serde_json::to_vec(&v).map_err(|e| format!("cache encode: {e}"))?;
-        let round = serde_json::from_slice::<T>(&s)
-            .ok()
-            .and_then(|r| serde_json::to_vec(&r).ok());
-        if round.as_deref() == Some(&s[..]) {
-            Ok(s)
-        } else {
-            direct = Some(v);
-            Err(String::from(NOT_CACHEABLE))
         }
-    }, same_bytes);
-    match bytes {
-        Ok(b) => serde_json::from_slice(&b).map_err(|e| format!("cache decode {}: {e}", key.hex)),
-        Err(e) if e == NOT_CACHEABLE && direct.is_some() => Ok(direct.expect("computed value")),
-        Err(e) => Err(e),
+        return Ok(cached);
+    }
+    MISSES.fetch_add(1, Ordering::Relaxed);
+    let v = timed(compute)?;
+    match encode_json_checked(&v) {
+        Ok((sum, body)) => write_entry_body(&path, &sum, &body),
+        Err(why) => eprintln!(
+            "pob-ui-oracle cache: {}/{} not stored: {why}",
+            key.kind, key.hex
+        ),
+    }
+    Ok(v)
+}
+
+/// A `Write` that feeds BLAKE3 with what it passes on to `inner`.
+struct HashTee<W> {
+    hasher: blake3::Hasher,
+    inner: W,
+}
+
+impl<W: std::io::Write> std::io::Write for HashTee<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        self.hasher.update(&buf[..n]);
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// BLAKE3 of `v`'s JSON, streamed (the text is never held whole).
+fn json_hash<T: serde::Serialize>(v: &T) -> Option<[u8; 32]> {
+    let mut w = std::io::BufWriter::with_capacity(1 << 16, blake3::Hasher::new());
+    serde_json::to_writer(&mut w, v).ok()?;
+    let h = w.into_inner().ok()?;
+    Some(*h.finalize().as_bytes())
+}
+
+/// The 160 bytes of the zstd-compressed one-line JSON `body` before the column `e` names (a
+/// diagnostic: which field did not read back).
+fn json_context(body: &[u8], e: &serde_json::Error) -> String {
+    use std::io::Read as _;
+    let at = u64::try_from(e.column()).unwrap_or(0);
+    let skip = at.saturating_sub(160);
+    let Ok(mut dec) = zstd::Decoder::new(body) else {
+        return String::new();
+    };
+    if std::io::copy(&mut (&mut dec).take(skip), &mut std::io::sink()).is_err() {
+        return String::new();
+    }
+    let mut buf = Vec::new();
+    let _ = dec.take(at - skip).read_to_end(&mut buf);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+/// `v` as an entry payload, (BLAKE3 of its JSON, the zstd stream of that JSON), when the JSON
+/// reads back as a value with the same JSON; else why not.
+fn encode_json_checked<T: serde::Serialize + serde::de::DeserializeOwned>(
+    v: &T,
+) -> Result<([u8; 32], Vec<u8>), String> {
+    let enc = zstd::Encoder::new(Vec::new(), 3).map_err(|e| format!("zstd: {e}"))?;
+    let mut w = std::io::BufWriter::with_capacity(
+        1 << 16,
+        HashTee {
+            hasher: blake3::Hasher::new(),
+            inner: enc,
+        },
+    );
+    serde_json::to_writer(&mut w, v).map_err(|e| format!("encode: {e}"))?;
+    let tee = w.into_inner().map_err(|e| format!("encode: {e}"))?;
+    let sum = *tee.hasher.finalize().as_bytes();
+    let body = tee.inner.finish().map_err(|e| format!("zstd: {e}"))?;
+    let dec = zstd::Decoder::new(&body[..]).map_err(|e| format!("zstd: {e}"))?;
+    let back: T = serde_json::from_reader(std::io::BufReader::with_capacity(1 << 16, dec))
+        .map_err(|e| {
+            format!(
+                "its JSON does not read back ({e}: ...{})",
+                json_context(&body, &e)
+            )
+        })?;
+    if json_hash(&back) == Some(sum) {
+        Ok((sum, body))
+    } else {
+        Err(String::from(
+            "its JSON reads back as a value with other JSON (no round trip)",
+        ))
     }
 }
 
@@ -361,7 +468,6 @@ pub fn same_state_doc(a: &str, b: &str) -> bool {
 }
 
 const NOT_STORED: &str = "\0pob-ui-oracle cache: a run that failed is not stored";
-const NOT_CACHEABLE: &str = "\0pob-ui-oracle cache: value does not round-trip through JSON";
 
 // ---- source fingerprints -------------------------------------------------------------------------
 
@@ -391,10 +497,17 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// BLAKE3 of the contents of every file under `dirs` (relative names included), in name order.
-/// A missing directory hashes as empty.
+/// BLAKE3 of the contents of every file under `dirs` (names relative to `base` included), in name
+/// order. A missing directory hashes as empty. Only relative names go in, never `base` itself:
+/// the same tree hashes the same in every worktree.
 #[must_use]
 pub fn tree_hash(base: &Path, dirs: &[&str]) -> String {
+    tree_hash_except(base, dirs, &[])
+}
+
+/// [`tree_hash`] without the files (or whole directories) named in `skip` (relative to `base`).
+#[must_use]
+pub fn tree_hash_except(base: &Path, dirs: &[&str], skip: &[&str]) -> String {
     let mut h = blake3::Hasher::new();
     for d in dirs {
         h.update(d.as_bytes());
@@ -403,6 +516,12 @@ pub fn tree_hash(base: &Path, dirs: &[&str]) -> String {
         walk(&base.join(d), &mut files);
         for f in files {
             let rel = f.strip_prefix(base).unwrap_or(&f).to_string_lossy();
+            if skip
+                .iter()
+                .any(|s| rel == *s || rel.strip_prefix(s).is_some_and(|r| r.starts_with('/')))
+            {
+                continue;
+            }
             h.update(&(rel.len() as u64).to_le_bytes());
             h.update(rel.as_bytes());
             let data = std::fs::read(&f).unwrap_or_default();
@@ -413,72 +532,287 @@ pub fn tree_hash(base: &Path, dirs: &[&str]) -> String {
     h.finalize().to_hex()[..32].to_owned()
 }
 
+/// The third-party packages of `Cargo.lock` (every `[[package]]` block with a `source`: registry
+/// or git), in file order. The workspace's own entries (no `source`) are left out: they change
+/// with every workspace dependency edit, and the workspace code that runs is hashed by content.
+#[must_use]
+pub fn third_party_lock(lock: &str) -> String {
+    let mut out = String::new();
+    for block in lock.split("[[package]]").skip(1) {
+        if block.lines().any(|l| l.starts_with("source = ")) {
+            out.push_str("[[package]]");
+            out.push_str(block.trim_end());
+            out.push('\n');
+        }
+    }
+    out
+}
+
 /// The workspace code a UI oracle run's Lua side executes or draws through, hashed by content:
-/// this crate (`src/`, `lua/`, `probe/`), pob-sg (the `Sg` the Lua side draws through, its fonts
-/// and trace recorder), pob-host (scripts, the headless image loader, key delivery), pob-lua
-/// (formatting used by the bridge), pob-oracle (the LuaJIT natives and prelude), `Cargo.lock`
-/// (every third-party version, mlua/LuaJIT included) and `VERSION` (patch 9 draws it). Conservative: any edit there retires the
-/// UI entries. Memoised per process.
+/// this crate's `src/` (boot, runner, the SG bridge, patches, markers, this cache's value types)
+/// but not the parts that run only outside a Lua UI side (`lua_calc.rs`: the bridge, keyed and
+/// cached on its own and never started inside [`cached_lua_run`]; `diff_report.rs`: comparison
+/// after both sides ran; `oracle_cache.rs`: this cache, its keys, its pool and its VERIFY
+/// comparisons, which decide where a Lua side's result is kept and when it runs, never what it
+/// returns; a change to what the keys must cover bumps [`EPOCH`]; `bin/`: the CLI tools), its
+/// `lua/`, `probe/`, `build.rs` and
+/// `Cargo.toml` (features); pob-sg (the `Sg` the Lua side draws through, its fonts and trace
+/// recorder), pob-host (scripts, the headless image loader, key delivery) and pob-lua; of
+/// pob-oracle what `boot.rs` takes from it (`jit`: the prelude, the natives, the JIT switch; and
+/// what `jit.rs` uses: `headless.rs`, the `lua/` module, `lib.rs`) and its `Cargo.toml`; and the
+/// third-party packages of `Cargo.lock` ([`third_party_lock`]; mlua/LuaJIT included); and the
+/// port's `VERSION` (BRAND: patch 9 draws it as `__portVersion`).
+///
+/// TP4: the TP2 set hashed all of pob-oracle's `src/` and the whole `Cargo.lock`, so every merge
+/// that touched the calc oracle (diff, inject, patcher, a new bin) or added a workspace crate or
+/// dependency retired every UI entry: 9 of the 49 rust-port merges of 2026-11-11/12, about one
+/// full-suite run in two.
 #[must_use]
 pub fn lua_side_code_hash() -> &'static str {
     static H: OnceLock<String> = OnceLock::new();
     H.get_or_init(|| {
-        tree_hash(
-            &workspace_root(),
+        let ws = workspace_root();
+        let mut k = KeyBuilder::new("lua-side-code");
+        k.part(tree_hash_except(
+            &ws,
             &[
                 "crates/pob-ui-oracle/src",
                 "crates/pob-ui-oracle/lua",
                 "crates/pob-ui-oracle/probe",
                 "crates/pob-ui-oracle/build.rs",
+                "crates/pob-ui-oracle/Cargo.toml",
                 "crates/pob-sg/src",
                 "crates/pob-sg/Cargo.toml",
                 "crates/pob-host/src",
                 "crates/pob-host/Cargo.toml",
                 "crates/pob-lua/src",
                 "crates/pob-lua/Cargo.toml",
-                "crates/pob-oracle/src",
+                "crates/pob-oracle/src/lib.rs",
+                "crates/pob-oracle/src/jit.rs",
+                "crates/pob-oracle/src/headless.rs",
+                "crates/pob-oracle/src/lua",
                 "crates/pob-oracle/Cargo.toml",
-                "Cargo.lock",
                 // patch 9's `__portVersion` (pob_app::launch::PORT_VERSION)
                 "VERSION",
             ],
-        )
+            &[
+                "crates/pob-ui-oracle/src/lua_calc.rs",
+                "crates/pob-ui-oracle/src/diff_report.rs",
+                "crates/pob-ui-oracle/src/oracle_cache.rs",
+                "crates/pob-ui-oracle/src/bin",
+            ],
+        ));
+        k.part(third_party_lock(
+            &std::fs::read_to_string(ws.join("Cargo.lock")).unwrap_or_default(),
+        ));
+        k.finish().hex
     })
 }
 
-/// `pob_oracle::runner::source_key` of `dir` (stat fingerprint of every file, the oracle runtime,
-/// the LuaJIT versions and the JIT mode), memoised by that function.
+/// The content key of a PoB tree (`src/` or `runtime/`): every file's path relative to `dir` and
+/// the BLAKE3 of its content, except PoB's derived caches (`pob_oracle::patcher::is_derived_cache`:
+/// the timeless jewel `.bin`s PoB inflates and rewrites on any run), plus what decides how the
+/// tree runs: the oracle runtime `JitPob` boots it with (`jit.rs`, `headless.rs`, `oracle.rs`,
+/// `oracle.lua`, compiled in), the mlua/LuaJIT versions and the JIT mode. Memoised per process.
+///
+/// TP4: content-addressed. TP2 used `pob_oracle::runner::source_key`, which hashes the canonical
+/// path and every file's mtime: a PoB checkout at another path, or the same files touched (a
+/// `git checkout`, a copy), missed every entry. The per-file content hashes are kept in a stat
+/// index under the cache root ([`file_content_hashes`]), so only changed files are read again.
 pub fn pob_tree_key(dir: &Path) -> Result<String, String> {
-    pob_oracle::runner::source_key(dir).map_err(|e| e.0)
+    use std::collections::HashMap;
+    static KEYS: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+    let canon = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // held while a key is computed: the cases of a `par_map` ask at once, and one walk is enough
+    let mut keys = KEYS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(k) = keys.get(&canon) {
+        return Ok(k.clone());
+    }
+    let key = tree_content_key(&canon, &root().join("stat-index"))?;
+    keys.insert(canon, key.clone());
+    Ok(key)
 }
 
-/// The key of one UI oracle Lua-side run of a test: `test_file` is the test's `file!()` (its source
-/// holds the Lua stubs and the Lua-side wrapper, so it is hashed whole), `pob_root` the PoB
-/// checkout (`src/` and `runtime/` fingerprints), `fixtures` the directories and files the run
-/// reads (hashed by content), and `params` everything else that decides the run (script text,
-/// screen, mode, query chunks). The caller adds nothing else: everything goes through here.
+/// [`pob_tree_key`] of the canonical `canon`, not memoised, with the stat index in `index_dir`.
+fn tree_content_key(canon: &Path, index_dir: &Path) -> Result<String, String> {
+    const ORACLE_RUNTIME: &[&str] = &[
+        include_str!("../../pob-oracle/src/jit.rs"),
+        include_str!("../../pob-oracle/src/headless.rs"),
+        include_str!("../../pob-oracle/src/oracle.rs"),
+        include_str!("../../pob-oracle/src/oracle.lua"),
+    ];
+    let mut k = KeyBuilder::new("pob-tree");
+    for code in ORACLE_RUNTIME {
+        k.part(code);
+    }
+    k.part(pob_oracle::runner::lua_runtime_versions());
+    k.part(if pob_oracle::jit::oracle_jit_off() {
+        "jit.off"
+    } else {
+        "jit.on"
+    });
+    let files = file_content_hashes(canon, index_dir)?;
+    k.part((files.len() as u64).to_le_bytes());
+    for (rel, sum) in &files {
+        k.part(rel).part(sum);
+    }
+    Ok(k.finish().hex)
+}
+
+/// One file of a stat index: what `stat` said when its content was hashed, and when.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct StatRecord {
+    len: u64,
+    mtime_ns: u64,
+    ino: u64,
+    /// When the content was read (ns since the epoch).
+    hashed_ns: u64,
+    blake3: String,
+}
+
+/// A record is trusted only when the file's mtime is this much older than the time its content
+/// was read: a write in the same timestamp tick as the read (racy git) is hashed again.
+const RACY_NS: u64 = 2_000_000_000;
+
+/// Nanoseconds since the epoch.
+fn epoch_ns(t: std::time::SystemTime) -> u64 {
+    t.duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+}
+
+/// `(path relative to the canonical `dir`, BLAKE3 hex of the content)` of every file under `dir`
+/// but PoB's derived caches, in name order. The content hashes are reused from a stat index
+/// (`<root>/stat-index/<hash of dir>.json`: size, mtime and inode of each file at the time it was
+/// read) when the file's stat is unchanged and its mtime was older than that read by
+/// [`RACY_NS`]; any other file is read and hashed. The index only saves reads: the result is the
+/// content, whatever the index says about other files or paths.
+fn file_content_hashes(dir: &Path, index_dir: &Path) -> Result<Vec<(String, String)>, String> {
+    use std::collections::BTreeMap;
+    let mut files = Vec::new();
+    walk(dir, &mut files);
+    let index_path = index_dir.join(format!(
+        "{}.json",
+        &blake3::hash(dir.to_string_lossy().as_bytes()).to_hex()[..32]
+    ));
+    let old: BTreeMap<String, StatRecord> = std::fs::read(&index_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let mut new: BTreeMap<String, StatRecord> = BTreeMap::new();
+    let mut out = Vec::with_capacity(files.len());
+    let mut changed = false;
+    for f in files {
+        let rel = f
+            .strip_prefix(dir)
+            .unwrap_or(&f)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if pob_oracle::patcher::is_derived_cache(&rel) {
+            continue;
+        }
+        let meta = std::fs::metadata(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+        let mtime_ns = meta.modified().map_or(0, epoch_ns);
+        #[cfg(unix)]
+        let ino = std::os::unix::fs::MetadataExt::ino(&meta);
+        #[cfg(not(unix))]
+        let ino = 0;
+        let reuse = old.get(&rel).filter(|r| {
+            r.len == meta.len()
+                && r.mtime_ns == mtime_ns
+                && r.ino == ino
+                && mtime_ns.saturating_add(RACY_NS) < r.hashed_ns
+        });
+        let rec = if let Some(r) = reuse {
+            r.clone()
+        } else {
+            changed = true;
+            let hashed_ns = epoch_ns(std::time::SystemTime::now());
+            let data = std::fs::read(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+            StatRecord {
+                len: meta.len(),
+                mtime_ns,
+                ino,
+                hashed_ns,
+                blake3: blake3::hash(&data).to_hex().to_string(),
+            }
+        };
+        out.push((rel.clone(), rec.blake3.clone()));
+        new.insert(rel, rec);
+    }
+    if (changed || new.len() != old.len()) && mode() != Mode::Off {
+        if let Ok(json) = serde_json::to_vec(&new) {
+            write_plain(&index_path, &json);
+        }
+    }
+    Ok(out)
+}
+
+/// Write `data` to `path` through a private temp file and a rename (an optimisation: errors are
+/// ignored).
+fn write_plain(path: &Path, data: &[u8]) {
+    let Some(dir) = path.parent() else { return };
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let tmp = private_tmp(path);
+    if std::fs::write(&tmp, data).is_ok() && std::fs::rename(&tmp, path).is_ok() {
+        return;
+    }
+    let _ = std::fs::remove_file(&tmp);
+}
+
+/// A test file's name (`file!()`, relative to the workspace root) and the source the test binary
+/// was compiled from ([`test_source!`](crate::test_source)).
+#[derive(Clone, Copy, Debug)]
+pub struct TestSource {
+    pub file: &'static str,
+    pub text: &'static str,
+}
+
+/// The calling test file's [`TestSource`]: its `file!()` and its text, compiled in
+/// (`include_str!`), so a key always describes the code that runs, even when the file is edited
+/// while the binary runs (TP2 read the file at run time).
+#[macro_export]
+macro_rules! test_source {
+    () => {
+        $crate::oracle_cache::TestSource {
+            file: file!(),
+            text: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../", file!())),
+        }
+    };
+}
+
+/// The key of one UI oracle Lua-side run of a test: `test` is the test file
+/// ([`test_source!`](crate::test_source); its source holds the Lua stubs and the Lua-side
+/// wrapper, so it is hashed whole), `pob_root` the PoB checkout (`src/` and `runtime/` content
+/// keys, [`pob_tree_key`]), `fixtures` the directories and files the run reads (hashed by content:
+/// a directory's files by their names relative to it, so never by where the checkout is), and
+/// `params` everything else that decides the run (script text, screen, mode, query chunks). The
+/// caller adds nothing else: everything goes through here.
+///
+/// TP4: no absolute path goes in. TP2 hashed each fixture's path, which is under the worktree
+/// (`CARGO_MANIFEST_DIR`), so the full suite's `../pob-fullsuite` worktree, the main checkout and
+/// every agent worktree each had keys of their own.
 pub fn ui_key(
     kind: &str,
-    test_file: &str,
+    test: TestSource,
     pob_root: &Path,
     fixtures: &[&Path],
     params: &[&str],
 ) -> Result<Key, String> {
-    let ws = workspace_root();
     let mut k = KeyBuilder::new(kind);
     k.part(lua_side_code_hash());
-    // `file!()` is relative to the workspace root (cargo compiles from there)
-    let tf = ws.join(test_file);
-    let src = std::fs::read(&tf).map_err(|e| format!("{}: {e}", tf.display()))?;
-    k.part(test_file).part(&src);
+    k.part(test.file).part(test.text);
     k.part(pob_tree_key(&pob_root.join("src"))?);
     k.part(pob_tree_key(&pob_root.join("runtime"))?);
     for f in fixtures {
-        k.part(f.to_string_lossy().as_bytes());
         if f.is_dir() {
-            k.part(tree_hash(f, &[""]));
+            k.part("dir").part(tree_hash(f, &[""]));
         } else {
-            k.part(std::fs::read(f).unwrap_or_default());
+            k.part("file").part(std::fs::read(f).unwrap_or_default());
         }
     }
     for p in params {
@@ -537,7 +871,8 @@ pub fn cached_lua_run(
 /// Verify comparison of two Lua-side runs: the same error, traces equal up to PoB's own
 /// per-process `pairs` order (`diff_report::order_only_difference`: every frame has the same
 /// calls and side effects as multisets), and the same snapshots and `extra` up to that order
-/// ([`same_text_unordered`]: PoB's `SaveDB` writes attributes and some sections in `pairs` order).
+/// ([`same_text_unordered`], [`same_extra_unordered`]: PoB's `SaveDB` writes attributes and some
+/// sections in `pairs` order).
 #[must_use]
 pub fn same_lua_run(a: &LuaRun, b: &LuaRun) -> bool {
     a.error == b.error
@@ -550,19 +885,51 @@ pub fn same_lua_run(a: &LuaRun, b: &LuaRun) -> bool {
         && a.extra
             .iter()
             .zip(&b.extra)
-            .all(|(x, y)| same_text_unordered(x, y))
+            .all(|(x, y)| same_extra_unordered(x, y))
         && crate::diff_report::order_only_difference(&a.frames, &b.frames).is_ok()
 }
 
+/// One `extra` of [`same_lua_run`]: most are JSON (`serde_json::to_string` of what the test read
+/// back, e.g. saved `Builds/*.xml` texts), where the XML's quotes are escaped (`name=\"v\"`) and
+/// [`same_text_unordered`] would see no attribute. Two JSON texts compare as values with every
+/// string leaf compared by [`same_text_unordered`]; anything else (u16's `Settings.xml` text) as
+/// text.
+#[must_use]
+pub fn same_extra_unordered(a: &str, b: &str) -> bool {
+    fn same(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+        use serde_json::Value as V;
+        match (a, b) {
+            (V::String(x), V::String(y)) => same_text_unordered(x, y),
+            (V::Array(x), V::Array(y)) => {
+                x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same(x, y))
+            }
+            (V::Object(x), V::Object(y)) => {
+                x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
+            }
+            _ => a == b,
+        }
+    }
+    if a == b {
+        return true;
+    }
+    match (
+        serde_json::from_str::<serde_json::Value>(a),
+        serde_json::from_str::<serde_json::Value>(b),
+    ) {
+        (Ok(x), Ok(y)) => same(&x, &y),
+        _ => same_text_unordered(a, b),
+    }
+}
+
 /// `a == b`, or the same multiset of lines once the `name="value"` attributes of each line are
-/// sorted (XML written in `pairs` order; JSON-escaped newlines count as line breaks). A verify
-/// check: it catches a stale or wrong entry, not an order difference.
+/// sorted (XML written in `pairs` order; JSON-escaped newlines count as line breaks, except inside
+/// a `name="..."` value, see [`text_lines`]). A verify check: it catches a stale or wrong entry,
+/// not an order difference.
 #[must_use]
 pub fn same_text_unordered(a: &str, b: &str) -> bool {
     fn norm(t: &str) -> Vec<String> {
-        let mut lines: Vec<String> = t
-            .split('\n')
-            .flat_map(|l| l.split("\\n"))
+        let mut lines: Vec<String> = text_lines(t)
+            .iter()
             .map(|l| {
                 let l = l.trim();
                 // split at `"` boundaries: odd parts are values; a part before a value ending in
@@ -597,6 +964,41 @@ pub fn same_text_unordered(a: &str, b: &str) -> bool {
         lines
     }
     a == b || norm(a) == norm(b)
+}
+
+/// `t` split at line breaks (`\n`, or a JSON-escaped `\\n`) outside `name="..."` values (TP4 fix
+/// round 1). PoB writes values with line breaks in them (u27's `TimelessData searchList`). With
+/// the attributes in `pairs` order such a break falls between other attributes on each run, so
+/// splitting there made one element two different lines per run, and VERIFY failed every u27
+/// entry. A value opens at `="` and closes at the next `"` (an XML value has no raw `"`).
+fn text_lines(t: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    let mut in_value = false;
+    let mut rest = t;
+    while let Some(c) = rest.chars().next() {
+        let step = if !in_value && rest.starts_with("=\"") {
+            in_value = true;
+            cur.push_str("=\"");
+            2
+        } else if in_value && c == '"' {
+            in_value = false;
+            cur.push('"');
+            1
+        } else if !in_value && c == '\n' {
+            lines.push(std::mem::take(&mut cur));
+            1
+        } else if !in_value && rest.starts_with("\\n") {
+            lines.push(std::mem::take(&mut cur));
+            2
+        } else {
+            cur.push(c);
+            c.len_utf8()
+        };
+        rest = &rest[step..];
+    }
+    lines.push(cur);
+    lines
 }
 
 // ---- the bounded pool ---------------------------------------------------------------------------
@@ -825,6 +1227,7 @@ impl CasePool {
     }
 
     fn give(&self, site: &Site, start: Option<(u64, u64)>) {
+        release_free_heap();
         if let (Some((r0, h0)), Some((r1, h1))) = (start, rss_hwm_kb()) {
             let grew = r1.saturating_sub(r0).max(h1.saturating_sub(h0.max(r0)));
             let mut c = site
@@ -871,6 +1274,29 @@ fn limit_malloc_arenas(n: usize) {
 
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn limit_malloc_arenas(_n: usize) {}
+
+/// Give the free memory of every glibc malloc arena back to the system (`malloc_trim(0)`), when a
+/// case ends (TP4 fix round 1). The arena cap above comes too late for the arenas libtest's test
+/// threads already have, and each arena keeps its peak heap: u26 (one case at a time, no cache)
+/// peaked at 4.1 GB with the cap alone, against 2.4 GB with `MALLOC_ARENA_MAX=1` from the start.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[allow(unsafe_code)]
+fn release_free_heap() {
+    if std::env::var("POB_TEST_MALLOC_ARENAS").is_ok_and(|v| v == "0") {
+        return;
+    }
+    extern "C" {
+        fn malloc_trim(pad: usize) -> std::ffi::c_int;
+    }
+    // SAFETY: `malloc_trim` is glibc's (this cfg); it takes each arena's lock and returns free
+    // pages to the system; no Rust state, a plain integer in and out.
+    unsafe {
+        malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn release_free_heap() {}
 
 /// A running case of the process-wide pool (released on drop; see `CasePool`).
 pub struct Permit {
@@ -997,8 +1423,160 @@ mod tests {
         let a = "<A x=\"1\" y=\"2\"/>\n<B z=\"3\"/>";
         let b = "<B z=\"3\"/>\n<A y=\"2\" x=\"1\"/>";
         assert!(same_text_unordered(a, b));
-        assert!(!same_text_unordered(a, "<A x=\"1\" y=\"3\"/>\n<B z=\"3\"/>"));
+        assert!(!same_text_unordered(
+            a,
+            "<A x=\"1\" y=\"3\"/>\n<B z=\"3\"/>"
+        ));
         assert!(!same_text_unordered(a, "<A x=\"1\" y=\"2\"/>"));
+        // a value with a line break, with the attributes in another order (u27's searchList)
+        let m1 = "<T s=\"a, 1\nb, 2\" c=\"1\" d=\"\"/>\n</X>";
+        let m2 = "<T c=\"1\" s=\"a, 1\nb, 2\" d=\"\"/>\n</X>";
+        assert!(same_text_unordered(m1, m2));
+        assert!(!same_text_unordered(
+            m1,
+            "<T c=\"1\" s=\"a, 1\nb, 3\" d=\"\"/>\n</X>"
+        ));
+        assert_eq!(text_lines("a\\nb=\"x\ny\"\nc").len(), 3);
+    }
+
+    /// TP4 fix round 1: an `extra` holding saved XML as JSON (`[["Builds/x.xml", "<A ...>"]]`)
+    /// compares up to attribute order, as the raw XML does; a value change still fails.
+    #[test]
+    fn unordered_extra_decodes_json_first() {
+        let saved = |xml: &str| serde_json::to_string(&vec![("Builds/x.xml", Some(xml))]).unwrap();
+        let orig = saved("<Build level=\"90\" mainSocketGroup=\"3\"/>\n<Tree v=\"1\"/>");
+        let reordered = saved("<Tree v=\"1\"/>\n<Build mainSocketGroup=\"3\" level=\"90\"/>");
+        assert!(
+            !same_text_unordered(&orig, &reordered),
+            "the escaped form defeats the text normaliser"
+        );
+        assert!(same_extra_unordered(&orig, &reordered));
+        let changed = saved("<Build level=\"90\" mainSocketGroup=\"2\"/>\n<Tree v=\"1\"/>");
+        assert!(!same_extra_unordered(&orig, &changed));
+        let missing = serde_json::to_string(&vec![("Builds/x.xml", None::<&str>)]).unwrap();
+        assert!(!same_extra_unordered(&orig, &missing));
+        assert!(same_extra_unordered(
+            "<A x=\"1\" y=\"2\"/>",
+            "<A y=\"2\" x=\"1\"/>"
+        ));
+    }
+
+    /// TP4 fix round 1: the streamed JSON payload is the one `to_vec` + `encode_all` gave (the
+    /// entry format is unchanged) and a value whose JSON does not read back is refused.
+    #[test]
+    fn json_payload_is_streamed_and_round_trip_checked() {
+        let v = (
+            vec![1.5_f64, -0.0, 1e300, 0.1 + 0.2],
+            String::from("a\"b\n"),
+            Some(3_u8),
+        );
+        let (sum, body) = encode_json_checked(&v).unwrap();
+        let text = serde_json::to_vec(&v).unwrap();
+        assert_eq!(&sum, blake3::hash(&text).as_bytes());
+        assert_eq!(zstd::decode_all(&body[..]).unwrap(), text);
+        assert_eq!(json_hash(&v), Some(sum));
+        let dir = std::env::temp_dir().join(format!("puoc-json-{}", std::process::id()));
+        let p = KeyBuilder::new("t").part("j").finish().path(&dir);
+        write_entry_body(&p, &sum, &body);
+        assert_eq!(read_entry(&p), Some(text));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(encode_json_checked(&vec![f64::NAN]).is_err());
+    }
+
+    /// TP4: a fresh scratch directory holding `files`.
+    fn scratch_tree(tag: &str, files: &[(&str, &str)]) -> PathBuf {
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let d = std::env::temp_dir().join(format!(
+            "puoc-{tag}-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        for (rel, text) in files {
+            let p = d.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        }
+        std::fs::canonicalize(d).unwrap()
+    }
+
+    /// The PoB tree key and the fixture hash of `ui_key` depend on content and relative names
+    /// only: two copies at different paths, written at different times, key the same; an edit or
+    /// a rename does not; PoB's jewel `.bin` caches do not count.
+    #[test]
+    fn keys_are_content_addressed() {
+        let index = scratch_tree("index", &[]);
+        let files = [
+            ("Modules/A.lua", "return 1"),
+            ("Data/TimelessJewelData/X.zip", "zip"),
+        ];
+        let a = scratch_tree("pa", &files);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let b = scratch_tree("pb", &files);
+        std::fs::write(b.join("Data/TimelessJewelData/X.bin"), "inflated").unwrap();
+        let ka = tree_content_key(&a, &index).unwrap();
+        assert_eq!(
+            ka,
+            tree_content_key(&b, &index).unwrap(),
+            "same content, other path/mtime"
+        );
+        assert_eq!(
+            ka,
+            tree_content_key(&a, &index).unwrap(),
+            "from the stat index"
+        );
+        let c = scratch_tree("pc", &[("Modules/A.lua", "return 2"), files[1]]);
+        assert_ne!(ka, tree_content_key(&c, &index).unwrap(), "content edit");
+        let d = scratch_tree("pd", &[("Modules/B.lua", "return 1"), files[1]]);
+        assert_ne!(ka, tree_content_key(&d, &index).unwrap(), "rename");
+        // fixture hashes: relative names and content only
+        assert_eq!(
+            tree_hash(&a, &[""]),
+            tree_hash(&c.join("../").join(a.file_name().unwrap()), &[""])
+        );
+        assert_eq!(
+            tree_hash_except(&b, &[""], &["Data/TimelessJewelData/X.bin"]),
+            tree_hash(&a, &[""])
+        );
+        assert_ne!(tree_hash(&a, &[""]), tree_hash(&c, &[""]));
+        for p in [&a, &b, &c, &d, &index] {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
+
+    /// A file rewritten with the same size and mtime right after its content was hashed (inside
+    /// the racy window) is read again, not taken from the stat index.
+    #[test]
+    fn stat_index_rehashes_racy_files() {
+        let index = scratch_tree("index", &[]);
+        let a = scratch_tree("racy", &[("A.lua", "return 1")]);
+        let f = a.join("A.lua");
+        let mtime = std::fs::metadata(&f).unwrap().modified().unwrap();
+        let k1 = tree_content_key(&a, &index).unwrap();
+        std::fs::write(&f, "return 2").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&f)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+        assert_ne!(k1, tree_content_key(&a, &index).unwrap());
+        for p in [&a, &index] {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
+
+    #[test]
+    fn third_party_lock_keeps_registry_packages_only() {
+        let lock = "version = 4\n\n[[package]]\nname = \"pob-app\"\nversion = \"0.0.1\"\ndependencies = [\n \"mlua\",\n]\n\n[[package]]\nname = \"mlua\"\nversion = \"0.10.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"ab\"\n";
+        let t = third_party_lock(lock);
+        assert!(
+            t.contains("name = \"mlua\"") && !t.contains("pob-app"),
+            "{t}"
+        );
+        let edited = lock.replace(" \"mlua\",\n", " \"mlua\",\n \"serde\",\n");
+        assert_eq!(t, third_party_lock(&edited), "a workspace dependency edit");
+        assert_ne!(t, third_party_lock(&lock.replace("0.10.0", "0.10.1")));
     }
 
     #[test]

@@ -699,3 +699,27 @@ SaveDB side effects (CCR-0114 §6). `pob-ui-oracle` `sg_bridge::deliver_subscrip
 sub-script slot before its callback runs (CCR-0117 §8), and `runner::Driver::frame` drops
 `Net::poll` (CCR-0109 §8). Since U53 the unit harnesses run on `RustCalc`, so these gaps matter
 only for `POB_UI_CALC=lua` runs.
+
+## TP4
+
+- **u26's Lua UI side is never cached** (owner: the pob-sg trace format, or a TP follow-up in
+  `crates/pob-ui-oracle/src/oracle_cache.rs`). With all-zero node power, PoB's heat map calls
+  `SetDrawColor` with NaN components (PassiveTreeView.lua, 0/0). `pob_sg::trace::FrameTrace`
+  serialises f64 through serde_json, which writes NaN as `null`, and `null` does not read back
+  as f64. So `encode_json_checked` refuses the entry (`not stored: its JSON does not read back
+  (invalid type: null, expected f64 ...)`), and every u26 run boots its 4 Lua sides (warm 156 s
+  against cold 169 s). The fix: give the trace's floats a serde form that carries non-finite
+  values (e.g. a `"NaN"`/`"inf"` string for those values only, the same on both sides), or
+  store the cache payload in a format that keeps f64 bit-exact. The fix is not in TP4 because
+  pob-sg is shared and its trace JSON is also ui-parity's report format.
+- **VERIFY fails on entries PoB does not reproduce itself** (owner: TP follow-up,
+  `oracle_cache::same_lua_run` / `same_state_doc`). The checks are exact up to `pairs` order of
+  lines, attributes, calls and lists. The TP4 VERIFY run (testing.md "Measurements (TP4 fix
+  round 1)") found 13 entries in 7 binaries that differ from a fresh run in values PoB itself
+  picks per process: the gem variant (SkillsTab.lua:472-478), the flask buff `source`
+  (CalcPerform.lua:1773), unique flavour text (ItemsTab.lua:4578-4580), the `masteryEffects`
+  value order (PassiveSpec.lua:203) and the deflated export code (u43). Options: recognise these
+  classes in the comparison (the variant pick needs `data.gemsByGameId`, as u20's
+  `ambiguous_variant` does), or run a fresh Lua side twice on a mismatch and report an entry
+  as stale only when the two fresh runs agree with each other and not with the entry. Until
+  then, VERIFY failures in u20, u26, u29, u30, u38, u43 and u44 need triage against this list.

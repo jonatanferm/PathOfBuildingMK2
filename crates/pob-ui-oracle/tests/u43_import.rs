@@ -59,10 +59,8 @@ use pob_sg::{Key, Sg, Sys};
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
 use pob_ui_oracle::lua_calc::LuaCalcBridge;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
-
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
 
@@ -707,6 +705,55 @@ fn read_saved(user: &UserDir, names: &[String]) -> Vec<(String, Option<String>)>
         .collect()
 }
 
+/// The Lua side of one run through the Lua-side cache (TP4, as u41): PoB boot, `script` and what
+/// the test keeps of the VM and the user dir afterwards (`extra`, JSON). The key covers this file
+/// (stubs and Lua-side wrapper), the Lua-side code, PoB, this test's scripts and fixtures, the
+/// fixture user dir, the script, the screen and the other arguments.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+    saved: &[String],
+    net: &pob_ui_oracle::sg_bridge::NetFixtures,
+) -> anyhow::Result<LuaRun> {
+    let scripts = test_dir();
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u43",
+        pob_ui_oracle::test_source!(),
+        root,
+        &inputs,
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+            &format!("{saved:?}"),
+            &format!("{net:?}"),
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        *pob_ui_oracle::sg_bridge::bridge(&lua_app.pob.lua)
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+            .net
+            .borrow_mut() = net.clone();
+        let mut lua_side = LuaSide { app: lua_app };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
+        drop(lua_side);
+        drop_image_loads(&mut frames);
+        Ok(LuaRun {
+            frames,
+            error: r.err().map(|e| e.to_string()),
+            snapshots: std::mem::take(&mut d.snapshots),
+            extra: vec![serde_json::to_string(&read_saved(user, saved))?],
+        })
+    })
+}
+
 /// Run `script` on both sides with `fixture` as the user dir (fresh copies per side). The Lua
 /// VM is dropped before the Rust side starts (memory).
 fn run_sides(
@@ -719,23 +766,13 @@ fn run_sides(
 ) -> anyhow::Result<(Side, Side)> {
     let user = UserDir::new(fixture)?;
 
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    *pob_ui_oracle::sg_bridge::bridge(&lua_app.pob.lua)
-        .map_err(|e| anyhow::anyhow!("{e}"))?
-        .net
-        .borrow_mut() = net.clone();
-    let mut lua_side = LuaSide { app: lua_app };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
-    drop(lua_side);
-    drop_image_loads(&mut frames);
+    // Lua (cached, TP4)
+    let run = lua_run(root, script, &user, fixture, screen, saved, net)?;
     let lua = Side {
-        frames,
-        error: r.err().map(|e| e.to_string()),
-        snapshots: std::mem::take(&mut d.snapshots),
-        saved: read_saved(&user, saved),
+        frames: run.frames,
+        error: run.error,
+        snapshots: run.snapshots,
+        saved: serde_json::from_str(run.extra.first().map_or("null", String::as_str))?,
     };
 
     // Rust
@@ -960,11 +997,18 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
     errs
 }
 
+/// One case's outcome (TP4: cases run on `oracle_cache::par_map`; collected in case order).
+#[derive(Default)]
+struct CaseOut {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    ran: usize,
+    t4_pairs: usize,
+    t4_bytes: usize,
+}
+
 #[test]
 fn u43_scenarios() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u43")
@@ -975,17 +1019,13 @@ fn u43_scenarios() {
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u43/*.pobscript");
     let filter = std::env::var("U43_FILTER").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
-    let (mut t4_pairs, mut t4_bytes) = (0, 0);
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
-        let text = std::fs::read_to_string(&path).unwrap();
-        let (script, base_dir) = runner::load_script(&path).unwrap();
-        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        let (script, _) = runner::load_script(&path).unwrap();
         let own_screen = matches!(
             script.steps.first(),
             Some(pob_host::script::Step::Screen { .. })
@@ -995,8 +1035,17 @@ fn u43_scenarios() {
         } else {
             SCREENS.to_vec()
         };
-        let saved = directives(&text, "u43-saved");
         for (w, h, s) in screens {
+            cases.push((path.clone(), stem.clone(), own_screen, (w, h, s)));
+        }
+    }
+    let results = oracle_cache::par_map(cases, |(path, stem, own_screen, (w, h, s))| {
+        let mut out = CaseOut::default();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (script, base_dir) = runner::load_script(&path).unwrap();
+        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        let saved = directives(&text, "u43-saved");
+        {
             let tag = if own_screen {
                 format!("u43_{stem}")
             } else {
@@ -1012,11 +1061,11 @@ fn u43_scenarios() {
             ) {
                 Ok(s) => s,
                 Err(e) => {
-                    failures.push(format!("{tag}: {e:#}"));
-                    continue;
+                    out.failures.push(format!("{tag}: {e:#}"));
+                    return out;
                 }
             };
-            ran += 1;
+            out.ran += 1;
             let titles = (window_titles(&lua.frames), window_titles(&rust.frames));
             let mut notes = T4Notes::default();
             let mut t4r = t4(&lua, &rust, &mut notes);
@@ -1088,13 +1137,14 @@ fn u43_scenarios() {
             };
             let n = diff_report::write_report(&out_dir(), &tag, &run, false).unwrap_or(usize::MAX);
             if !aside.is_empty() {
-                println!("{tag}: set aside {}", aside.join("; "));
+                out.lines
+                    .push(format!("{tag}: set aside {}", aside.join("; ")));
             }
             let ops = draw_ops(&run.lua);
             let t4_line = match &t4r {
                 Ok((p, b)) => {
-                    t4_pairs += p;
-                    t4_bytes += b;
+                    out.t4_pairs += p;
+                    out.t4_bytes += b;
                     let mut pending = notes.pending_sections.clone();
                     pending.sort();
                     pending.dedup();
@@ -1105,7 +1155,7 @@ fn u43_scenarios() {
                 }
                 Err(e) => format!("T4 FAILED: {}", e.join("; ")),
             };
-            println!(
+            out.lines.push(format!(
                 "{tag}: {} frames, {ops} Lua draw ops, {n} divergences, {t4_line}, titles {:?}{}{}{}",
                 run.lua.len(),
                 distinct_titles(&titles.0),
@@ -1120,7 +1170,7 @@ fn u43_scenarios() {
                 } else {
                     format!(", expectations: {}", expect.join("; "))
                 }
-            );
+            ));
             if n != 0
                 || rust.error.is_some()
                 || lua.error.is_some()
@@ -1130,7 +1180,7 @@ fn u43_scenarios() {
                 || t4r.is_err()
                 || !expect.is_empty()
             {
-                failures.push(format!(
+                out.failures.push(format!(
                     "{tag}: {n} divergences, frames lua {} rust {}, {ops} ops, {t4_line}, titles lua {:?} rust {:?}, errors lua {:?} rust {:?}, expectations {expect:?} (see {})",
                     run.lua.len(),
                     run.rust.len(),
@@ -1142,8 +1192,22 @@ fn u43_scenarios() {
                 ));
             }
         }
+        out
+    });
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    let (mut t4_pairs, mut t4_bytes) = (0, 0);
+    for case in results {
+        for l in &case.lines {
+            println!("{l}");
+        }
+        failures.extend(case.failures);
+        ran += case.ran;
+        t4_pairs += case.t4_pairs;
+        t4_bytes += case.t4_bytes;
     }
     println!("u43: {ran} runs, T4 {t4_pairs} pairs ({t4_bytes} byte-identical)");
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -1181,9 +1245,8 @@ const OPEN_IMPORT: &str = "fixture userdir=../../fixtures/user1\nframes 2\nmove 
 #[test]
 #[ignore = "a helper for writing tests/u43 scripts"]
 fn u43_probe_positions() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
+    let _permit = oracle_cache::Permit::acquire();
     let Some(root) = inputs() else { return };
     let (side, _frames, _user) = rust_only(&root, OPEN_IMPORT).expect("run");
     let cx = &side.app.cx;
@@ -1218,9 +1281,8 @@ fn u43_probe_positions() {
 #[test]
 fn u43_share_rust() {
     use pob_ui_core::controls::{ButtonControl, EditControl};
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
+    let _permit = oracle_cache::Permit::acquire();
     let Some(root) = inputs() else { return };
     // Generate at the button's centre, then Share (positions: u43_probe_positions)
     let steps = "move 806 418\nclick LEFTBUTTON\nframes 1\nmove 832 444\nclick LEFTBUTTON\n";

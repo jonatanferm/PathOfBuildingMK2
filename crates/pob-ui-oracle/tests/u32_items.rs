@@ -1205,7 +1205,7 @@ fn lua_run(
     inputs.extend(fixture);
     let key = oracle_cache::ui_key(
         "ui-u32",
-        file!(),
+        pob_ui_oracle::test_source!(),
         root,
         &inputs,
         &[

@@ -52,10 +52,8 @@ use pob_ui_core::prelude::{InputEvents, ViewPort};
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
 use pob_ui_oracle::lua_calc::LuaCalcBridge;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
-
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn inputs() -> Option<PathBuf> {
     let root = pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)")?;
@@ -552,6 +550,45 @@ fn drop_image_loads(frames: &mut [FrameTrace]) {
     }
 }
 
+/// The Lua side of one run through the Lua-side cache (TP4, as u41): PoB boot, `script` and what
+/// the test keeps of the VM and the user dir afterwards (`extra`, JSON). The key covers this file
+/// (stubs and Lua-side wrapper), the Lua-side code, PoB, this test's scripts and fixtures, the
+/// fixture user dir, the script, the screen and the other arguments.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+) -> anyhow::Result<LuaRun> {
+    let scripts = test_dir();
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u24",
+        pob_ui_oracle::test_source!(),
+        root,
+        &inputs,
+        &[&format!("{script:?}"), &format!("{screen:?}")],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        let mut lua_side = LuaSide { app: lua_app };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
+        drop(lua_side);
+        let images = tree_image_loads(&frames);
+        drop_image_loads(&mut frames);
+        Ok(LuaRun {
+            frames,
+            error: r.err().map(|e| e.to_string()),
+            snapshots: std::mem::take(&mut d.snapshots),
+            extra: vec![serde_json::to_string(&images)?],
+        })
+    })
+}
+
 struct Side {
     frames: Vec<FrameTrace>,
     error: Option<String>,
@@ -567,20 +604,13 @@ fn run_sides(
 ) -> anyhow::Result<(Side, Side)> {
     let user = UserDir::new(fixture)?;
 
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    let mut lua_side = LuaSide { app: lua_app };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
-    drop(lua_side);
-    let images = tree_image_loads(&frames);
-    drop_image_loads(&mut frames);
+    // Lua (cached, TP4)
+    let run = lua_run(root, script, &user, fixture, screen)?;
     let lua = Side {
-        frames,
-        error: r.err().map(|e| e.to_string()),
-        snapshots: std::mem::take(&mut d.snapshots),
-        images,
+        frames: run.frames,
+        error: run.error,
+        snapshots: run.snapshots,
+        images: serde_json::from_str(run.extra.first().map_or("null", String::as_str))?,
     };
 
     // Rust
@@ -794,11 +824,18 @@ fn tooltip_strings(frames: &[FrameTrace]) -> Vec<String> {
     out
 }
 
+/// One case's outcome (TP4: cases run on `oracle_cache::par_map`; collected in case order).
+#[derive(Default)]
+struct CaseOut {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    ran: usize,
+    total_ops: usize,
+    total_expect: usize,
+}
+
 #[test]
 fn u24_scenarios() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u24")
@@ -811,15 +848,16 @@ fn u24_scenarios() {
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u24/*.pobscript");
     let filter = std::env::var("U24_FILTER").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
-    let mut total_ops = 0;
-    let mut total_expect = 0;
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
+        cases.push((path.clone(), stem.clone()));
+    }
+    let results = oracle_cache::par_map(cases, |(path, stem)| {
+        let mut out = CaseOut::default();
         let (script, base_dir) = runner::load_script(&path).unwrap();
         let fx = runner::fixtures(&script, &base_dir).unwrap();
         let own_screen = script
@@ -833,18 +871,18 @@ fn u24_scenarios() {
         let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(1280, 800, 1.0)) {
             Ok(s) => s,
             Err(e) => {
-                failures.push(format!("{tag}: {e:#}"));
-                continue;
+                out.failures.push(format!("{tag}: {e:#}"));
+                return out;
             }
         };
-        ran += 1;
+        out.ran += 1;
         let titles = (window_titles(&lua.frames), window_titles(&rust.frames));
         let divs = diff_run(&lua.frames, &rust.frames);
         let n: usize = divs.iter().map(|(_, d)| d.len().max(1)).sum();
         // the hovers of the script showed the tooltips it names
         let drawn = tooltip_strings(&lua.frames);
         let expects = tooltip_expectations(&path);
-        total_expect += expects.len();
+        out.total_expect += expects.len();
         let missing: Vec<&String> = expects
             .iter()
             .filter(|e| !drawn.iter().any(|d| d.contains(e.as_str())))
@@ -868,8 +906,8 @@ fn u24_scenarios() {
             )
         });
         let ops = draw_ops(&run.lua);
-        total_ops += ops;
-        println!(
+        out.total_ops += ops;
+        out.lines.push(format!(
             "{tag}: {} frames, {ops} Lua draw ops ({tooltip_lines} tooltip strings, {} Lua tree image loads), {n} divergences, {} of {} tooltip expectations met, titles {:?}, {:.1} s{}{}{}",
             run.lua.len(),
             lua.images.len(),
@@ -884,7 +922,7 @@ fn u24_scenarios() {
                 .as_ref()
                 .map_or_else(String::new, |e| format!(", Rust error: {e}")),
             first.as_ref().map_or_else(String::new, |f| format!(", first: {f}")),
-        );
+        ));
         if n != 0
             || rust.error.is_some()
             || lua.error.is_some()
@@ -893,7 +931,7 @@ fn u24_scenarios() {
             || titles.0 != titles.1
             || !missing.is_empty()
         {
-            failures.push(format!(
+            out.failures.push(format!(
                 "{tag}: {n} divergences ({}), frames lua {} rust {}, {ops} ops, missing tooltips {missing:?}, titles lua {:?} rust {:?}, errors lua {:?} rust {:?}",
                 first.unwrap_or_default(),
                 run.lua.len(),
@@ -904,8 +942,24 @@ fn u24_scenarios() {
                 rust.error,
             ));
         }
+
+        out
+    });
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    let mut total_ops = 0;
+    let mut total_expect = 0;
+    for case in results {
+        for l in &case.lines {
+            println!("{l}");
+        }
+        failures.extend(case.failures);
+        ran += case.ran;
+        total_ops += case.total_ops;
+        total_expect += case.total_expect;
     }
     println!("u24: {ran} runs, {total_ops} Lua draw ops, {total_expect} tooltip expectations");
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -964,9 +1018,8 @@ return string.format("vp %d %d %d %d zoom %.3f\n", vp.x, vp.y, vp.width, vp.heig
 #[test]
 #[ignore = "development aid for writing the scripts (needs U24_PROBE)"]
 fn u24_probe() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
+    let _permit = oracle_cache::Permit::acquire();
     let Some(root) = inputs() else { return };
     let Ok(names) = std::env::var("U24_PROBE") else { return };
     for name in names.split(',') {
@@ -1096,9 +1149,8 @@ fn rust_lines(cx: &mut pob_ui_core::cx::Cx) -> String {
 
 #[test]
 fn u24_tooltip_lines() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
+    let _permit = oracle_cache::Permit::acquire();
     let Some(root) = inputs() else { return };
     let path = test_dir().join("_probe_b.pobscript");
     let (script, base_dir) = runner::load_script(&path).unwrap();

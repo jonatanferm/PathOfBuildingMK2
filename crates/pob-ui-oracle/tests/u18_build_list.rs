@@ -32,13 +32,11 @@ use pob_ui_core::cx::Cx;
 use pob_ui_core::prelude::{rect, Anchor};
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
 /// FolderListControl's `onChange`.
 type OnChange = Rc<dyn Fn(&mut Cx, &str)>;
-
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn inputs() -> Option<PathBuf> {
     let root = pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)")?;
@@ -408,6 +406,86 @@ struct Sides {
     rust_settings: Option<String>,
 }
 
+/// The Lua side of one run through the Lua-side cache (TP4, as u41): PoB boot, `script` and what
+/// the test keeps of the VM and the user dir afterwards (`extra`, JSON). The key covers this file
+/// (stubs and Lua-side wrapper), the Lua-side code, PoB, this test's scripts and fixtures, the
+/// fixture user dir, the script, the screen and the other arguments.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+    setups: &[String],
+) -> anyhow::Result<LuaRun> {
+    let scripts = test_dir();
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u18",
+        pob_ui_oracle::test_source!(),
+        root,
+        &inputs,
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+            &format!("{setups:?}"),
+            &user.path.to_string_lossy(),
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let builds = user.path.join("Path of Building/Builds");
+        let settings_file = user.path.join("Path of Building/Settings.xml");
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        let mut lua_side = LuaSide {
+            app: lua_app,
+            setups: setups.to_vec(),
+        };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (lua, r) = runner::drive(&mut lua_side, script, &mut d);
+        r.map_err(|e| anyhow::anyhow!("Lua side: {e}"))?;
+        lua_side
+            .app
+            .with_vm(|pob| pob.eval::<()>("main:SaveSettings()"))
+            .map_err(|e| anyhow::anyhow!("Lua SaveSettings: {e}"))?;
+        let lua_settings = std::fs::read_to_string(&settings_file).ok();
+        drop(lua_side);
+        let lua_tree = tree(&builds);
+        Ok(LuaRun {
+            frames: lua,
+            error: None,
+            snapshots: Vec::new(),
+            extra: vec![
+                serde_json::to_string(&lua_settings)?,
+                serde_json::to_string(&lua_tree)?,
+            ],
+        })
+    })
+}
+
+/// TP4 fix round 1: the user dir of one case at a fixed path, `<tmp>/pob-ui-oracle/named/<tag>`,
+/// and an exclusive lock on `<tag>.lock` that keeps another process running the same case out of
+/// it while it lives (bind it first, so the dir goes before the lock). This test's Lua side draws
+/// the user dir's path (the build list's file paths), and the text's width moves the layout, so a
+/// cached Lua side matches only a Rust side run in the same directory (a per-process
+/// `UserDir::new` path failed every warm run); the path goes into the key.
+fn case_user_dir(fixture: Option<&Path>, tag: &str) -> anyhow::Result<(std::fs::File, UserDir)> {
+    let base = std::env::temp_dir().join("pob-ui-oracle").join("named");
+    std::fs::create_dir_all(&base)?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(base.join(format!("{tag}.lock")))?;
+    lock.lock()?;
+    let mut user = UserDir::new(fixture)?;
+    let _ = std::fs::remove_dir_all(&user.path);
+    user.path = base.join(tag);
+    user.reset()?;
+    Ok((lock, user))
+}
+
 /// Run `script` on both sides with `fixture` as the user dir (fresh copies per side).
 fn run_sides(
     root: &Path,
@@ -415,28 +493,17 @@ fn run_sides(
     fixture: Option<&Path>,
     screen: pob_sg::ScreenInfo,
     setups: &[String],
+    tag: &str,
 ) -> anyhow::Result<Sides> {
-    let user = UserDir::new(fixture)?;
+    let (_lock, user) = case_user_dir(fixture, tag)?;
     let builds = user.path.join("Path of Building/Builds");
     let settings_file = user.path.join("Path of Building/Settings.xml");
 
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    let mut lua_side = LuaSide {
-        app: lua_app,
-        setups: setups.to_vec(),
-    };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut lua, r) = runner::drive(&mut lua_side, script, &mut d);
-    r.map_err(|e| anyhow::anyhow!("Lua side: {e}"))?;
-    lua_side
-        .app
-        .with_vm(|pob| pob.eval::<()>("main:SaveSettings()"))
-        .map_err(|e| anyhow::anyhow!("Lua SaveSettings: {e}"))?;
-    let lua_settings = std::fs::read_to_string(&settings_file).ok();
-    drop(lua_side);
-    let lua_tree = tree(&builds);
+    // Lua (cached, TP4)
+    let run = lua_run(root, script, &user, fixture, screen, setups)?;
+    let mut lua = run.frames;
+    let lua_settings = serde_json::from_str(run.extra.first().map_or("null", String::as_str))?;
+    let lua_tree = serde_json::from_str(run.extra.get(1).map_or("null", String::as_str))?;
 
     // Rust
     user.reset()?;
@@ -538,11 +605,16 @@ fn check_texts(lua: &[FrameTrace], text: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// One case's outcome (TP4: cases run on `oracle_cache::par_map`; collected in case order).
+#[derive(Default)]
+struct CaseOut {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    ran: usize,
+}
+
 #[test]
 fn u18_scenarios() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u18")
@@ -553,16 +625,13 @@ fn u18_scenarios() {
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u18/*.pobscript");
     let filter = std::env::var("U18_FILTER").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
-        let text = std::fs::read_to_string(&path).unwrap();
-        let (script, base_dir) = runner::load_script(&path).unwrap();
-        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        let (script, _) = runner::load_script(&path).unwrap();
         let own_screen = matches!(
             script.steps.first(),
             Some(pob_host::script::Step::Screen { .. })
@@ -573,6 +642,15 @@ fn u18_scenarios() {
             runner::ACCEPTANCE_SCREENS.to_vec()
         };
         for (w, h, s) in screens {
+            cases.push((path.clone(), stem.clone(), (w, h, s)));
+        }
+    }
+    let results = oracle_cache::par_map(cases, |(path, stem, (w, h, s))| {
+        let mut out = CaseOut::default();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (script, base_dir) = runner::load_script(&path).unwrap();
+        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        {
             let tag = format!("u18_{stem}@{w}x{h}@{s}");
             let sides = match run_sides(
                 &root,
@@ -580,14 +658,15 @@ fn u18_scenarios() {
                 fx.user_dir.as_deref(),
                 runner::screen(w, h, s),
                 &setups(&text),
+                &tag,
             ) {
                 Ok(s) => s,
                 Err(e) => {
-                    failures.push(format!("{tag}: {e:#}"));
-                    continue;
+                    out.failures.push(format!("{tag}: {e:#}"));
+                    return out;
                 }
             };
-            ran += 1;
+            out.ran += 1;
             let texts = check_texts(&sides.lua, &text);
             let run = RunResult {
                 lua: sides.lua,
@@ -605,7 +684,7 @@ fn u18_scenarios() {
                 (Some(l), Some(r)) => normalise(l) == normalise(r),
                 _ => false,
             };
-            println!(
+            out.lines.push(format!(
                 "{tag}: {} frames, {ops} Lua draw ops, {n} divergences, {} files/dirs, same tree: {same_tree}, same Settings.xml: {same_settings}{}",
                 run.lua.len(),
                 sides.lua_tree.len(),
@@ -613,7 +692,7 @@ fn u18_scenarios() {
                     .rust_error
                     .as_ref()
                     .map_or_else(String::new, |e| format!(", Rust error: {e}"))
-            );
+            ));
             if n != 0
                 || sides.rust_error.is_some()
                 || run.lua.len() != run.rust.len()
@@ -628,7 +707,7 @@ fn u18_scenarios() {
                     .chain(sides.rust_tree.keys())
                     .filter(|k| sides.lua_tree.get(*k) != sides.rust_tree.get(*k))
                     .collect();
-                failures.push(format!(
+                out.failures.push(format!(
                     "{tag}: {n} divergences, frames lua {} rust {}, {ops} ops, tree differs at {diff_files:?}, settings same {same_settings}, texts {texts:?} (see {})",
                     run.lua.len(),
                     run.rust.len(),
@@ -636,7 +715,18 @@ fn u18_scenarios() {
                 ));
             }
         }
+        out
+    });
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    for case in results {
+        for l in &case.lines {
+            println!("{l}");
+        }
+        failures.extend(case.failures);
+        ran += case.ran;
     }
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
