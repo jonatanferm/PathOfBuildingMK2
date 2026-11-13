@@ -2101,6 +2101,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pob-golden"
+version = "0.0.1"
+dependencies = [
+ "blake3",
+ "pob-calc",
+ "pob-gamedata",
+ "pob-lua",
+ "pob-modparser",
+ "serde",
+ "serde_json",
+ "zstd",
+]
+
+[[package]]
 name = "pob-host"
 version = "0.0.1"
 dependencies = [
@@ -2156,6 +2170,7 @@ dependencies = [
  "mlua",
  "pob-calc",
  "pob-gamedata",
+ "pob-golden",
  "pob-lua",
  "pob-modparser",
  "pob-testpaths",

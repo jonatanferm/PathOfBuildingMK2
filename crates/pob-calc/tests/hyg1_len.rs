@@ -16,6 +16,10 @@
 //!   border of a holed table can differ between LuaJIT processes. The test
 //!   requires every Rust `len()` to be a valid border, and reports how often
 //!   Rust and LuaJIT disagree next to how often two LuaJIT states disagree.
+//!
+//! The third test of this file, `ctor_pairs_follow_field_order` (Rust against Rust, no
+//! LuaJIT), moved to `tests/ctor_pairs.rs` (GOLD1, docs/standalone/GOLDEN-PLAN.md §1.6): this
+//! file goes with `mlua` at the cut-over, that test stays.
 
 // Test-only pedantic lints: short binding names mirror the Lua under test.
 #![allow(clippy::many_single_char_names)]
@@ -399,61 +403,6 @@ fn table_len_matches_luajit() {
         eprintln!("{b}");
     }
     assert!(bad.is_empty(), "{} mismatching sequences", bad.len());
-}
-
-/// Storage order (calc doc §3.4: `pairs` follows insertion) of a constructor
-/// is field order, whatever its constant / run-time split: `from_ctor`'s
-/// `pairs()` equals that of a plain table that stores every field in turn
-/// (items are keys 1, 2, … in turn). That reference takes the LAST field of a
-/// duplicated key, where Lua takes the last run-time one (the template is in
-/// place first), so constructors whose contents differ for that reason are
-/// not compared.
-#[test]
-fn ctor_pairs_follow_field_order() {
-    let mut r = Rng(0x4859_4733);
-    let (mut checked, mut dup) = (0, 0);
-    for _ in 0..SEQUENCES {
-        let profile = r.below(5);
-        let Some(fields) = gen_ctor(&mut r, profile, true) else {
-            continue;
-        };
-        let t = rust_ctor(&fields);
-        let want = Table::new();
-        let mut item = 0;
-        for f in &fields {
-            let k = match &f.kind {
-                FieldKind::Item => {
-                    item += 1;
-                    Key::I(item)
-                }
-                FieldKind::Named(n) => Key::S(Name::from(n)),
-                FieldKind::Bracket { key, .. } => key.key(),
-            };
-            want.set(k, f.val.map_or(Val::Nil, Val::Num));
-        }
-        let pairs = |t: &Table| {
-            t.pairs()
-                .map(|(k, v)| format!("{}={}", key_text(k), val_text(&v)))
-                .collect::<Vec<_>>()
-        };
-        let (got, want) = (pairs(&t), pairs(&want));
-        let sorted = |v: &[String]| {
-            let mut v = v.to_vec();
-            v.sort();
-            v
-        };
-        if sorted(&got) != sorted(&want) {
-            dup += 1;
-            continue;
-        }
-        assert_eq!(got, want, "{fields:?}");
-        checked += 1;
-    }
-    eprintln!(
-        "HYG1 constructor pairs order: {checked} constructors in field order \
-         ({dup} not compared: a duplicate key whose template value Lua overrides)"
-    );
-    assert!(checked > 5_000);
 }
 
 #[test]

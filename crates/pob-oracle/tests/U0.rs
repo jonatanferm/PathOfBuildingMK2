@@ -1,9 +1,8 @@
 //! Unit U0 acceptance (calc doc §11.1, row U0):
 //!
-//! * `compile_zero_unknown_keys`: the real dump deserialises into the strict
-//!   schema (`pob_gamedata::Data`, `deny_unknown_fields` everywhere, every
-//!   dump root typed or listed as dynamic) and `data.bin` round-trips; the
-//!   runtime load of `data.bin` is timed (< 1 s gate in optimised builds).
+//! * `compile_zero_unknown_keys` and `unknown_key_is_an_error` need no PoB: GOLD1 moved them to
+//!   `crates/pob-gamedata/tests/dump_load.rs` (docs/standalone/GOLDEN-PLAN.md §1.7), where the
+//!   first starts from `data.bin` instead of the JSON dump.
 //! * `registry_complete`: every closures.json id of the registered families
 //!   (skill hooks, ConfigOptions apply, ModMap apply) has exactly one registry
 //!   row, with the same sha256.
@@ -24,7 +23,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::Instant;
 
 use pob_oracle::patcher::{self, StagesFile};
 
@@ -43,114 +41,6 @@ fn pob_src() -> Option<PathBuf> {
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-#[test]
-fn compile_zero_unknown_keys() {
-    let Some(dir) = dump_dir() else {
-        return; // POB_ALLOW_SKIP=1
-    };
-    let t0 = Instant::now();
-    let tree = pob_gamedata::load_dump_dir(&dir).unwrap_or_else(|e| panic!("load dump: {e}"));
-    let t_json = t0.elapsed();
-    let data = pob_gamedata::Data::from_tree(&tree)
-        .unwrap_or_else(|e| panic!("schema (unknown key or root): {e}"));
-    // Counts the docs pin (calc doc §13, AMENDMENTS A2).
-    assert_eq!(data.gems.len(), 871, "gems (822 + 49 Vaal AltX/AltY)");
-    assert!(data.skills.len() > 1500, "skills: {}", data.skills.len());
-    assert_eq!(data.modCache.len(), 23207, "ModCache lines");
-    assert_eq!(data.gameVersions.treeVersionList.len(), 41, "tree versions");
-    assert_eq!(pob_gamedata::SkillType::Area, 8);
-    assert_eq!(pob_gamedata::SkillType::Aura, 39);
-    assert_eq!(pob_gamedata::SkillType::Pact, 135);
-    // shared Arcs follow Lua identity: a gem's grantedEffect is the data.skills entry
-    let fb = &data.gems[&pob_gamedata::Name::from("Metadata/Items/Gems/SkillGemFireball")];
-    assert!(std::sync::Arc::ptr_eq(
-        &fb.grantedEffect,
-        &data.skills[&pob_gamedata::Name::from("Fireball")]
-    ));
-    // the calc-read roots CCR-0011 §7 types (they are not in `Data::other`)
-    {
-        use pob_gamedata::schema::item_data::EnchantmentList;
-        use pob_gamedata::Name;
-        let e = &data.enchantments;
-        assert!(std::sync::Arc::ptr_eq(
-            e.get("UtilityFlask").unwrap(),
-            e.get("Flask").unwrap()
-        ));
-        assert!(matches!(
-            e.get("Helmet").unwrap()[&Name::from("Arc")],
-            EnchantmentList::BySource(_)
-        ));
-        assert!(matches!(
-            e.get("Claw").unwrap()[&Name::from("HARVEST")],
-            EnchantmentList::Lines(_)
-        ));
-        assert_eq!(data.foulbornMap.0.len(), 248);
-        assert_eq!(data.rareLikeUniques.0.len(), 8);
-        assert!(data
-            .casterTagCrucibleUniques
-            .contains(&Name::from("Mjolner")));
-        assert_eq!(data.bossStats.UberArmourMean, 125.0);
-        assert_eq!(data.nodeIDList.nodes.len(), 1937);
-        assert_eq!(data.nodeIDList.size, 1937.0);
-        assert_eq!(data.powerStatList.stats.len(), 85);
-        assert!(data.modScalability.len() > 15000);
-        let fb = &data.gemsByGameId.0[&Name::from("Metadata/Items/Gems/SkillGemFireball")];
-        assert!(fb
-            .values()
-            .any(|g| std::sync::Arc::ptr_eq(g, &data.gems[&g.id])));
-        for root in pob_gamedata::data::DYNAMIC_ROOTS {
-            assert!(
-                !pob_gamedata::data::TYPED_ROOTS.contains(root),
-                "{root} both typed and dynamic"
-            );
-        }
-    }
-    eprintln!(
-        "U0 compile: {} roots ({} dynamic), {} skills, {} gems, json load {:.2}s",
-        tree.roots.len(),
-        data.other.len(),
-        data.skills.len(),
-        data.gems.len(),
-        t_json.as_secs_f64()
-    );
-    drop(data);
-
-    // data.bin round trip, timed as the runtime loads it
-    let bytes = pob_gamedata::loader::encode_bin(&tree).unwrap();
-    drop(tree);
-    let t1 = Instant::now();
-    let tree2 = pob_gamedata::loader::decode_bin(&bytes).unwrap();
-    let data2 = pob_gamedata::Data::from_tree(&tree2).unwrap();
-    let t_load = t1.elapsed().as_secs_f64();
-    assert_eq!(data2.gems.len(), 871);
-    eprintln!(
-        "U0 data.bin: {:.1} MB, runtime load {:.3}s",
-        bytes.len() as f64 / 1e6,
-        t_load
-    );
-    if !cfg!(debug_assertions) {
-        assert!(
-            t_load < 1.0,
-            "data.bin load took {t_load:.3}s (gate: < 1 s)"
-        );
-    }
-}
-
-/// An unknown key fails the load and names its Lua path.
-#[test]
-fn unknown_key_is_an_error() {
-    let mut t = pob_gamedata::loader::DumpTree::default();
-    let v = pob_gamedata::loader::parse_json(
-        r#"{"x":{"id":"x","name":"X","levels":[],"modSource":"Skill:x","notAKey":1}}"#,
-    )
-    .unwrap();
-    t.add_file(&["data.skills".into()], v).unwrap();
-    let e = t
-        .get::<indexmap::IndexMap<String, pob_gamedata::GrantedEffect>>("data.skills")
-        .expect_err("unknown key must fail");
-    assert!(e.to_string().contains("data.skills.x.notAKey"), "{e}");
 }
 
 #[test]

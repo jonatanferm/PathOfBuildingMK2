@@ -14,7 +14,8 @@ The old porting rules (provenance markers, Lua-line mirroring, CCRs against the 
 bind this work. Where this plan names a Lua line or a CCR, it is evidence, not a rule.
 
 Size marks: **[M]** = measured for this plan (method in appendix A). **[E]** = estimate from record
-counts. GOLD1 replaces every [E] with a measured number before any golden is committed.
+counts. GOLD1 replaced every [E] the existing caches can measure (§2.3, appendix A); the rest
+are measured by their units at record time and kept in MANIFEST.
 
 ---
 
@@ -39,11 +40,12 @@ counts. GOLD1 replaces every [E] with a measured number before any golden is com
     instead, with a `golden diff` tool for review. The threshold is per file: E2E goldens are one
     file per build and all stay plain.
   - No CBOR, and no git LFS.
-- **Budget** (§2.3) [E], in two measures:
+- **Budget** (§2.3; GOLD1 measured what the caches hold, the rest is still [E]), in two measures:
   - **packed** (what the history and a clone add, measured as the `git gc` pack of `tests/golden/`):
-    about 61 MB, build XML included. **Cap 80 MB.**
+    about 74 MB, build XML included, of which fn.modstore is about 28 MB and must come down to
+    20 MB by the §2.3 fallback. **Cap 80 MB.**
   - **working tree** (the checked-out files: plain E2E JSONL at full size, shards at zstd size):
-    about 180 MB, of which about 120 MB is plain E2E JSONL. **Cap 250 MB.**
+    about 193 MB, of which about 112 MB is plain E2E JSONL. **Cap 250 MB.**
   - **Per file**: at most 8 MB on disk, plain or zstd.
 
   Lossless elision and dedup come first. Sampling is used only for
@@ -475,33 +477,53 @@ outlive any crate, and the refactor may split or rename crates.
 
 ### 2.3 Budget, elision, dedup and sampling
 
-Two measures, both [E] until GOLD1 measures them:
+Two measures:
 - **Working tree**: the bytes of the checked-out files. Plain files count at full size, `.zst`
   shards at their compressed size.
 - **Packed**: the `git gc --aggressive` pack of `tests/golden/` alone. This is what the history and
-  a clone add. Plain JSONL packs about as well as zstd ([M]: 3.9 MB of CA lines → 512 KB); `.zst`
+  a clone add. Plain JSONL packs about as well as zstd ([M]: 3.9 MB of CA lines → 489 KB); `.zst`
   shards pack at their own size.
+
+GOLD1 measured every row that the existing caches can answer (2026-11-13; method and raw numbers
+in appendix A, "GOLD1 measurements"): the cached PoB results were re-encoded into the `golden/1`
+line form, written one file per build or per 4 MB shard, and measured as raw bytes, per-file
+`zstd -19` and the `git gc --aggressive` pack of the set alone. **[M]** is such a measurement;
+**[M~]** a measurement of part of the set, scaled as the row says; **[E]** a row no cache holds in
+a usable form (no recording exists yet), left at the plan's estimate. Its unit measures it at
+record time, and MANIFEST holds the real sizes from then on.
 
 | Area | Working tree | Packed | Reduction used |
 |---|---:|---:|---|
-| e2e.ca (all57 3.9 + fresh 7.3 + special and derived 31 + mirage 0.2) | ≈42 MB | ≈5 MB | none (plain JSONL) |
-| e2e.int3 | ≈48 MB | ≈3 MB | none (plain JSONL) |
-| e2e.bm 15, e2e.pwr 8, e2e.mcq 5, d13, levelcost | ≈28 MB | ≈3 MB | e2e.bm: the original-XML loads only. PWR: power tables only, not the recorded calc outputs |
-| fn.parser.* | ≈2.5 MB | ≈2.5 MB | `passes` dropped; MP7 empty calls elided (lossless) |
-| fn.lut | ≈5 MB | ≈5 MB | columnar per (type, seed) |
-| fn.tree | ≈8 MB | ≈8 MB | cross-version record dedup (lossless) |
-| fn.spec | ≈1 MB | ≈1 MB | none |
-| fn.items | ≈5 MB | ≈5 MB | call traces dropped (structural) |
-| fn.modstore | ≈15 MB | ≈15 MB | trivial answers elided (lossless), MS-A/MS-B overlap removed |
-| fn.skills, fn.config, fn.tabs, fn.tools | ≈10 MB | ≈7.5 MB | support pairs as a bitset. CO-A/B (≈3 MB) stays plain |
-| fuzz.* | ≈3.7 MB | ≈3.7 MB | DF-A sampled to 20k per function; its `pairs` orders stored (§1.4) |
-| builds/ (XML) | ≈12 MB | ≈2 MB | none |
-| **Total** | **≈180 MB** (≈120 MB of it plain E2E JSONL) | **≈61 MB** | **caps: 80 MB packed, 250 MB working tree, 8 MB per file on disk** |
+| e2e.ca all57 | 3.9 MB [M] | 0.49 MB [M] | none (plain JSONL) |
+| e2e.ca fresh 100 | ≈7.3 MB [E] | ≈0.9 MB [E] | none. No cached PoB result of the fresh corpus exists; scaled from all57 by main keys (85,603 / 45,954) |
+| e2e.ca special and derived (≈520 builds) | ≈36 MB [M~] | 1.4-4.5 MB [M~] | none. The probe caches hold PoB's outputs of 87 distinct non-all57 builds: their main block is 2.37 MB raw, 0.43 MB zstd, a 0.09 MB pack (27 KB per build). Scaled by all57's full/main byte ratio (2.57) and to 520 builds. The pack range: the 87 builds' own pack ratio (they share much) to all57's |
+| e2e.ca mirage block | < 0.2 MB [E] | < 0.2 MB [E] | none |
+| e2e.int3 | 41.4 MB [M] | 2.5 MB [M] | none (plain JSONL). An upper bound: every Tabulate answer plus the whole cached calcsEnv dump to depth 3, which holds more than the breakdowns. Largest file 1.16 MB |
+| e2e.bm | ≈10.5 MB [M~] | ≤ 0.76 MB [M] | the original-XML loads only: the 114 cached loads are 21.0 MB raw, 1.44 MB zstd, a 0.76 MB pack; the golden keeps 57 of them |
+| e2e.pwr, e2e.mcq, d13, levelcost | ≈13 MB [E] | ≈1.4 MB [E] | PWR: power tables only. The replay cache holds recorded calc outputs, not power tables, so it does not measure the golden |
+| fn.parser.lines | 0.54 MB [M] (17.3 MB raw) | 0.54 MB [M] | `line → {mods, extra}`: `passes` and `sources` dropped; 5 shards of 4 MB, 80,993 records |
+| fn.parser.fuzz, fn.parser.jewel | ≈1.8 MB [E] | ≈1.8 MB [E] | MP7 empty calls elided (lossless) |
+| fn.lut | ≈5 MB [E] | ≈5 MB [E] | columnar per (type, seed) |
+| fn.tree | ≈8 MB [E] | ≈8 MB [E] | cross-version record dedup (lossless) |
+| fn.spec | ≈1 MB [E] | ≈1 MB [E] | none |
+| fn.items | ≈5 MB [E] | ≈5 MB [E] | call traces dropped (structural). The current query cache holds only the IT counts, not the records |
+| **fn.modstore** | **≈28 MB [M~]** | **≈28 MB [M~]** | trivial matrix answers elided. MS-B measured: 24.6 MB zstd (818 MB raw for MS-A and MS-B together). Of MS-B's 6,950,664 matrix results, 3,127,148 are trivial and elided; what remains is dominated by the **synthetic tag probes** (5.68M lines, 290 MB raw, about half of MS-B's bytes) and the GetMultiplier / GetCondition / GetStat queries (3.1M lines, which this measurement did not elide). MS-A's own parts (createMod, ScaleAdd, ScaleAddList: 55 MB raw) ≈ 3.2 MB zstd by raw share; MS-A's matrix (16.2 MB zstd with it) is the overlap that is removed. **Above the 20 MB of the fallback below**: GOLD10 applies it, or elides the trivial answers of the multiplier, condition and stat queries and of the synthetic probes as well, with the record-time check |
+| fn.tabs (BM-B) + fn.config CO-C | 1.9 MB [M] (61 MB raw) | 1.9 MB [M] | as `.zst` shards: one CO-C build is 38 MB of plain JSONL, so CO-C cannot stay plain |
+| fn.skills, fn.config CO-A/B, fn.tools | ≈8 MB [E] | ≈5.3 MB [E] | support pairs as a bitset. CO-A/B (≈3 MB) stays plain |
+| fuzz.* | ≈3.7 MB [E] | ≈3.7 MB [E] | DF-A sampled to 20k per function; its `pairs` orders stored (§1.4) |
+| builds/ (XML) | 18.0 MB [M] | 3.3 MB [M] | none. all57 2.8 MB, fresh 4.9 MB, the 418 corpus XMLs 10.2 MB; the synthetic and derived fixtures come on top |
+| **Total** | **≈193 MB** (≈112 MB of it plain E2E JSONL) | **≈74 MB** (with fn.modstore at 28 MB) | **caps: 80 MB packed, 250 MB working tree, 8 MB per file on disk** |
+
+The totals are within the caps, but the packed one only just: fn.modstore must come down to its
+20 MB (see the fallback below), which leaves ≈66 MB. The largest single file measured is a 4 MB
+plain shard (by construction) or 1.16 MB of plain E2E JSONL; every `.zst` shard measured is
+below 1 MB.
 
 The 80 MB cap is the packed one, because that is what every clone and the history pay. The working
-tree cap guards the disk of each worktree (this machine runs about 11 of them). GOLD1 measures both
-with `scripts/golden/size.sh` (`du -sb tests/golden` and the pack size of a scratch clone after
-`git gc --aggressive`) and writes them to MANIFEST. GATE re-checks them.
+tree cap guards the disk of each worktree (this machine runs about 11 of them). The units measure
+both with `scripts/golden/size.sh` (`du -sb tests/golden` and the pack size of a scratch
+repository after `git gc --aggressive`), which writes them to MANIFEST (`sizes`; `golden manifest
+sizes` fails when a cap is exceeded). GATE re-checks them.
 
 Justifications:
 
@@ -1233,6 +1255,35 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
   - `data/pob` 418 MB, `data/dump` 281 MB, `data/timeless` 170 MB;
   - `crates/pob-oracle/corpus` 12 MB (418 XML);
   - pob-oracle 81,340 Rust lines, pob-ui-oracle 56,392, pob-dump 6,126.
+
+### GOLD1 measurements (2026-11-13, rust-port `ef2b24ca`)
+
+Script: `scratchpad/gold1/measure.py` (not committed). It reads the caches named in this appendix,
+writes golden-form files (`golden/1` header, sorted compact `[key, value]` / `[key, input, value]`
+lines, one file per build, 4 MB plain shards for fn.parser.lines) and reports per set: raw bytes,
+the sum of per-file `zstd -19`, and the `git gc --aggressive` pack of the set's directory alone.
+
+| Set | Source | Files | Lines | Raw | zstd (per file) | Pack |
+|---|---|---:|---:|---:|---:|---:|
+| e2e.ca all57 | `32df714a41bf822c` ca.json (main, calcs, mainMinion, mainUsed, misc) | 57 | 109,839 | 3,918,368 | 579,706 | 489,420 |
+| e2e.ca special, main block | `outputs.json.zst` of the 87 non-all57 builds in the probe caches | 87 | 71,606 | 2,372,543 | 431,243 | 89,901 |
+| e2e.int3 | `32df714a41bf822c` int3.json (Tabulate) + calcs.json (calcsEnv to depth 3) | 57 | 49,407 | 41,351,436 | 2,721,739 | 2,512,053 |
+| e2e.bm | `45a4bd578fe68b36` `["build.targetVersion…` (both loads per build) | 114 | 316,966 | 20,951,971 | 1,444,800 | 761,443 |
+| fn.parser.lines | `data/dump/parse_oracle.jsonl` → `[line, null, {mods, extra}]` | 5 | 80,993 | 17,293,865 | 537,567 | 931,418 |
+| fn.modstore | `45a4bd578fe68b36` MS-B `{"probes"…` (inputs, synth, matrix with trivial answers elided) + MS-A `{"picked"…` (createMod, scale, scaleList, matrix with trivial answers elided) | 114 | 13,096,630 | 817,754,492 | 40,747,304 (MS-B 24,591,126, MS-A 16,156,178) | 78,278,882 (plain) |
+| fn.tabs + CO-C | `45a4bd578fe68b36` BM-B tabs, ProcessGemLevel, CO-C | 116 | 156,970 | 61,096,888 | 1,870,597 | 2,376,758 |
+| builds XML | `.parity/builds`, `.parity/fresh`, `crates/pob-oracle/corpus/**` | 575 | - | 17,957,913 | - | 3,255,801 |
+
+- all57's full/main byte ratio is 2.5674 (the calcs, used and misc blocks on top of main).
+- fn.modstore lines by kind: MS-B synth 5,678,619 lines / 289.9 MB; MS-B inputs 208,828 / 49.7 MB;
+  GetMultiplier(NoMod) 1,674,008 / 81.4 MB; GetCondition(NoMod) 945,350 / 46.5 MB; GetStat
+  520,357 / 21.7 MB; the other matrix ops 681,682 / 48.9 MB; MS-A matrix 3,165,987 / 224.7 MB;
+  MS-A scale 219,252 / 40.1 MB, createMod 2,280 / 13.7 MB, scaleList 267 / 1.2 MB. "Trivial" here
+  is the answer alone (Sum 0, More 1, Flag false, Override/Max/Min nil, List/Tabulate nil or
+  empty, HasMod false), not yet the record-time check of §2.3.
+- Not measurable from the caches: e2e.ca fresh, mirage, d13, levelcost, pwr, mcq;
+  fn.parser.fuzz/jewel, lut, tree, spec, items (the current source key holds only the IT
+  counts), skills, config CO-A/B, tools; fuzz.*. Their [E] rows stand until their units record.
 
 ## Appendix B. Probe: CA L6 on the segment-test corpora
 

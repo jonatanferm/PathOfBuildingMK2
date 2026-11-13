@@ -33,9 +33,10 @@ pub mod mod_parser;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod nondet;
 pub mod oracle;
-/// TP1: bounded parallel corpus loops for the oracle tests (re-exported by `testkit`).
+/// TP1: bounded parallel corpus loops for the oracle tests (re-exported by `testkit`). GOLD1
+/// moved the pool into pob-golden (GOLDEN-PLAN §1.7); this path stays for the live tests.
 #[cfg(not(target_arch = "wasm32"))]
-pub mod par;
+pub use pob_golden::par;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod patcher;
 /// ORC-X: replay of recorded callee deltas (stub by U0).

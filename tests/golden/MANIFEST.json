@@ -1,0 +1,17 @@
+{
+  "manifest": 1,
+  "pob": "v2.67.2@16de4b82d",
+  "caps": {
+    "packed": 80000000,
+    "workingTree": 250000000,
+    "perFile": 8000000
+  },
+  "sizes": {
+    "workingTree": 10045,
+    "packed": 3944,
+    "largestFile": 0,
+    "measured": "ef2b24ca3f89 2026-11-13"
+  },
+  "builds": [],
+  "files": []
+}

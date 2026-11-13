@@ -26,6 +26,9 @@ flate2.workspace = true
 mlua = { workspace = true, optional = true }
 # PoB's network features (trade, build sites) via launch:DownloadPage.
 ureq = { version = "2.12", default-features = false, features = ["tls"], optional = true }
+# The golden/1 writer and encodings the recorder (`pob_golden_record`) shares with the golden
+# runner, and the bounded corpus pool (`par`, moved there by GOLD1; GOLDEN-PLAN §3.1).
+pob-golden.workspace = true
 # Oracle tooling (patcher, probe cache, stages.toml).
 toml = "0.8"
 zstd = "0.13"
@@ -71,6 +74,11 @@ required-features = ["luajit"]
 
 [[bin]]
 name = "lua_bench"
+required-features = ["luajit"]
+
+# GOLD1 (GOLDEN-PLAN §3.1): records PoB's answers as the committed goldens (tests/golden/).
+[[bin]]
+name = "pob_golden_record"
 required-features = ["luajit"]
 
 [lints]

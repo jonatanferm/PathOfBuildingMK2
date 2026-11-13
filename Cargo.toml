@@ -13,6 +13,8 @@ members = [
     "crates/pob-calc-offence",
     "crates/pob-calc-perform",
     "crates/pob-oracle",
+    # The calc goldens (GOLD1, docs/standalone/GOLDEN-PLAN.md §3.3): dev-only, no PoB.
+    "crates/pob-golden",
     "crates/pob-sg",
     # Build-time data dump tool (LuaJIT; AMENDMENTS A1/A2). INT-4 deleted the legacy
     # `pob-engine`, `pob-data` and `pob-extract` (AMENDMENTS A13).
@@ -55,6 +57,7 @@ pob-calc-defence = { path = "crates/pob-calc-defence" }
 pob-calc-offence = { path = "crates/pob-calc-offence" }
 pob-calc-perform = { path = "crates/pob-calc-perform" }
 pob-oracle = { path = "crates/pob-oracle" }
+pob-golden = { path = "crates/pob-golden" }
 # UI port crates (ui doc §3).
 pob-sg = { path = "crates/pob-sg" }
 pob-sg-wgpu = { path = "crates/pob-sg-wgpu" }

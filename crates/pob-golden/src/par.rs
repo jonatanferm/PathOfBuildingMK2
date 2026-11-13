@@ -1,4 +1,6 @@
-//! Bounded parallel corpus loops for the oracle tests (TP1; re-exported by [`crate::testkit`]).
+//! Bounded parallel corpus loops (TP1). Moved here from `pob_oracle::par` by GOLD1
+//! (GOLDEN-PLAN §1.7, §3.3): the golden runner walks its files with it, and pob-oracle
+//! re-exports it (`pob_oracle::par`, `pob_oracle::testkit`) for the live oracle tests.
 //!
 //! Most heavy acceptance tests walk the corpus one build at a time. [`par_for_each`] runs the
 //! per-build work `f` on at most [`test_par`] worker threads (`$POB_TEST_PAR`, default 3) and
@@ -8,7 +10,7 @@
 //! results wait in a reorder buffer of at most that many entries).
 //!
 //! What may go into `f`: anything that does not touch process-global mutable state, e.g. a
-//! cached oracle query ([`crate::runner::cached_query`], [`crate::testkit::probe_selection`]),
+//! cached oracle query (`pob_oracle::runner::cached_query`, `pob_oracle::testkit::probe_selection`),
 //! or Rust-side work whose state is per thread. pob-calc's caches and hooks are thread-local, so
 //! a worker starts without whatever the test thread set up: put such setup in the `init` of
 //! [`par_for_each_init`] (it runs once per worker). Process-global counters
@@ -23,6 +25,8 @@
 //! (the exact pre-TP1 behaviour). A panic in `f` is caught and re-raised on the calling thread
 //! when `consume` reaches that item (so the first failing item in input order is the one
 //! reported, as in the serial loop); a panic in `consume` stops the workers and is re-raised.
+//! The golden runner passes its own worker count (`$POB_GOLDEN_JOBS`) to
+//! [`par_for_each_init_with`].
 
 use std::any::Any;
 use std::collections::BTreeMap;

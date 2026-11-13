@@ -1,0 +1,40 @@
+[package]
+name = "pob-golden"
+description = "DEV ONLY: the calc goldens (docs/standalone/GOLDEN-PLAN.md §3): the golden/1 reader and writer, the compare engine, MANIFEST, bless overlays, `golden diff`, and the adapter layer that runs the Rust calc on a golden's inputs. No PoB, no mlua, no pob-oracle."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# The adapters (src/adapter/) are the only code that names these crates (GOLDEN-PLAN §3.4).
+# Never the `probe` feature of any of them (the replay seams CUT2 removes; checked by
+# tests/golden_e2e.rs `no_oracle_dependencies`).
+pob-calc.workspace = true
+pob-gamedata.workspace = true
+pob-modparser.workspace = true
+pob-lua.workspace = true
+serde.workspace = true
+# float_roundtrip: a golden's decimals parse back to the bits that were written.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+zstd = "0.13"
+blake3 = "1"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "golden"
+path = "src/bin/golden.rs"
+
+# Three test binaries (GOLDEN-PLAN §3.3), so link time and disk stay low.
+[[test]]
+name = "golden_e2e"
+
+[[test]]
+name = "golden_fn"
+
+[[test]]
+name = "golden_fuzz"

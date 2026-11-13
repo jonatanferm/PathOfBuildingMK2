@@ -17,7 +17,7 @@ pob-calc-offence.workspace = true
 pob-calc-perform.workspace = true
 
 [dev-dependencies]
-# tests/hyg1_len.rs (pob_lua::Name, tostring_num).
+# tests/hyg1_len.rs and tests/ctor_pairs.rs (pob_lua::Name, tostring_num).
 pob-lua.workspace = true
 # benches/INT-2.rs: data.bin and the timeless jewel LUTs.
 pob-gamedata.workspace = true
