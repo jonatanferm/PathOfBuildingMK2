@@ -328,7 +328,7 @@ group, Full DPS flags, a config toggle. They are committed like any build, with
 | pob-dump `codegen` | its check compares the generated files with live PoB. After the move (§5 step 5) the generated files are frozen sources |
 | pob-dump src tests (4 modules, hand and standard vectors) | they test the dumper, which is deleted with the data frozen |
 | all UI-UNIT and UI-E2E against PoB (pob-ui-oracle) | user decision: no UI goldens. Behavioural UI scenarios come later, out of scope |
-| LUA-SEMANTICS tests that call real LuaJIT (pob-lua L0, luastr, tier0_len, hyg1_len, l0_ljtab) | `mlua` goes. Where product output still depends on emulated Lua semantics (`string.format`, pairs order, `math.random`), §7 asks whether to freeze their LuaJIT vectors as goldens before deletion (cheap: < 5 MB) |
+| LUA-SEMANTICS tests that call real LuaJIT (pob-lua L0, luastr, tier0_len, hyg1_len's `table_len_matches_luajit` and `table_len_with_string_keys`, l0_ljtab). hyg1_len's third test, `ctor_pairs_follow_field_order`, is Rust vs Rust (no LuaJIT) and guards the product's table iteration order, which order-dependent goldens rely on. GOLD1 moves it to `crates/pob-calc/tests/ctor_pairs.rs` | `mlua` goes. Where product output still depends on emulated Lua semantics (`string.format`, pairs order, `math.random`), §7 asks whether to freeze their LuaJIT vectors as goldens before deletion (cheap: < 5 MB) |
 
 ### 1.7 Tests in the deleted crates that need no PoB
 
@@ -578,7 +578,11 @@ Justifications:
 - **What it reuses.** Every piece of PoB-running machinery, with no new oracle code paths:
   - `JitPob::boot_oracle` (JIT off), `OracleLock` and the oracle slots;
   - the `par` pool, which is bounded;
-  - the probe cache: `QueryCache`, `oracle_dir`, `cached_query`;
+  - the probe cache: `QueryCache`, `oracle_dir`, `cached_query`, **only to resume an interrupted
+    first run**. Recording runs 2..K and every `--verify` run must each start a fresh, uncached PoB
+    process (`POB_QUERY_CACHE=off`, or a private cache dir per run). The cache is keyed by the query,
+    so a cached answer would repeat run 1. That would quietly empty the nondeterminism capture
+    (`$anyOf`, `$unordered`, the fuzz.defence `pairs` orders) and the determinism check;
   - the patcher, only for the coverage witnesses (SK hooks, TR arms, MI families, CS2 restart);
   - the existing Lua scripts, unchanged or extended: `corpus/CA/ca.lua`, `corpus/INT-3/int3.lua`,
     `corpus/BM-A/bma.lua`, `corpus/PWR/pwr.lua`, `corpus/MS-A/l3_queries.lua`,
@@ -844,7 +848,7 @@ Run them one binary at a time (the loop does), so no two heavy binaries run at o
 ### 4.2 The recorder reproduces the committed goldens
 
 ```sh
-scripts/port/cargo.sh run -p pob-oracle --bin pob_golden_record -- all --verify   # takes the machine-wide OracleLock itself
+POB_QUERY_CACHE=off scripts/port/cargo.sh run -p pob-oracle --bin pob_golden_record -- all --verify   # takes the machine-wide OracleLock itself; uncached: every run is a fresh PoB process
 ```
 
 Expected: every file is byte-identical. The one exception: `$anyOf` and `$unordered` sets, and
@@ -1016,7 +1020,8 @@ The GOLD unit that owns the set runs this triage. The gate allows no unexplained
    - `mlua` dev-dependencies and their tests:
      - pob-lua: `tests/l0_*.rs`, `tests/common/`, `oracle_dualnum_feature`, the `oracle-dualnum`
        feature with its `cfg` code in `src/profile.rs`, and the `pob-testpaths` dev-dependency;
-     - pob-calc: `hyg1_len`;
+     - pob-calc: `hyg1_len` (its two LuaJIT tests; `ctor_pairs_follow_field_order` has already moved
+       to `tests/ctor_pairs.rs` under GOLD1);
      - pob-ui-core: `luastr` (its LuaJIT parts), `tier0_*`, `compile_shape`;
      - the workspace `mlua` entry;
    - nothing else: every other product test that read the PoB checkout, `data/dump`, `.parity` or

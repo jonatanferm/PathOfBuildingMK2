@@ -825,7 +825,10 @@ only for `POB_UI_CALC=lua` runs.
 
 ## GOLD-PLAN
 
-1. docs/standalone/GOLDEN-PLAN.md §3.1 (lines 578-583, 599-605) and §4.2 (lines 846-853): the
+Both review items were closed by the orchestrator on 2026-11-13 in docs/standalone/GOLDEN-PLAN.md (§3.1 and §4.2: the recorder bypasses the cache for runs 2..K and for `--verify`; §1.6 and §5: `ctor_pairs_follow_field_order` moves to `crates/pob-calc/tests/ctor_pairs.rs` under GOLD1).
+
+
+1. **Closed.** docs/standalone/GOLDEN-PLAN.md §3.1 (lines 578-583, 599-605) and §4.2 (lines 846-853): the
    recorder is told to reuse the probe cache (`QueryCache`, `cached_query`), and nothing says the
    cache must be bypassed for runs 2..K or for `--verify`. The cache is content-addressed by query
    (crates/pob-oracle/src/runner.rs:590-621, `$POB_QUERY_CACHE` with on/refresh/off/verify modes),
@@ -837,7 +840,7 @@ only for `POB_UI_CALC=lua` runs.
    recording run after the first, and every `--verify` run, starts a fresh uncached PoB process
    (`POB_QUERY_CACHE=off`, or a private cache dir per run), with the cache allowed only to resume
    an interrupted run 1. Put the env setting in the §4.2 command as well.
-2. docs/standalone/GOLDEN-PLAN.md §1.6 (line 331) and §5 step 5 (line 1019):
+2. **Closed.** docs/standalone/GOLDEN-PLAN.md §1.6 (line 331) and §5 step 5 (line 1019):
    `crates/pob-calc/tests/hyg1_len.rs` is deleted whole as a 'LUA-SEMANTICS test that calls real
    LuaJIT', but one of its three tests needs no LuaJIT. `ctor_pairs_follow_field_order`
    (hyg1_len.rs:412-455) is Rust against Rust: `Table::from_ctor`'s `pairs()` order against a
