@@ -87,11 +87,15 @@ impl Val {
 
     /// Arithmetic operand: a number, or a numeric string (Lua coercion);
     /// anything else raises "attempt to perform arithmetic on a … value".
+    #[track_caller]
     pub fn num(&self) -> f64 {
         match self {
             Val::Num(n) => *n,
-            Val::Str(s) => pob_lua::tonumber(s)
-                .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on a string value")),
+            // `match`, not `unwrap_or_else`: a closure would hide `#[track_caller]`'s caller.
+            Val::Str(s) => match pob_lua::tonumber(s) {
+                Some(n) => n,
+                None => lua_error!("attempt to perform arithmetic on a string value"),
+            },
             other => lua_error!(
                 "attempt to perform arithmetic on a {} value",
                 other.lua_type()
@@ -153,6 +157,7 @@ impl Val {
 
     /// Indexing a value: tables (with `__index`), data tables and mods; nil
     /// and other kinds raise "attempt to index …".
+    #[track_caller]
     pub fn get(&self, k: impl Into<Key>) -> Val {
         let k = k.into();
         match self {
@@ -160,7 +165,11 @@ impl Val {
             Val::Data(v) => data_index(v, k),
             Val::Mod(m) => mod_index(m, k),
             Val::Str(_) => Val::Nil, // string methods are not table data
-            other => lua_error!("attempt to index a {} value", other.lua_type()),
+            other => lua_error!(
+                "attempt to index a {} value{}",
+                other.lua_type(),
+                key_note(k)
+            ),
         }
     }
 
@@ -196,6 +205,7 @@ impl Val {
     }
 }
 
+#[track_caller]
 fn data_index(v: &Value, k: Key) -> Val {
     match v {
         Value::Table(t) => match k {
@@ -213,7 +223,19 @@ fn data_index(v: &Value, k: Key) -> Val {
                 .map_or(Val::Nil, |t| Val::Str(LStr::from(t.as_str()))),
             _ => Val::Nil,
         },
-        _ => lua_error!("attempt to index a {} value", v.lua_type()),
+        _ => lua_error!("attempt to index a {} value{}", v.lua_type(), key_note(k)),
+    }
+}
+
+/// ` (key 'name')` / ` (key 3)`: the key a failed index looked up, appended to "attempt to
+/// index a … value" (Rust-only; PoB's message names the indexed expression, which we do not
+/// know here) so a crash report points at the read that failed.
+fn key_note(k: Key) -> String {
+    match k {
+        Key::S(n) => format!(" (key '{}')", n.as_str()),
+        Key::I(i) => format!(" (key {i})"),
+        Key::B(b) => format!(" (key {b})"),
+        Key::F(f) => format!(" (key {})", f.get()),
     }
 }
 
@@ -778,6 +800,7 @@ impl Table {
     }
 
     /// `t[k]` in arithmetic (LuaError on nil).
+    #[track_caller]
     pub fn num(&self, k: impl Into<Key>) -> f64 {
         self.get(k).num()
     }
@@ -848,6 +871,7 @@ impl Table {
     }
 
     /// `t[k] = t[k] or {}`; returns the table.
+    #[track_caller]
     pub fn get_or_new_table(&self, k: impl Into<Key>) -> Table {
         let k = k.into();
         match self.get(k) {
@@ -1177,6 +1201,16 @@ pub type Output = Table;
 mod tests {
     use super::*;
     use pob_lua::n;
+
+    /// Indexing a non-table names the key it looked up (the crash report's only clue on wasm).
+    #[test]
+    fn index_error_names_the_key() {
+        let obj = Val::Obj(Rc::new(1u8));
+        let e = pob_lua::error::catch(|| obj.get(n!("modList"))).unwrap_err();
+        assert_eq!(e.0, "attempt to index a userdata value (key 'modList')");
+        let e = pob_lua::error::catch(|| Val::Nil.get(3)).unwrap_err();
+        assert_eq!(e.0, "attempt to index a nil value (key 3)");
+    }
 
     #[test]
     fn array_and_hash() {

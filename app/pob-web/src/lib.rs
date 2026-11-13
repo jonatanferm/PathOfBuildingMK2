@@ -219,6 +219,16 @@ mod web {
         if pob_app::calc::worker_web::in_worker() {
             return;
         }
+        // The crash report quotes the console: name the build, so a report maps to its commit
+        // (GITHUB_SHA is set by the Pages workflow; local builds say "local").
+        web_sys::console::log_1(
+            &format!(
+                "Build {} ({})",
+                env!("CARGO_PKG_VERSION"),
+                option_env!("GITHUB_SHA").map_or("local", |s| &s[..s.len().min(10)])
+            )
+            .into(),
+        );
         wasm_bindgen_futures::spawn_local(async {
             let cfg = pob_host::HostConfig {
                 title: "Path of Building".into(),

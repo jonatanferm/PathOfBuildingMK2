@@ -136,6 +136,58 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     }
 }
 
+/// Crash breadcrumbs for the web crash report (a panic aborts there, so the report is all we
+/// get): the last input events and the callback the host was running when the panic hit.
+/// [`deliver`] and [`run_frame`] write it; the web panic hook reads it with [`trail::report`].
+pub mod trail {
+    use std::cell::{Cell, RefCell};
+    use std::collections::VecDeque;
+    use std::fmt::Write as _;
+
+    const LEN: usize = 12;
+
+    thread_local! {
+        static EVENTS: RefCell<VecDeque<(String, u32)>> = const { RefCell::new(VecDeque::new()) };
+        static IN: Cell<&'static str> = const { Cell::new("startup") };
+    }
+
+    /// Record one input event; a repeat of the last one bumps its count instead.
+    pub fn note(ev: String) {
+        EVENTS.with_borrow_mut(|q| match q.back_mut() {
+            Some((last, n)) if *last == ev => *n += 1,
+            _ => {
+                if q.len() == LEN {
+                    q.pop_front();
+                }
+                q.push_back((ev, 1));
+            }
+        });
+    }
+
+    /// The callback now running (`on_frame`, `on_key_down`, ...).
+    pub fn enter(callback: &'static str) {
+        IN.set(callback);
+    }
+
+    /// `while running <callback>` and the recent input, oldest first.
+    pub fn report() -> String {
+        let mut s = format!("while running {}\nRecent input (oldest first):", IN.get());
+        EVENTS.with_borrow(|q| {
+            if q.is_empty() {
+                s.push_str(" none");
+            }
+            for (ev, n) in q {
+                s.push_str("\n  ");
+                s.push_str(ev);
+                if *n > 1 {
+                    let _ = write!(s, " x{n}");
+                }
+            }
+        });
+        s
+    }
+}
+
 /// D17: run one callback inside `catch_unwind`; a panic goes to [`App::on_lua_error`]
 /// (Launch's `PCall` + `ShowErrMsg`). `Err` only when `on_lua_error` itself panics, which is
 /// fatal (SG's `DoError` → `Exit`). On wasm a panic aborts (no unwinding).
@@ -160,6 +212,29 @@ pub fn guarded<A: App>(app: &mut A, f: impl FnOnce(&mut A)) -> Result<(), String
 /// - A [`input::Input::Char`] is `OnChar`.
 pub fn deliver<A: App>(app: &mut A, ev: input::Input) -> Result<(), String> {
     use input::Input;
+    let (x, y) = app.sys().cursor_pos();
+    match ev {
+        Input::Key {
+            key,
+            down,
+            double_click,
+        } => trail::note(format!(
+            "{key:?} {} at {x},{y}",
+            if double_click {
+                "double-click"
+            } else if down {
+                "down"
+            } else {
+                "up"
+            }
+        )),
+        Input::Wheel { up } => trail::note(format!(
+            "wheel {} at {x},{y}",
+            if up { "up" } else { "down" }
+        )),
+        // Not the text itself: the report is meant to be pasted publicly.
+        Input::Char(_) => trail::note("typed a character".to_owned()),
+    }
     match ev {
         Input::Key {
             key,
@@ -171,6 +246,7 @@ pub fn deliver<A: App>(app: &mut A, ev: input::Input) -> Result<(), String> {
             if !double_click && input::swallow_key_down(key, app.sys().is_key_down(Key::Ctrl)) {
                 return Ok(());
             }
+            trail::enter("on_key_down");
             guarded(app, |a| a.on_key_down(key, double_click))
         }
         Input::Key {
@@ -180,14 +256,19 @@ pub fn deliver<A: App>(app: &mut A, ev: input::Input) -> Result<(), String> {
             if input::swallow_key_up(key, app.sys().is_key_down(Key::Shift)) {
                 return Ok(());
             }
+            trail::enter("on_key_up");
             guarded(app, |a| a.on_key_up(key))
         }
         Input::Wheel { up } => {
             let key = if up { Key::WheelUp } else { Key::WheelDown };
+            trail::enter("on_key_down (wheel)");
             guarded(app, |a| a.on_key_down(key, false))?;
             guarded(app, |a| a.on_key_up(key))
         }
-        Input::Char(ch) => guarded(app, |a| a.on_char(ch)),
+        Input::Char(ch) => {
+            trail::enter("on_char");
+            guarded(app, |a| a.on_char(ch))
+        }
     }
 }
 
@@ -206,10 +287,12 @@ pub fn run_frame<A: App>(
     let mut res = Ok(());
     for (id, resp) in done {
         if res.is_ok() {
+            trail::enter("on_net");
             res = guarded(app, |a| a.on_net(id, resp));
         }
     }
     if res.is_ok() {
+        trail::enter("on_frame");
         res = guarded(app, A::on_frame);
     }
     let frame = app.sg().end_frame();
@@ -890,6 +973,7 @@ impl<A: App> Driver<A> {
 
     /// `launch:OnInit` (guarded).
     pub(crate) fn init(&mut self) {
+        trail::enter("on_init");
         let r = guarded(&mut self.app, A::on_init);
         self.fail(r);
     }
@@ -951,6 +1035,22 @@ impl<A: App> Driver<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trail_collapses_repeats_and_keeps_the_last_events() {
+        trail::enter("on_key_down");
+        for i in 0..20 {
+            trail::note(format!("ev {i}"));
+        }
+        trail::note("ev 19".to_owned());
+        let r = trail::report();
+        assert!(
+            r.starts_with("while running on_key_down\nRecent input"),
+            "{r}"
+        );
+        assert!(!r.contains("ev 7\n") && r.contains("ev 8\n"), "{r}");
+        assert!(r.ends_with("ev 19 x2"), "{r}");
+    }
 
     #[test]
     fn globs() {

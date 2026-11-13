@@ -424,7 +424,10 @@ pub async fn run_web<A: App>(
             .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
             .unwrap_or_default();
-        web_sys::console::error_1(&format!("--- SCRIPT ERROR ---\n{msg}\n  at {at}").into());
+        let trail = crate::trail::report();
+        web_sys::console::error_1(
+            &format!("--- SCRIPT ERROR ---\n{msg}\n  at {at}\n{trail}").into(),
+        );
     }));
     let window = web_sys::window().ok_or_else(|| js("no window"))?;
     let document = window.document().ok_or_else(|| js("no document"))?;
