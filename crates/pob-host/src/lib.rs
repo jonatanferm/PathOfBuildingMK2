@@ -142,6 +142,7 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 pub mod trail {
     use std::cell::{Cell, RefCell};
     use std::collections::VecDeque;
+    use std::fmt::Write as _;
 
     const LEN: usize = 12;
 
@@ -179,7 +180,7 @@ pub mod trail {
                 s.push_str("\n  ");
                 s.push_str(ev);
                 if *n > 1 {
-                    s.push_str(&format!(" x{n}"));
+                    let _ = write!(s, " x{n}");
                 }
             }
         });
@@ -1043,7 +1044,10 @@ mod tests {
         }
         trail::note("ev 19".to_owned());
         let r = trail::report();
-        assert!(r.starts_with("while running on_key_down\nRecent input"), "{r}");
+        assert!(
+            r.starts_with("while running on_key_down\nRecent input"),
+            "{r}"
+        );
         assert!(!r.contains("ev 7\n") && r.contains("ev 8\n"), "{r}");
         assert!(r.ends_with("ev 19 x2"), "{r}");
     }
