@@ -1,0 +1,31 @@
+# U53 e2e: upstream_Dual_Wield_Cospris_CoC on the tree: Ctrl+F and a search (the highlighted
+# nodes), zoom in and out with the wheel, drag the tree, hover a node, then the build XML.
+fixture userdir=../user1
+frames 2
+load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
+frames 3
+move 800 400
+frames 1
+key-down CTRL
+press f
+key-up CTRL
+frames 1
+type "life"
+frames 2
+move 800 400
+wheel up 2
+frames 2
+wheel down 1
+frames 2
+key-down LEFTBUTTON
+move 760 380
+frames 1
+move 700 360
+frames 1
+key-up LEFTBUTTON
+frames 2
+move 820 420
+frames 2
+snapshot searched
+#! expect-text life
+#! expect-src Classes/PassiveTreeView.lua

@@ -264,7 +264,7 @@ fn main() -> anyhow::Result<()> {
         title: "Path of Building (pob-lua-gui)".into(),
         size: (1280, 800),
         min_size: (800, 600),
-        pob_src: src.to_string_lossy().into_owned(),
+        script_dir: src.to_string_lossy().into_owned(),
         sg_runtime: runtime.join("SimpleGraphic").to_string_lossy().into_owned(),
     };
     let rec = Rc::new(RefCell::new(Recorder {

@@ -24,8 +24,11 @@
 //! Data sources: `tree.lua`'s members (`assets`, `skillSprites`, `sprites`, `imageZoomLevels`,
 //! `imageRoot`) come from the dumped `trees["<ver>"]` (the same bytes PT decodes,
 //! `pob_gamedata::tree_bytes`); `TreeData/<ver>/sprites.lua`, `TreeData/3_19/Assets.lua` and
-//! `TreeData/legion/tree-legion.lua`, which PoB reads with `io.open`/`require`, are read through
-//! `cx.sys.fs` and evaluated by [`lua_data`] (they are `return { ... }` data literals).
+//! `TreeData/legion/tree-legion.lua`, which PoB reads with `io.open`/`require` (they are
+//! `return { ... }` data literals), are the game data's tree files `<ver>.sprites`,
+//! `3_19.assets` and `legion` (`pob_gamedata::tree_bytes` too: the dump's `treeSprites`,
+//! `treeAssets` and `trees["legion"]` roots, compiled into the asset bundle's `gamedata/trees/`;
+//! VENDOR: the app reads no PoB Lua file).
 //!
 //! Lua semantics kept:
 //! * `copyTable(require("TreeData.3_19.Assets").assets, true)` is a shallow copy of a table the
@@ -54,7 +57,9 @@
 //! disabled"), so the URL argument of `LoadImage` is not built.
 //! ORDER: `pairs(self.assets)` (:262), `pairs(self.skillSprites)` (:296), `pairs(maxZoom.coords)`
 //! (:311, :420), `pairs(bloodlineSpriteTypes)` (:357), `pairs(legionSprites)` (:416) iterate
-//! string-keyed tables in insertion order (PoB's order is random per process). The only
+//! string-keyed tables in the dump's order (string keys bytewise; VENDOR: the source order of the
+//! `.lua` files before; PoB's order is random per process, and the values are the same, checked
+//! over every sprites.lua, Assets.lua and tree-legion.lua when they were vendored). The only
 //! observable effect is the order of the `ImageLoad` side effects (compared as a multiset by the
 //! U23 test): every write is keyed and the keys of one loop are distinct. `next(spriteSet)`
 //! (:381) picks the first entry of a `Classes*` sprite set; no tree version has a `Classes*`
@@ -221,22 +226,25 @@ fn dtable(v: &DataValue) -> Option<&Arc<DataTable>> {
     v.table()
 }
 
-/// `dofile`/`require` of a data file under `src/` (module notes): the file's `return` value.
-fn read_lua_data(cx: &Cx, path: &str) -> DataValue {
-    let bytes = cx
-        .sys
-        .fs
-        .read(path)
-        .unwrap_or_else(|e| lua_error!("module '{path}' not found: {e}"));
-    let text = String::from_utf8_lossy(&bytes);
-    lua_data::parse(&text).unwrap_or_else(|e| lua_error!("{path}: {e}"))
+/// `dofile`/`require` of a tree data file (module notes): the file's `return` value, from the
+/// game data's tree files (`pob_gamedata::tree_bytes(name)`; `lua` is the PoB path the Lua
+/// reads, for the error message).
+fn read_tree_data(name: &str, lua: &str) -> DataValue {
+    let bytes = pob_gamedata::tree_bytes(name)
+        .unwrap_or_else(|| lua_error!("module '{lua}' not found: no tree data file '{name}'"));
+    let dump = pob_gamedata::loader::decode_bin(&bytes)
+        .unwrap_or_else(|e| lua_error!("{lua}: tree data file '{name}': {e}"));
+    dump.roots.values().next().cloned().unwrap_or_default()
 }
 
-fn require_assets_3_19(cx: &Cx) -> Rc<IndexMap<String, Rc<Asset>>> {
+fn require_assets_3_19() -> Rc<IndexMap<String, Rc<Asset>>> {
     if let Some(a) = REQUIRE_ASSETS_3_19.with(|r| r.borrow().clone()) {
         return a;
     }
-    let root = read_lua_data(cx, "TreeData/3_19/Assets.lua");
+    let root = read_tree_data(
+        &pob_gamedata::data::tree_assets_file("3_19"),
+        "TreeData/3_19/Assets.lua",
+    );
     let assets = root.field("assets");
     let mut out = IndexMap::default();
     if let Some(t) = dtable(assets) {
@@ -251,11 +259,14 @@ fn require_assets_3_19(cx: &Cx) -> Rc<IndexMap<String, Rc<Asset>>> {
     out
 }
 
-fn require_legion(cx: &Cx) -> Arc<DataTable> {
+fn require_legion() -> Arc<DataTable> {
     if let Some(t) = REQUIRE_LEGION.with(|r| r.borrow().clone()) {
         return t;
     }
-    let root = read_lua_data(cx, "TreeData/legion/tree-legion.lua");
+    let root = read_tree_data(
+        pob_gamedata::data::TREE_LEGION_FILE,
+        "TreeData/legion/tree-legion.lua",
+    );
     let t = dtable(&root)
         .cloned()
         .unwrap_or_else(|| lua_error!("TreeData/legion/tree-legion.lua: not a table"));
@@ -396,7 +407,7 @@ impl TreeAssets {
             top: DirListing::new(cx, "TreeData"),
             version: DirListing::new(cx, &format!("TreeData/{tree_version}")),
         };
-        me.build_assets(cx, tree, &raw);
+        me.build_assets(tree, &raw);
         me.load_assets(cx, &dirs);
         let mut sprite_sheets: IndexMap<String, Rc<Asset>> = IndexMap::default();
         let mut sprite_map: IndexMap<String, SpriteSet> = IndexMap::default();
@@ -413,7 +424,7 @@ impl TreeAssets {
 
     /// lua: PassiveTree.lua:234-258 (`self.assets`)
     /// @pob Classes/PassiveTree.lua:234-258 h=99af4dab
-    fn build_assets(&mut self, cx: &mut Cx, tree: &PassiveTreeRef, raw: &DataTable) {
+    fn build_assets(&mut self, tree: &PassiveTreeRef, raw: &DataTable) {
         // L234 if not self.assets then
         if let Some(own) = dtable(raw.field("assets")) {
             for (k, v) in &own.fields {
@@ -425,7 +436,7 @@ impl TreeAssets {
             return;
         }
         // L235 self.assets = require("TreeData.3_19.Assets")
-        let shared = require_assets_3_19(cx);
+        let shared = require_assets_3_19();
         // L236 self.assets = copyTable(self.assets.assets, true)
         self.assets = (*shared).clone();
         // L237 if self.alternate_ascendancies then
@@ -520,8 +531,10 @@ impl TreeAssets {
                 ));
                 // L272-289 io.open("TreeData/"..treeVersion.."/sprites.lua"); the json
                 // conversion branch is never taken (every version ships sprites.lua)
-                let sprite_text =
-                    read_lua_data(cx, &format!("TreeData/{}/sprites.lua", self.tree_version));
+                let sprite_text = read_tree_data(
+                    &pob_gamedata::data::tree_sprites_file(&self.tree_version),
+                    &format!("TreeData/{}/sprites.lua", self.tree_version),
+                );
                 // L290-292 for k, v in pairs(loadstring(spriteText)()) do self[k] = v end
                 sprite_text.field("sprites").clone()
             };
@@ -701,7 +714,7 @@ impl TreeAssets {
         sprite_map: &mut IndexMap<String, SpriteSet>,
     ) {
         // L390 local legionSprites = require("TreeData.legion.tree-legion")
-        let legion_sprites = require_legion(cx);
+        let legion_sprites = require_legion();
         // L391-401 local function loadLegionSheet(data)
         let mut load_legion_sheet = |cx: &mut Cx, data: &DataValue| -> Rc<Asset> {
             let filename = data
@@ -971,347 +984,4 @@ pub fn latest_tree_assets(cx: &Cx) -> Option<Rc<TreeAssets>> {
 /// `Val` → node (`Val::Obj(NodeRef)` in dynamic tables, CCR-0024 §4).
 pub fn val_node(v: &Val) -> Option<model::NodeRef> {
     v.obj::<Node>()
-}
-
-/// A reader for the `return { ... }` data files PoB ships (sprites.lua, Assets.lua,
-/// tree-legion.lua): Lua table constructors of strings, numbers and booleans, built into the
-/// dump's `DataTable` shape (string keys in `fields`, keys 1..n in `seq`, other numbers in
-/// `num`). Later duplicate keys replace earlier ones, as Lua's constructor stores do.
-pub mod lua_data {
-    use std::sync::Arc;
-
-    use crate::model::gamedata::{DataTable, DataValue};
-
-    struct P<'a> {
-        s: &'a [u8],
-        i: usize,
-    }
-
-    enum K {
-        S(String),
-        N(f64),
-        Other,
-    }
-
-    impl P<'_> {
-        fn err<T>(&self, m: &str) -> Result<T, String> {
-            let line = self.s[..self.i.min(self.s.len())]
-                .split(|&c| c == b'\n')
-                .count();
-            Err(format!("line {line}: {m}"))
-        }
-
-        fn skip(&mut self) {
-            loop {
-                while self.i < self.s.len() && self.s[self.i].is_ascii_whitespace() {
-                    self.i += 1;
-                }
-                if self.s[self.i..].starts_with(b"--") {
-                    self.i += 2;
-                    if let Some(level) = self.long_bracket_level() {
-                        self.skip_long(level);
-                    } else {
-                        while self.i < self.s.len() && self.s[self.i] != b'\n' {
-                            self.i += 1;
-                        }
-                    }
-                    continue;
-                }
-                break;
-            }
-        }
-
-        /// `[[` / `[==[` at the cursor: its level (the cursor moves past it).
-        fn long_bracket_level(&mut self) -> Option<usize> {
-            if self.s.get(self.i) != Some(&b'[') {
-                return None;
-            }
-            let mut j = self.i + 1;
-            let mut level = 0;
-            while self.s.get(j) == Some(&b'=') {
-                level += 1;
-                j += 1;
-            }
-            if self.s.get(j) == Some(&b'[') {
-                self.i = j + 1;
-                Some(level)
-            } else {
-                None
-            }
-        }
-
-        fn skip_long(&mut self, level: usize) -> String {
-            let start = self.i;
-            while self.i < self.s.len() {
-                if self.s[self.i] == b']' {
-                    let mut j = self.i + 1;
-                    let mut l = 0;
-                    while self.s.get(j) == Some(&b'=') {
-                        l += 1;
-                        j += 1;
-                    }
-                    if l == level && self.s.get(j) == Some(&b']') {
-                        let text = String::from_utf8_lossy(&self.s[start..self.i]).into_owned();
-                        self.i = j + 1;
-                        return text;
-                    }
-                }
-                self.i += 1;
-            }
-            String::new()
-        }
-
-        fn eat(&mut self, c: u8) -> bool {
-            self.skip();
-            if self.s.get(self.i) == Some(&c) {
-                self.i += 1;
-                true
-            } else {
-                false
-            }
-        }
-
-        fn word(&mut self) -> Option<String> {
-            self.skip();
-            let start = self.i;
-            while self.i < self.s.len()
-                && (self.s[self.i].is_ascii_alphanumeric() || self.s[self.i] == b'_')
-            {
-                self.i += 1;
-            }
-            if self.i > start && !self.s[start].is_ascii_digit() {
-                Some(String::from_utf8_lossy(&self.s[start..self.i]).into_owned())
-            } else {
-                self.i = start;
-                None
-            }
-        }
-
-        fn string(&mut self, q: u8) -> Result<String, String> {
-            self.i += 1;
-            let mut out: Vec<u8> = Vec::new();
-            while self.i < self.s.len() {
-                let c = self.s[self.i];
-                if c == q {
-                    self.i += 1;
-                    return Ok(String::from_utf8_lossy(&out).into_owned());
-                }
-                if c == b'\\' {
-                    self.i += 1;
-                    let e = *self.s.get(self.i).unwrap_or(&b'\\');
-                    match e {
-                        b'n' => out.push(b'\n'),
-                        b't' => out.push(b'\t'),
-                        b'r' => out.push(b'\r'),
-                        b'a' => out.push(7),
-                        b'b' => out.push(8),
-                        b'f' => out.push(12),
-                        b'v' => out.push(11),
-                        b'0'..=b'9' => {
-                            let mut v: u32 = 0;
-                            let mut n = 0;
-                            while n < 3 && self.s.get(self.i).is_some_and(u8::is_ascii_digit) {
-                                v = v * 10 + u32::from(self.s[self.i] - b'0');
-                                self.i += 1;
-                                n += 1;
-                            }
-                            out.push(v as u8);
-                            continue;
-                        }
-                        b'\n' => out.push(b'\n'),
-                        other => out.push(other),
-                    }
-                    self.i += 1;
-                    continue;
-                }
-                out.push(c);
-                self.i += 1;
-            }
-            self.err("unfinished string")
-        }
-
-        fn number(&mut self) -> Result<f64, String> {
-            let start = self.i;
-            if self.s[self.i..].starts_with(b"0x") || self.s[self.i..].starts_with(b"0X") {
-                self.i += 2;
-                while self.i < self.s.len() && self.s[self.i].is_ascii_hexdigit() {
-                    self.i += 1;
-                }
-                let t = std::str::from_utf8(&self.s[start + 2..self.i]).unwrap_or("");
-                return u64::from_str_radix(t, 16)
-                    .map(|v| v as f64)
-                    .or_else(|_| self.err("bad hex number"));
-            }
-            while self.i < self.s.len() {
-                let c = self.s[self.i];
-                let exp_sign = (c == b'+' || c == b'-')
-                    && self.i > start
-                    && matches!(self.s[self.i - 1], b'e' | b'E');
-                if c.is_ascii_digit() || c == b'.' || c == b'e' || c == b'E' || exp_sign {
-                    self.i += 1;
-                } else {
-                    break;
-                }
-            }
-            let t = std::str::from_utf8(&self.s[start..self.i]).unwrap_or("");
-            t.parse::<f64>().or_else(|_| self.err("malformed number"))
-        }
-
-        fn value(&mut self) -> Result<DataValue, String> {
-            self.skip();
-            let Some(&c) = self.s.get(self.i) else {
-                return self.err("unexpected end");
-            };
-            match c {
-                b'{' => self.table(),
-                b'"' | b'\'' => Ok(DataValue::Str(Arc::from(self.string(c)?.as_str()))),
-                b'[' => match self.long_bracket_level() {
-                    Some(l) => Ok(DataValue::Str(Arc::from(self.skip_long(l).as_str()))),
-                    None => self.err("unexpected '['"),
-                },
-                b'-' => {
-                    self.i += 1;
-                    match self.value()? {
-                        DataValue::Num(x) => Ok(DataValue::Num(-x)),
-                        _ => self.err("unary minus on a non-number"),
-                    }
-                }
-                b'0'..=b'9' | b'.' => Ok(DataValue::Num(self.number()?)),
-                _ => match self.word().as_deref() {
-                    Some("true") => Ok(DataValue::Bool(true)),
-                    Some("false") => Ok(DataValue::Bool(false)),
-                    Some("nil") => Ok(DataValue::Nil),
-                    _ => self.err("unexpected token"),
-                },
-            }
-        }
-
-        fn table(&mut self) -> Result<DataValue, String> {
-            self.i += 1; // '{'
-            let mut entries: Vec<(K, DataValue)> = Vec::new();
-            let mut pos = 0.0;
-            loop {
-                if self.eat(b'}') {
-                    break;
-                }
-                self.skip();
-                let (k, v) = if self.s.get(self.i) == Some(&b'[')
-                    && !matches!(self.s.get(self.i + 1), Some(b'[' | b'='))
-                {
-                    self.i += 1;
-                    let k = match self.value()? {
-                        DataValue::Str(s) => K::S(s.to_string()),
-                        DataValue::Num(x) => K::N(x),
-                        _ => K::Other,
-                    };
-                    if !self.eat(b']') {
-                        return self.err("expected ']'");
-                    }
-                    if !self.eat(b'=') {
-                        return self.err("expected '='");
-                    }
-                    (k, self.value()?)
-                } else {
-                    let save = self.i;
-                    match self.word() {
-                        Some(w) if !matches!(w.as_str(), "true" | "false" | "nil") && self.eat(b'=') => {
-                            (K::S(w), self.value()?)
-                        }
-                        _ => {
-                            self.i = save;
-                            pos += 1.0;
-                            (K::N(pos), self.value()?)
-                        }
-                    }
-                };
-                entries.push((k, v));
-                if !(self.eat(b',') || self.eat(b';')) {
-                    if self.eat(b'}') {
-                        break;
-                    }
-                    return self.err("expected ',' or '}'");
-                }
-            }
-            Ok(DataValue::Table(Arc::new(build_table(entries))))
-        }
-    }
-
-    fn build_table(entries: Vec<(K, DataValue)>) -> DataTable {
-        let mut fields: Vec<(Arc<str>, DataValue)> = Vec::new();
-        let mut nums: Vec<(f64, DataValue)> = Vec::new();
-        for (k, v) in entries {
-            match k {
-                K::S(s) => {
-                    if let Some(e) = fields.iter_mut().find(|(n, _)| **n == *s) {
-                        e.1 = v;
-                    } else {
-                        fields.push((Arc::from(s.as_str()), v));
-                    }
-                }
-                K::N(x) => {
-                    if let Some(e) = nums.iter_mut().find(|(n, _)| *n == x) {
-                        e.1 = v;
-                    } else {
-                        nums.push((x, v));
-                    }
-                }
-                K::Other => {}
-            }
-        }
-        // drop nil values (a Lua table cannot hold them)
-        fields.retain(|(_, v)| !matches!(v, DataValue::Nil));
-        nums.retain(|(_, v)| !matches!(v, DataValue::Nil));
-        nums.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let mut seq = Vec::new();
-        let mut rest = Vec::new();
-        for (k, v) in nums {
-            if k == (seq.len() + 1) as f64 {
-                seq.push(v);
-            } else {
-                rest.push((k, v));
-            }
-        }
-        DataTable {
-            fields,
-            seq,
-            num: rest,
-            keys: Vec::new(),
-            meta: None,
-        }
-    }
-
-    /// Evaluate `return <constructor>`.
-    pub fn parse(src: &str) -> Result<DataValue, String> {
-        let mut p = P {
-            s: src.as_bytes(),
-            i: 0,
-        };
-        p.skip();
-        match p.word().as_deref() {
-            Some("return") => {}
-            _ => return p.err("expected 'return'"),
-        }
-        p.value()
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn constructors() {
-            let v = parse(
-                "-- c\nreturn { [\"a\"]= { [0.3835]= \"u\", [1]= 2 }, b = -1.5e2, 'x', \"y\\\"z\", [3]=true, n = nil }",
-            )
-            .unwrap();
-            let t = v.table().unwrap();
-            assert_eq!(t.field("b").num(), Some(-150.0));
-            assert_eq!(t.seq.len(), 3);
-            assert_eq!(t.seq[1].as_str(), Some("y\"z"));
-            let a = t.field("a").table().unwrap();
-            assert_eq!(a.index(0.3835).as_str(), Some("u"));
-            assert_eq!(a.index(1.0).num(), Some(2.0));
-            assert!(t.field("n").table().is_none());
-        }
-    }
 }

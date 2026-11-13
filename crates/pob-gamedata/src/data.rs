@@ -769,14 +769,64 @@ pub fn dump_tree_files(
     Ok(out)
 }
 
+/// The tree-file name of a tree version's sprite data (PoB's `TreeData/<ver>/sprites.lua`, root
+/// `treeSprites["<ver>"]`), for [`tree_bytes`].
+pub fn tree_sprites_file(version: &str) -> String {
+    format!("{version}{TREE_SPRITES_SUFFIX}")
+}
+
+/// The tree-file name of a tree version's own asset table (PoB's `TreeData/<ver>/Assets.lua`,
+/// root `treeAssets["<ver>"]`; only 3_19 has one), for [`tree_bytes`].
+pub fn tree_assets_file(version: &str) -> String {
+    format!("{version}{TREE_ASSETS_SUFFIX}")
+}
+
+/// The legion sprite data (PoB's `TreeData/legion/tree-legion.lua`, root `trees["legion"]`).
+pub const TREE_LEGION_FILE: &str = "legion";
+
+const TREE_SPRITES_SUFFIX: &str = ".sprites";
+const TREE_ASSETS_SUFFIX: &str = ".assets";
+
+/// The manifest root of a tree file name (`3_27` → `trees["3_27"]`, `3_27.sprites` →
+/// `treeSprites["3_27"]`, `3_19.assets` → `treeAssets["3_19"]`).
+pub fn tree_file_root(name: &str) -> String {
+    let (kind, ver) = if let Some(v) = name.strip_suffix(TREE_SPRITES_SUFFIX) {
+        ("treeSprites", v)
+    } else if let Some(v) = name.strip_suffix(TREE_ASSETS_SUFFIX) {
+        ("treeAssets", v)
+    } else {
+        ("trees", name)
+    };
+    format!("{kind}[\"{ver}\"]")
+}
+
+/// Compile one tree file of a dump directory (`trees/<name>.json`) the way `pob-dump compile`
+/// compiles `trees/<ver>.json`: the [`loader::encode_bin`] bytes [`tree_bytes`] serves.
+pub fn compile_tree_json(name: &str, json: &str) -> Result<Vec<u8>, LoadError> {
+    let v = loader::parse_json(json)?;
+    let mut t = DumpTree::default();
+    t.add_file(&[tree_file_root(name)], v)?;
+    t.build_index()?;
+    loader::encode_bin(&t)
+}
+
 /// Desktop convenience: initialise from `<dir>/data.bin` and serve trees from
-/// `<dir>/trees/<ver>.bin`.
+/// `<dir>/trees/<name>.bin`. A dump directory has no compiled `.bin` for the tree UI files
+/// (`<ver>.sprites`, `3_19.assets`: `pob-dump compile` compiles only `trees["<ver>"]`); for
+/// those `<dir>/trees/<name>.json` is compiled on load ([`compile_tree_json`]). The asset bundle
+/// (`assets/gamedata`) ships every one of them compiled.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn init_from_dir(dir: &std::path::Path) -> Result<(), LoadError> {
     static DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
     let _ = DIR.set(dir.to_owned());
-    set_tree_provider(|ver| {
-        std::fs::read(DIR.get()?.join("trees").join(format!("{ver}.bin"))).ok()
+    set_tree_provider(|name| {
+        let trees = DIR.get()?.join("trees");
+        std::fs::read(trees.join(format!("{name}.bin")))
+            .ok()
+            .or_else(|| {
+                let json = std::fs::read_to_string(trees.join(format!("{name}.json"))).ok()?;
+                compile_tree_json(name, &json).ok()
+            })
     });
     if DATA.get().is_some() {
         return Ok(());

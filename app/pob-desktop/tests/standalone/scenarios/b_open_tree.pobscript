@@ -1,0 +1,9 @@
+# U53 e2e: open a fixture build (it opens on its saved view, the passive tree) and show it: the
+# top bar, the stat box (Rust calc numbers), the tree view.
+fixture userdir=../user1
+frames 2
+load-build "Builds/allflame_exp_048.xml"
+frames 4
+snapshot opened
+#! expect-text Current build:  allflame_exp_048
+#! expect-snapshot opened

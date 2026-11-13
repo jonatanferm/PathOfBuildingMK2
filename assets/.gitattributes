@@ -1,0 +1,8 @@
+# VENDOR: the bundle's files are byte-exact copies (index.json records their sha256): no line-ending
+# conversion, and no text diffs of the binary data.
+* -text -diff
+index.json -text diff
+web-prefetch.txt -text diff
+/README.md text diff
+/THIRD_PARTY_NOTICES.md text diff
+licenses/*.md -text diff

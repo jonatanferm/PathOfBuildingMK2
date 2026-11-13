@@ -28,6 +28,8 @@ members = [
     "app/pob-web",
     # Test-only input locator and skip policy (HYG1); dev-dependency only.
     "crates/pob-testpaths",
+    # VENDOR: writes the asset bundle (assets/) from a PoB checkout; not shipped.
+    "tools/pob-vendor",
 ]
 
 [workspace.package]

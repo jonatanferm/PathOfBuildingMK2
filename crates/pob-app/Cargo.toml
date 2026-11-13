@@ -40,7 +40,7 @@ web-sys = { workspace = true, features = [
 [dev-dependencies]
 # U28's unit tests: a small `data.powerStatList` and an item base from JSON.
 serde_json.workspace = true
-# U45's unit test reads PartyTab.lua from the PoB checkout (gitignored; POB_ROOT/POB_SRC).
+# Oracle-backed tests (tests/*.rs, e.g. party_notes_desc.rs) find the gitignored PoB checkout.
 pob-testpaths.workspace = true
 
 [lints]

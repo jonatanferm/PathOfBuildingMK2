@@ -125,8 +125,9 @@ fn buffer_height_left(cx: &Cx, me: CtrlId) -> f64 {
         - cx.base(auras_label).y.get(cx, auras_label)
 }
 
-/// `notesDesc` (L63-66; the long string keeps its tabs and newlines).
-const NOTES_DESC: &str = "^7To import a build it must be exported with \"Export support\" enabled in the import/export tab\n\
+/// `notesDesc` (L63-66; the long string keeps its tabs and newlines). Public for the test that
+/// compares it with PartyTab.lua (`tests/party_notes_desc.rs`).
+pub const NOTES_DESC: &str = "^7To import a build it must be exported with \"Export support\" enabled in the import/export tab\n\
 \tAuras with the highest effect will take priority, your curses will take priority over a support's\n\
 \t\n\
 \tAll of these effects can be found in the Calcs tab";
@@ -1863,21 +1864,5 @@ mod tests {
         assert_eq!(list[0].label, "Maxroll");
         assert!(lmatch("https://pob.codes/b/abc", list[1].match_url).is_some());
         assert_eq!((h.url_decode)("a+b%41"), "a bA");
-    }
-
-    #[test]
-    fn notes_desc_is_the_long_string() {
-        // a missing checkout fails unless POB_ALLOW_SKIP=1 (CCR-0031); POB_ROOT / POB_SRC
-        // override the search (worktrees do not hold the gitignored checkout)
-        let Some(src) = pob_testpaths::require(
-            pob_testpaths::pob_src(),
-            "PoB checkout (.PathOfBuilding/src)",
-        ) else {
-            return;
-        };
-        let lua = std::fs::read_to_string(src.join("Classes/PartyTab.lua")).expect("PartyTab.lua");
-        let a = lua.find("local notesDesc = [[").unwrap() + "local notesDesc = [[".len();
-        let b = a + lua[a..].find("]]").unwrap();
-        assert_eq!(&lua[a..b], NOTES_DESC);
     }
 }

@@ -2064,8 +2064,9 @@ dependencies = [
  "pob-sg",
  "pob-sg-wgpu",
  "pob-ui-core",
- "pob-ui-oracle",
  "pollster",
+ "serde_json",
+ "sha2",
  "wgpu",
 ]
 
@@ -2232,6 +2233,16 @@ dependencies = [
  "serde_json",
  "wgpu",
  "zstd",
+]
+
+[[package]]
+name = "pob-vendor"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "pob-gamedata",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
