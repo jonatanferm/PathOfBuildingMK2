@@ -15,6 +15,13 @@
 //! PoB's version number, with a branch and a platform so that the app does not run in dev
 //! mode). Paths the index does not know (`installed.cfg`, `first.run`) resolve against the
 //! bundle root as before, so they are simply absent.
+//!
+//! The bundle is read-only, as an installed PoB under a read-only directory is: the native and
+//! headless hosts refuse every write, rename, removal and `MakeDir` at or below the bundle root
+//! ([`Bundle::contains`], [`read_only`]). PoB's own writes there are dev-mode or updater ones
+//! (`ModCache.lua`, `first.run`), the Options popup's `main:SetManifestBranch` (Main.lua:1221-1222,
+//! :1317-1334, whose save error is ignored, so the bundle's manifest keeps `branch="master"`),
+//! and caches the port keeps elsewhere (the timeless `.bin` files, `pob_desktop::lut_cache_dir`).
 
 use std::collections::BTreeMap;
 
@@ -155,6 +162,30 @@ impl Bundle {
         ))
     }
 
+    /// Whether `path` names the bundle root or a place below it: a relative path (relative to
+    /// the root) whose `..` components do not leave the root, or an absolute one under the root
+    /// once `.`/`..` are applied. The hosts refuse every change there ([`read_only`]).
+    pub fn contains(&self, path: &str) -> bool {
+        let generic = path.replace('\\', "/");
+        let abs = generic.starts_with('/') || generic.as_bytes().get(1) == Some(&b':');
+        let full = if abs {
+            generic
+        } else {
+            format!("{}/{generic}", self.root)
+        };
+        let (Some(full), Some(root)) = (lexical(&full), lexical(&self.root)) else {
+            return false;
+        };
+        full.len() >= root.len()
+            && full.iter().zip(&root).all(|(a, b)| {
+                if cfg!(windows) {
+                    a.eq_ignore_ascii_case(b)
+                } else {
+                    a == b
+                }
+            })
+    }
+
     /// `NewFileSearch` of the logical script directory `dir` (relative to the script dir): its
     /// files and the directories the index implies, sorted by name; `None` when the index has
     /// nothing below `dir`.
@@ -192,6 +223,32 @@ impl Bundle {
         }
         (!out.is_empty()).then(|| out.into_values().collect())
     }
+}
+
+/// The components of an absolute generic path with `.`/`..` applied (`None` when `..` climbs
+/// above the top).
+fn lexical(path: &str) -> Option<Vec<&str>> {
+    let mut out = Vec::new();
+    for c in path.split('/') {
+        match c {
+            "" | "." => {}
+            ".." => {
+                out.pop()?;
+            }
+            c => out.push(c),
+        }
+    }
+    Some(out)
+}
+
+/// The error of a change to the read-only bundle ([`Bundle::contains`]): what `io.open(…, "w")`,
+/// `os.remove`, `os.rename` and `MakeDir` give in a read-only install (`EACCES`), so the Lua-
+/// faithful callers take their failure paths (e.g. `main:SetManifestBranch` ignores it).
+pub fn read_only(path: &str) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        format!("{path}: Permission denied"),
+    )
 }
 
 /// The bundle paths of a [`WEB_PREFETCH_FILE`] (`#` comments and blank lines skipped).
@@ -253,6 +310,37 @@ mod tests {
         );
         assert!(b.relative("/x/assetsy/b.png").is_none());
         assert!(b.relative("/home/u/Builds/a.xml").is_none());
+    }
+
+    #[test]
+    fn contains_the_root_and_below_only() {
+        let b = Bundle::parse("/x/assets/", INDEX).unwrap();
+        for p in [
+            "manifest.xml",
+            "./text/manifest.xml",
+            "Data/New/x.lua",
+            "",
+            ".",
+            "TreeData/../index.json",
+            "/x/assets",
+            "/x/assets/",
+            "/x/assets/text/manifest.xml",
+            "/x/y/../assets/a",
+            "\\x\\assets\\a",
+        ] {
+            assert!(b.contains(p), "{p}");
+        }
+        for p in [
+            "../manifest.xml",
+            "TreeData/../../x",
+            "/x/assetsy/b.png",
+            "/x/assets/../b.png",
+            "/x",
+            "/home/u/Path of Building/Settings.xml",
+            "/..",
+        ] {
+            assert!(!b.contains(p), "{p}");
+        }
     }
 
     #[test]

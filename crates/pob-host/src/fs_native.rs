@@ -9,7 +9,9 @@
 //! DIVERGENCE(listing order): see [`crate::sort_file_entries`].
 //!
 //! VENDOR: when the script directory is the asset bundle ([`crate::bundle`]), script-relative
-//! paths resolve through its index: reads and listings see PoB's logical tree.
+//! paths resolve through its index: reads and listings see PoB's logical tree. The bundle is
+//! read-only: a change at or below its root fails with `Permission denied`
+//! ([`crate::bundle::read_only`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -45,6 +47,24 @@ impl NativeFs {
             self.base.join(p)
         }
     }
+
+    /// Where a change to `path` goes: refused at or below the bundle root (read-only), else
+    /// the disk path (never through the index, which only holds bundle files).
+    fn resolve_mut(&self, path: &str) -> std::io::Result<PathBuf> {
+        if self
+            .bundle
+            .as_deref()
+            .is_some_and(|b| in_read_only_bundle(b, path))
+        {
+            return Err(crate::bundle::read_only(path));
+        }
+        let p = Path::new(path);
+        Ok(if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            self.base.join(p)
+        })
+    }
 }
 
 /// The bundle file holding the logical script path `path` (relative, or absolute under the
@@ -52,6 +72,14 @@ impl NativeFs {
 pub fn bundle_file(b: &Bundle, path: &str) -> Option<PathBuf> {
     let rel = b.relative(path)?;
     b.script_file(&rel).map(|f| Path::new(&b.root).join(f))
+}
+
+/// Whether a change to `path` is refused because the bundle is read-only: `path` is at or
+/// below the bundle root ([`Bundle::contains`]), or reads as a bundle file ([`bundle_file`]
+/// applies `..` within the logical tree, so the dev-mode `../manifest.xml` names the bundle's
+/// manifest too).
+pub fn in_read_only_bundle(b: &Bundle, path: &str) -> bool {
+    b.contains(path) || bundle_file(b, path).is_some()
 }
 
 /// `NewFileSearch` of a logical directory of the bundle (`None`: the index has nothing there,
@@ -121,7 +149,7 @@ impl Fs for NativeFs {
         std::fs::read(self.resolve(path))
     }
     fn write(&mut self, path: &str, data: &[u8]) -> std::io::Result<()> {
-        std::fs::write(self.resolve(path), data)
+        std::fs::write(self.resolve_mut(path)?, data)
     }
     fn search(&self, spec: &str, find_dirs: bool) -> Vec<FileEntry> {
         let Some((dir, pattern)) = crate::search_split_spec(spec) else {
@@ -138,11 +166,11 @@ impl Fs for NativeFs {
     }
     /// `create_directory`: not recursive.
     fn make_dir(&mut self, path: &str) -> std::io::Result<()> {
-        std::fs::create_dir(self.resolve(path))
+        std::fs::create_dir(self.resolve_mut(path)?)
     }
     /// `remove_all` when recursive, else `remove` (an empty directory).
     fn remove_dir(&mut self, path: &str, recursive: bool) -> std::io::Result<()> {
-        let p = self.resolve(path);
+        let p = self.resolve_mut(path)?;
         if recursive {
             std::fs::remove_dir_all(p)
         } else {
@@ -150,10 +178,10 @@ impl Fs for NativeFs {
         }
     }
     fn rename(&mut self, from: &str, to: &str) -> std::io::Result<()> {
-        std::fs::rename(self.resolve(from), self.resolve(to))
+        std::fs::rename(self.resolve_mut(from)?, self.resolve_mut(to)?)
     }
     fn remove(&mut self, path: &str) -> std::io::Result<()> {
-        std::fs::remove_file(self.resolve(path))
+        std::fs::remove_file(self.resolve_mut(path)?)
     }
 }
 
@@ -257,6 +285,82 @@ mod tests {
         assert!(fs.remove_dir("Builds", false).is_err()); // not empty
         fs.remove_dir("Builds", true).unwrap();
         assert!(fs.search("Builds/*", false).is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The asset bundle is read-only on both the native and the headless file system: every
+    /// change at or below its root fails with `PermissionDenied` and leaves the disk as it was;
+    /// reads still go through the index and changes elsewhere still work.
+    #[test]
+    fn the_bundle_is_read_only() {
+        let d = tmp("ro");
+        let root = d.join("assets");
+        let out = d.join("user");
+        std::fs::create_dir_all(root.join("text")).unwrap();
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(
+            root.join(crate::bundle::INDEX_FILE),
+            r#"{"format":1,"script":{"manifest.xml":"text/manifest.xml"},"runtime":{}}"#,
+        )
+        .unwrap();
+        let man = b"<?xml version='1.0' encoding='UTF-8'?>\n<PoBVersion/>\n".to_vec();
+        std::fs::write(root.join("text/manifest.xml"), &man).unwrap();
+        let root_s = root.to_string_lossy().into_owned();
+        let abs_man = format!("{root_s}/manifest.xml");
+        let abs_file = format!("{root_s}/text/manifest.xml");
+        let out_s = out.to_string_lossy().into_owned();
+
+        let state = crate::headless::HeadlessState::new(&root_s, "");
+        let (_, headless, _) = crate::headless::services(&state);
+        let native: Box<dyn Fs> = Box::new(NativeFs::new(&root));
+        for (host, mut fs) in [("native", native), ("headless", headless)] {
+            let denied = |r: std::io::Result<()>, what: &str| {
+                let e = r.expect_err(&format!("{host}: {what} must fail"));
+                assert_eq!(
+                    e.kind(),
+                    std::io::ErrorKind::PermissionDenied,
+                    "{host}: {what}"
+                );
+            };
+            assert_eq!(fs.read("manifest.xml").unwrap(), man, "{host}");
+            for p in [
+                "manifest.xml",
+                "../manifest.xml",
+                "./text/manifest.xml",
+                abs_man.as_str(),
+                abs_file.as_str(),
+                "first.run",
+                "Data/ModCache.lua",
+            ] {
+                denied(fs.write(p, b"x"), &format!("write {p}"));
+            }
+            denied(fs.remove("manifest.xml"), "remove");
+            denied(fs.remove(&abs_file), "remove abs");
+            denied(
+                fs.rename("manifest.xml", &format!("{out_s}/m")),
+                "rename out",
+            );
+            denied(
+                fs.rename(&format!("{out_s}/m"), "manifest.xml"),
+                "rename in",
+            );
+            denied(fs.make_dir("Builds"), "make_dir");
+            denied(fs.remove_dir("text", true), "remove_dir");
+            denied(fs.remove_dir(&root_s, true), "remove_dir root");
+            // outside the bundle nothing changes
+            fs.write(&format!("{out_s}/Settings.xml"), b"<s/>").unwrap();
+            fs.make_dir(&format!("{out_s}/Builds-{host}")).unwrap();
+        }
+        assert_eq!(std::fs::read(root.join("text/manifest.xml")).unwrap(), man);
+        let mut names: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["index.json", "text"]);
+        assert_eq!(std::fs::read(out.join("Settings.xml")).unwrap(), b"<s/>"); // native
+        assert!(out.join("Builds-native").is_dir());
         let _ = std::fs::remove_dir_all(&d);
     }
 }

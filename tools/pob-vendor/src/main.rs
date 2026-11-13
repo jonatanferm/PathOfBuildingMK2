@@ -24,7 +24,11 @@
 //!   puts the user data in the script path (Main.lua:89-91), the read-only bundle. With branch
 //!   and platform set the app runs as an installed release (dev mode off, user data in the
 //!   user's data directory). Nothing reads `branch` and `platform` but the update check, which
-//!   the port does not have (DIVERGENCE(update-deferred));
+//!   the port does not have (DIVERGENCE(update-deferred)). DIVERGENCE(manifest-platform):
+//!   `platform="win32"` on every OS, the value of PoB's own (Windows-only) release manifests;
+//!   only that absent update check would read it. The bundle is read-only to the app
+//!   (`pob_host::bundle::Bundle::contains`), so Options > Save (`main:SetManifestBranch`) cannot
+//!   rewrite this file;
 //! * `licenses/PathOfBuilding-LICENSE.md` (PoB's `LICENSE.md`);
 //! * `index.json`: format 1, the snapshot (`source`: PoB version and commit from the dump's
 //!   manifest), the logical → bundle maps (`script`, `runtime`; `pob_host::bundle`) and every

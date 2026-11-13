@@ -18,6 +18,9 @@
 //!   configuration ([`pob_desktop::host_config`], the native platform) reads the bundle's
 //!   `manifest.xml`: `launch.versionNumber` is PoB's 2.67.2, dev mode is off, and the user data
 //!   goes to the platform's user folder, outside the bundle.
+//! * `options_save_leaves_the_bundle_unchanged`: Options > Save in release mode
+//!   (`main:SetManifestBranch`, which rewrites `manifest.xml`) on the desktop host's `NativeFs`
+//!   over a copy of the bundle: the bundle is read-only, its manifest keeps its bytes.
 //! * `bundle_matches_its_index` and `text_files_and_listings_resolve`: the index and the files
 //!   agree (sizes and sha256); `NativeFs` reads and lists the logical tree.
 //!
@@ -387,6 +390,96 @@ fn launch_runs_as_a_release_on_the_bundle() {
         !user.starts_with(&bundle_root) && !user.starts_with(&cfg.script_dir),
         "the user data is outside the bundle: {user} (bundle {bundle_root})"
     );
+}
+
+/// Options > Save on the desktop app's file system (`NativeFs`) over a copy of the bundle:
+/// with dev mode off, Main.lua:1221-1222 calls `main:SetManifestBranch`, whose
+/// `xml.SaveXMLFile(…, "manifest.xml")` (Main.lua:1334) would rewrite the bundle's manifest
+/// (`branch="beta"` here). The bundle is read-only, so the save fails (its error is ignored, as
+/// Lua's is) and the bundle's bytes stay as they are; the user folder is written as usual.
+/// The copy holds `index.json` and `text/` (the manifest); the rest of the bundle is linked.
+#[cfg(unix)]
+#[test]
+fn options_save_leaves_the_bundle_unchanged() {
+    use pob_ui_core::controls::ButtonControl;
+    let a = assets();
+    let tmp = std::env::temp_dir().join(format!("pob-standalone-ro-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let (root, user) = (tmp.join("assets"), tmp.join("user"));
+    std::fs::create_dir_all(root.join("text")).unwrap();
+    std::fs::create_dir_all(&user).unwrap();
+    for e in std::fs::read_dir(&a).unwrap().flatten() {
+        let name = e.file_name();
+        let dst = root.join(&name);
+        if name == "text" {
+            for f in std::fs::read_dir(e.path()).unwrap().flatten() {
+                std::fs::copy(f.path(), root.join("text").join(f.file_name())).unwrap();
+            }
+        } else if name == "index.json" {
+            std::fs::copy(e.path(), &dst).unwrap();
+        } else {
+            std::os::unix::fs::symlink(e.path(), &dst).unwrap();
+        }
+    }
+    let manifest = std::fs::read(root.join("text/manifest.xml")).unwrap();
+    let cfg = pob_desktop::host_config(&root);
+    // the headless platform with a temp user folder (GetRuntimePath() the bundle's parent, as
+    // NativePlatform has it); the desktop host's NativeFs
+    let state = pob_host::headless::HeadlessState::new(&cfg.script_dir, &tmp.to_string_lossy());
+    *state.user_path.borrow_mut() = user.to_string_lossy().into_owned();
+    let (platform, _, net) = pob_host::headless::services(&state);
+    let fs = Box::new(pob_host::fs_native::NativeFs::new(&cfg.script_dir));
+    let mut parts = pob_host::headless::parts_without_assets();
+    parts.sys = pob_sg::Sys::new(platform, fs, net);
+    let mut app = pob_app::PobApp::new(parts);
+    let r = pob_host::guarded(&mut app, <pob_app::PobApp as pob_host::App>::on_init);
+    assert!(r.is_ok(), "{r:?}");
+    assert!(
+        !app.cx.app().launch.dev_mode,
+        "release mode: Save sets the branch"
+    );
+    // the first frames enter the build list (main:SetMode runs in OnFrame)
+    let screen = pob_sg::ScreenInfo {
+        fb_w: 1280,
+        fb_h: 800,
+        win_h: 800,
+        dpi_scale: 1.0,
+    };
+    for _ in 0..2 {
+        let r = pob_host::run_frame(&mut app, screen, (0, 0));
+        assert!(r.is_ok(), "{:?}", r.err());
+    }
+    let l = &app.cx.app().launch;
+    assert!(l.prompt_msg.is_none(), "{:?}", l.prompt_msg);
+    let r = pob_host::guarded(&mut app, |app| {
+        let cx = &mut app.cx;
+        pob_app::main_mode::options_popup::open_options_popup(cx, None);
+        cx.app_mut().main.beta_test = Some(true); // the "Beta test" check box
+        let popup = cx.main.popups[0].id();
+        let save = cx.child(popup, "save").expect("the Save button");
+        let on_click = cx.w::<ButtonControl>(save).on_click.clone();
+        on_click(cx);
+    });
+    assert!(r.is_ok(), "{r:?}");
+    assert!(app.cx.main.popups.is_empty(), "Save closed the popup");
+    let l = &app.cx.app().launch;
+    assert!(l.prompt_msg.is_none(), "{:?}", l.prompt_msg);
+    assert_eq!(
+        std::fs::read(root.join("text/manifest.xml")).unwrap(),
+        manifest,
+        "the bundle's manifest.xml is unchanged"
+    );
+    assert_eq!(
+        std::fs::read_dir(&root).unwrap().count(),
+        std::fs::read_dir(&a).unwrap().count(),
+        "nothing new in the bundle root"
+    );
+    assert!(
+        user.join("Path of Building/Settings.xml").is_file(),
+        "Save wrote the settings to the user folder"
+    );
+    drop(app);
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 #[test]

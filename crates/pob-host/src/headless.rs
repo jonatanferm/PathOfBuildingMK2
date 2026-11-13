@@ -174,6 +174,20 @@ impl HeadlessState {
         normalize(&joined)
     }
 
+    /// VENDOR: a change at or below the asset bundle's root is refused (read-only, as on the
+    /// desktop, [`crate::bundle::read_only`]); else the overlay path of `path`.
+    fn resolve_mut(&self, path: &str) -> std::io::Result<PathBuf> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self
+            .bundle
+            .as_deref()
+            .is_some_and(|b| crate::fs_native::in_read_only_bundle(b, path))
+        {
+            return Err(crate::bundle::read_only(path));
+        }
+        Ok(self.resolve(path))
+    }
+
     fn virtual_mtime(&self) -> i64 {
         // 2020-09-13T12:26:40Z + the virtual clock
         crate::filetime_ticks(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000))
@@ -368,7 +382,7 @@ impl Fs for HeadlessFs {
         Self::read_merged(&self.0.overlay.borrow(), &p)
     }
     fn write(&mut self, path: &str, data: &[u8]) -> std::io::Result<()> {
-        let p = self.0.resolve(path);
+        let p = self.0.resolve_mut(path)?;
         let mtime = self.0.virtual_mtime();
         {
             let mut o = self.0.overlay.borrow_mut();
@@ -419,7 +433,7 @@ impl Fs for HeadlessFs {
         out
     }
     fn make_dir(&mut self, path: &str) -> std::io::Result<()> {
-        let p = self.0.resolve(path);
+        let p = self.0.resolve_mut(path)?;
         let mut o = self.0.overlay.borrow_mut();
         if Self::is_dir(&o, &p) || Self::is_file(&o, &p) {
             return Err(std::io::Error::new(
@@ -434,7 +448,7 @@ impl Fs for HeadlessFs {
         Ok(())
     }
     fn remove_dir(&mut self, path: &str, recursive: bool) -> std::io::Result<()> {
-        let p = self.0.resolve(path);
+        let p = self.0.resolve_mut(path)?;
         let mut o = self.0.overlay.borrow_mut();
         if !Self::is_dir(&o, &p) {
             return Err(not_found(&p));
@@ -446,7 +460,7 @@ impl Fs for HeadlessFs {
         Ok(())
     }
     fn rename(&mut self, from: &str, to: &str) -> std::io::Result<()> {
-        let (src, dst) = (self.0.resolve(from), self.0.resolve(to));
+        let (src, dst) = (self.0.resolve_mut(from)?, self.0.resolve_mut(to)?);
         let mut o = self.0.overlay.borrow_mut();
         if !Self::parent_exists(&o, &dst) {
             return Err(not_found(&dst));
@@ -483,7 +497,7 @@ impl Fs for HeadlessFs {
         Ok(())
     }
     fn remove(&mut self, path: &str) -> std::io::Result<()> {
-        let p = self.0.resolve(path);
+        let p = self.0.resolve_mut(path)?;
         let mut o = self.0.overlay.borrow_mut();
         if !Self::is_file(&o, &p) {
             return Err(not_found(&p));
