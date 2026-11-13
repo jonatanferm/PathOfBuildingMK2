@@ -13,13 +13,20 @@
 //!
 //! The PoB runs need the PoB checkout and `.parity/builds` (`pob_testpaths`:
 //! the environment, this workspace, the main checkout); a missing input fails
-//! the test unless `POB_ALLOW_SKIP=1`.
+//! the test unless `POB_ALLOW_SKIP=1` (and then still under `POB_ORACLE_REQUIRE=1` / `CI`).
 //! Every PoB process takes the machine-wide oracle lock.
 //!
-//! `all57_corpus` (ignored by default) checks the corpus run that
-//! `scripts/port/oracle.sh corpus --stages crates/pob-oracle/corpus/P3/stages.toml`
-//! leaves in `.parity/probe/<stem>/`, and the nondet records of
-//! `scripts/port/oracle.sh nondet` in `.parity/nondet/`.
+//! The corpus probe runs (`--unit` provenance of `calc_diff_is_accepted_by_report_py`, and
+//! `all57_corpus`) are what `scripts/port/oracle.sh corpus --stages
+//! crates/pob-oracle/corpus/P3/stages.toml` runs (the default selection, `--max-dumps 200`,
+//! provenance on), from the shared probe cache: `testkit::probe_dumps` ([`corpus_run`]; CK3,
+//! CCR-0148: they used to read the keyless, hand-filled `.parity/probe/<stem>/` that command
+//! leaves, which nothing invalidated; `POB_PROBE_DIR=.parity/probe` still serves it). A probe
+//! that fails is a test failure, not a missing input.
+//!
+//! `all57_corpus` (ignored by default: 57 probe runs under the P3 stages, cached once made)
+//! checks every build's corpus run, and the nondet records of `scripts/port/oracle.sh nondet` in
+//! `.parity/nondet/`.
 #![allow(non_snake_case)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -28,12 +35,43 @@ use std::process::Command;
 
 use pob_oracle::diff::{diff_flat, flat_outputs, DiffOptions};
 use pob_oracle::nondet::{compare_runs, NondetRecord};
-use pob_oracle::oracle::{load_outputs, Leaf};
+use pob_oracle::oracle::{load_outputs, Leaf, OracleOutput};
 use pob_oracle::patcher::{self, SiteKind, StagesFile};
-use pob_oracle::runner::ProbeCache;
-use pob_oracle::schema::{coverage, flatten_state, HitsIndex, Provenance, StateDump};
-use pob_testpaths::require;
+use pob_oracle::runner::{ProbeCache, ProbeOptions};
+use pob_oracle::schema::{coverage, flatten_state, read_text, HitsIndex, Provenance, StateDump};
+use pob_oracle::testkit;
 use serde_json::Value as J;
+
+/// `pob_testpaths::require` (fails, or skips with `POB_ALLOW_SKIP=1`), failing under
+/// `POB_ORACLE_REQUIRE=1` / `CI` even with `POB_ALLOW_SKIP=1` (CK3).
+#[track_caller]
+fn require<T>(v: Option<T>, what: &str) -> Option<T> {
+    assert!(
+        v.is_some() || !testkit::oracle_required(),
+        "required input missing (POB_ORACLE_REQUIRE): {what}"
+    );
+    pob_testpaths::require(v, what)
+}
+
+/// The corpus probe run of `xml` (module docs): `oracle.sh corpus`'s selection under the P3
+/// stages, from the shared probe cache, probed when absent. A failed probe panics (CK3).
+fn corpus_run(xml: &Path) -> testkit::BuildDumps {
+    testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&stages_path()),
+        &ProbeOptions::default(),
+    )
+    .unwrap_or_else(|e| panic!("{}: corpus probe failed: {e}", xml.display()))
+}
+
+/// `<run>/<name>` of a probe run: `<name>.zst` in a cache entry, `<name>` in an uncached run
+/// or an override directory.
+fn run_file(run: &Path, name: &str) -> Option<PathBuf> {
+    [run.join(format!("{name}.zst")), run.join(name)]
+        .into_iter()
+        .find(|p| p.is_file())
+}
 
 const BUILD: &str = "upstream_OccVortex";
 
@@ -868,11 +906,25 @@ fn calc_diff_is_accepted_by_report_py() {
     // --unit: keep the mismatches whose PoB writer lies in the unit's ranges
     // (TotalDPS is written in CalcOffence's pass body B = OF-F, Life in
     // CalcPerform's helpers = PF-A)
-    let prov = parity.join("probe").join(BUILD).join("provenance.json");
-    if prov.is_file() {
+    // the provenance of the corpus probe run (module docs; CK3: no longer `.parity/probe`)
+    let why = testkit::probe_inputs().err();
+    if why.is_none() {
+        let xml = require(
+            pob_testpaths::parity_build(BUILD),
+            &format!(".parity/builds/{BUILD}.xml"),
+        )
+        .expect("the .parity checked above holds the build");
+        let run = corpus_run(&xml);
+        let prov = run_file(&run.run_dir(), "provenance.json").unwrap_or_else(|| {
+            panic!("{BUILD}: the corpus probe run wrote no provenance ({})", run.run_dir().display())
+        });
         let pdir = dir.join("prov").join(BUILD);
         std::fs::create_dir_all(&pdir).unwrap();
-        std::fs::copy(&prov, pdir.join("provenance.json")).unwrap();
+        std::fs::write(
+            pdir.join("provenance.json"),
+            read_text(&prov).unwrap_or_else(|e| panic!("{e}")),
+        )
+        .unwrap();
         let doc_md =
             pob_testpaths::find("docs/port/calc-architecture.md").expect("calc-architecture.md");
         for (unit, kept) in [("OF-F", "TotalDPS"), ("PF-A", "Life")] {
@@ -912,7 +964,7 @@ fn calc_diff_is_accepted_by_report_py() {
         // The --unit check only (POB_ALLOW_SKIP=1); the rest of the test runs.
         let _ = require(
             None::<()>,
-            &format!("--unit: {} (run oracle.sh corpus)", prov.display()),
+            &format!("--unit: the corpus probe run of {BUILD}: {}", why.unwrap_or_default()),
         );
     }
 
@@ -946,13 +998,20 @@ fn calc_diff_is_accepted_by_report_py() {
 
 // ---- the whole corpus (ignored: reads the results of oracle.sh) ---------------------------------
 
-/// `scripts/port/oracle.sh corpus --stages crates/pob-oracle/corpus/P3/stages.toml`
-/// then `scripts/port/oracle.sh nondet --verify --stages crates/pob-oracle/corpus/P3/stages.toml`,
-/// then `cargo test -p pob-oracle --test P3 -- --ignored all57`.
+/// Every build's corpus probe run ([`corpus_run`], probed when absent), against the nondet
+/// records of `scripts/port/oracle.sh nondet --verify --stages
+/// crates/pob-oracle/corpus/P3/stages.toml`: `scripts/port/cargo.sh test -p pob-oracle --test P3
+/// -- --ignored all57`.
 #[test]
-#[ignore = "needs the oracle.sh corpus and nondet runs over .parity/builds"]
+#[ignore = "57 probe runs under the P3 stages (cached once made), and the oracle.sh nondet records"]
 fn all57_corpus() {
-    let parity = pob_testpaths::parity_dir().expect(".parity");
+    let Some(parity) = require(pob_testpaths::parity_dir(), ".parity (build corpus)") else {
+        return; // POB_ALLOW_SKIP=1
+    };
+    let why = testkit::probe_inputs().err();
+    if require(why.is_none().then_some(()), why.as_deref().unwrap_or_default()).is_none() {
+        return; // POB_ALLOW_SKIP=1
+    }
     let mut builds: Vec<String> = std::fs::read_dir(parity.join("builds"))
         .unwrap()
         .filter_map(Result::ok)
@@ -970,14 +1029,24 @@ fn all57_corpus() {
     let mut no_main_offence: Vec<String> = Vec::new();
     let mut nondet_entries = 0usize;
     let mut nondet_builds = 0usize;
+    let mut compared = 0usize;
     for stem in &builds {
-        let dir = parity.join("probe").join(stem);
-        let Ok(hits) = HitsIndex::load(&dir.join("hits.json")) else {
-            failures.push(format!("{stem}: no probe run"));
+        // CK3: the corpus run from the shared probe cache (a failed probe panics in corpus_run)
+        let run = corpus_run(&parity.join("builds").join(format!("{stem}.xml")));
+        let dir = run.run_dir();
+        let file = |name: &str| run_file(&dir, name);
+        let Some(hits) = file("hits.json").and_then(|p| HitsIndex::load(&p).ok()) else {
+            failures.push(format!("{stem}: the probe run has no hits index ({})", dir.display()));
             continue;
         };
+        if hits.dumps.is_empty() {
+            failures.push(format!("{stem}: empty probe run (no dump)"));
+            continue;
+        }
+        compared += 1;
         for d in &hits.dumps {
-            let s = StateDump::load(&dir.join(&d.file)).unwrap_or_else(|e| panic!("{stem}: {e}"));
+            let p = file(&d.file).unwrap_or_else(|| panic!("{stem}: no dump file {}", d.file));
+            let s = StateDump::load(&p).unwrap_or_else(|e| panic!("{stem}: {e}"));
             // pob-state/1 from dumps made before FUP3, /2 since (`schema::STATE_FORMATS`)
             assert!(pob_oracle::schema::STATE_FORMATS.contains(&s.format.as_str()), "{}", s.format);
             dumps += 1;
@@ -1002,8 +1071,12 @@ fn all57_corpus() {
         if !in_main("offence:out") {
             no_main_offence.push(stem.clone());
         }
-        let outputs = load_outputs(&dir.join("outputs.json")).unwrap();
-        let prov = Provenance::load(&dir.join("provenance.json")).unwrap();
+        let text = |name: &str| {
+            let p = file(name).unwrap_or_else(|| panic!("{stem}: the probe run has no {name}"));
+            read_text(&p).unwrap_or_else(|e| panic!("{e}"))
+        };
+        let outputs = OracleOutput::from_json(&text("outputs.json")).unwrap();
+        let prov: Provenance = serde_json::from_str(&text("provenance.json")).unwrap();
         let c = coverage(&outputs, &prov);
         keys += c.keys;
         covered += c.covered;
@@ -1028,10 +1101,7 @@ fn all57_corpus() {
             let pa = flat_outputs(
                 &serde_json::from_str(&std::fs::read_to_string(&plain).unwrap()).unwrap(),
             );
-            let pb = flat_outputs(
-                &serde_json::from_str(&std::fs::read_to_string(dir.join("outputs.json")).unwrap())
-                    .unwrap(),
-            );
+            let pb = flat_outputs(&serde_json::from_str(&text("outputs.json")).unwrap());
             let opts = DiffOptions {
                 rel: 0.0,
                 nondet_values: nd.as_ref().map(|n| &n.outputs),
@@ -1054,7 +1124,7 @@ fn all57_corpus() {
         }
     }
     eprintln!(
-        "{} builds, {dumps} dumps ({fn_dumps} function-probe), provenance {covered}/{keys} = {:.3}%, nondet: {nondet_builds} builds with {nondet_entries} entries",
+        "{} builds, {compared} probe runs compared, {dumps} dumps ({fn_dumps} function-probe), provenance {covered}/{keys} = {:.3}%, nondet: {nondet_builds} builds with {nondet_entries} entries",
         builds.len(),
         100.0 * covered as f64 / keys.max(1) as f64
     );
@@ -1062,5 +1132,6 @@ fn all57_corpus() {
     // the probed PoB computes what the unpatched PoB computes
     assert!(differ.is_empty(), "patched vs plain: {differ:#?}");
     assert!(failures.is_empty(), "{failures:#?}");
+    assert!(compared > 0 && dumps > 0, "no probe run compared");
     assert!(covered as f64 >= 0.99 * keys as f64);
 }
