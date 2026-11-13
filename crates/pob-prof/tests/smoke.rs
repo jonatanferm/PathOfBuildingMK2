@@ -1,8 +1,9 @@
 //! End-to-end smoke test of the driver (PROF1): boot the real app headless, open a fixture build,
-//! hover and click, and check the measurements and guards. Needs the game data (`data/dump`, with
-//! `data.bin`) and the app's assets (the PoB checkout), found through `pob-testpaths` and passed to
-//! `paths::locate` explicitly: a missing input fails the test unless `POB_ALLOW_SKIP=1` (CCR-0031
-//! B, STYLE.md). Runs in a debug build too (slower; the numbers are not checked).
+//! hover and click, and check the measurements and guards. Runs on the repository's asset bundle
+//! (`assets/`, located as the desktop app locates it: `paths::locate` with no overrides), with its
+//! game data in `assets/gamedata`: no PoB checkout and no `data/` directory is read (proof: run it
+//! with both hidden, docs/perf/PROFILING.md "Inputs"). Runs in a debug build too (slower; the
+//! numbers are not checked).
 //!
 //! `committed_scenarios_cheap` replays committed scenarios whose guards cover clicks (so a layout
 //! change that moves one of their controls fails here, not only in a release `prof.sh run`);
@@ -21,17 +22,18 @@ use pob_prof::scenario::Scenario;
 /// One app at a time (memory; the process-wide data and panic hook are set once anyway).
 static ONE_APP: Mutex<()> = Mutex::new(());
 
-fn inputs() -> Option<paths::Inputs> {
-    let root = pob_testpaths::require(
-        pob_testpaths::pob_root(),
-        "PoB checkout (.PathOfBuilding: src/ and runtime/SimpleGraphic/)",
-    )?;
-    let bin = pob_testpaths::require(
-        pob_testpaths::data_bin(),
-        "data/dump/data.bin (pob-dump --compile)",
-    )?;
-    let dump = bin.parent().expect("data.bin has a directory");
-    Some(paths::locate(Some(&root), Some(dump)).expect("paths::locate with explicit inputs"))
+/// The repository's asset bundle, located as `pob-prof` and the desktop app locate it.
+fn inputs() -> paths::Inputs {
+    let i = paths::locate(None, None).expect("the asset bundle (assets/, VENDOR)");
+    assert!(
+        !i.assets
+            .components()
+            .any(|c| c.as_os_str() == ".PathOfBuilding")
+            && !i.assets.join("Launch.lua").exists()
+            && i.dump.starts_with(&i.assets),
+        "the inputs are the bundle, not a PoB checkout: {i:?}"
+    );
+    i
 }
 
 #[test]
@@ -40,7 +42,7 @@ fn boot_open_click_and_guards() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let t_main = Instant::now();
-    let Some(inputs) = inputs() else { return };
+    let inputs = inputs();
     let data_ms = driver::init_process(&inputs).expect("init");
     let user = paths::crate_dir().join("fixtures/user");
     let text = format!(
@@ -111,7 +113,7 @@ fn run_committed(names: &[&str]) {
     let _one = ONE_APP
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(inputs) = inputs() else { return };
+    let inputs = inputs();
     let data_ms = driver::init_process(&inputs).expect("init");
     let dir = paths::scenario_dir();
     for name in names {

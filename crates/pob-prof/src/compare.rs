@@ -62,7 +62,9 @@ impl Default for CompareOptions {
         CompareOptions {
             threshold_pct: 10.0,
             // RSS peaks move by up to ~16 % between runs of the same build (A/A test,
-            // docs/perf/PROFILING.md "Noise"); the heap peak is deterministic
+            // docs/perf/PROFILING.md "Noise"). The heap peak repeats exactly in a quiet run, but it
+            // is the main thread's net live bytes (alloc.rs), an approximation: it keeps the
+            // default threshold
             field_threshold: [("rss_peak_mb", 20.0), ("peak_rss_mb", 20.0)]
                 .into_iter()
                 .map(|(k, v)| (k.to_owned(), v))

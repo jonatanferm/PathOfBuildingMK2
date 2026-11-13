@@ -31,12 +31,13 @@ use anyhow::{anyhow, Result};
 use pob_app::app::CxApp;
 use pob_app::build::on_frame as of;
 use pob_app::PobApp;
+use pob_host::fs_native::BundleAssets;
 use pob_host::headless::{load_net_fixtures, Headless, HeadlessFs, HeadlessState, ScriptedNet};
 use pob_host::input::{DoubleClick, Input};
 use pob_host::script::{expand_step, is_mouse_button, Action, Step};
 use pob_host::{deliver, guarded, run_frame, App, PlatformParts};
 use pob_sg::trace::{ApiCall, SideEffect, TraceRecorder};
-use pob_sg::{AssetSource, FontSet, ImageRegistry, Key, Platform, ScreenInfo, Sg, Sys};
+use pob_sg::{FontSet, ImageRegistry, Key, Platform, ScreenInfo, Sg, Sys};
 use serde::Serialize;
 
 use crate::alloc::{self, AllocSnap};
@@ -50,21 +51,6 @@ use crate::stats;
 pub const FRAME_MS: i64 = pob_host::headless::FRAME_MS;
 
 // ---- services ------------------------------------------------------------------------------
-
-/// Reads `src/` and the SimpleGraphic runtime directory from disk.
-pub struct DirAssets {
-    pub src: PathBuf,
-    pub runtime: PathBuf,
-}
-
-impl AssetSource for DirAssets {
-    fn read_src(&self, path: &str) -> std::io::Result<Vec<u8>> {
-        std::fs::read(self.src.join(path))
-    }
-    fn read_runtime(&self, path: &str) -> std::io::Result<Vec<u8>> {
-        std::fs::read(self.runtime.join(path))
-    }
-}
 
 /// pob-host's `HeadlessPlatform` with a switchable clock (module docs).
 pub struct ProfPlatform {
@@ -119,30 +105,30 @@ impl Platform for ProfPlatform {
 }
 
 /// `Sg` (fonts, the synchronous headless image loader) and `Sys` (the services above) over
-/// `inputs`' assets. Returns the shared headless state too.
+/// `inputs`' asset bundle, as `pob-desktop` sets them up (`pob_desktop::host_config`: the bundle is
+/// `GetScriptPath()` and SimpleGraphic's runtime directory, `GetRuntimePath()` its parent).
+/// Returns the shared headless state too.
 pub fn platform_parts(
     inputs: &Inputs,
     real_clock: Rc<Cell<bool>>,
 ) -> Result<(PlatformParts, Headless)> {
-    let assets = DirAssets {
-        src: inputs.src.clone(),
-        runtime: inputs.runtime.clone(),
-    };
+    let assets = BundleAssets(inputs.bundle.clone());
     let mut images = ImageRegistry::new(Box::new(pob_host::loader_headless::HeadlessLoader::new(
-        Box::new(DirAssets {
-            src: inputs.src.clone(),
-            runtime: inputs.runtime.clone(),
-        }),
+        Box::new(BundleAssets(inputs.bundle.clone())),
     )));
-    let fonts = FontSet::load(&assets, &mut images)
-        .map_err(|e| anyhow!("loading fonts under {}: {e}", inputs.runtime.display()))?;
+    let fonts = FontSet::load(&assets, &mut images).map_err(|e| {
+        anyhow!(
+            "loading fonts from the asset bundle {}: {e}",
+            inputs.assets.display()
+        )
+    })?;
     let sg = Sg::new(Rc::new(fonts), images);
     let runtime_base = inputs
-        .runtime
+        .assets
         .parent()
-        .map_or_else(|| inputs.runtime.clone(), Path::to_path_buf);
+        .map_or_else(|| inputs.assets.clone(), Path::to_path_buf);
     let h = HeadlessState::new(
-        &inputs.src.to_string_lossy(),
+        &inputs.assets.to_string_lossy(),
         &runtime_base.to_string_lossy(),
     );
     let platform = ProfPlatform {
@@ -563,13 +549,20 @@ impl Driver {
         f(c)
     }
 
-    /// Run `f` untimed (guards, snapshots): its time and allocations leave the step.
+    /// Run `f` untimed (guards, snapshots): its wall and CPU time, its allocations, its heap peak
+    /// and the calc work it causes (an `expect-text` frame's recalcs and misc calls) leave the
+    /// step. The step's calc counters stay readable inside `f` (the guards read them); the full
+    /// recalc log is set aside meanwhile. Only the RSS high-water mark (VmHWM) cannot be put back.
     fn untimed<R>(&mut self, f: impl FnOnce(&mut Driver) -> R) -> R {
         let t0 = Instant::now();
         let c0 = thread_cpu_s();
+        let calc0 = calc_timing::counters();
+        let log0 = calc_timing::take_full_log();
         let a0 = alloc::snapshot();
         let r = f(self);
         let a = alloc::snapshot().since(&a0);
+        alloc::restore_peak(a0.peak);
+        calc_timing::restore(calc0, log0);
         let d = t0.elapsed().as_nanos() as u64;
         let dc = thread_cpu_s() - c0;
         if let Some(c) = self.cur.as_mut() {
@@ -925,6 +918,11 @@ impl Driver {
                 }
                 None => return Err(anyhow!("wait-power: no build open")),
             };
+            // A "done" after the first frame is not trusted: it can be the state before the
+            // report started (a recalc or heat-map toggle whose `powerBuildFlag` the next tree
+            // draw consumes, CalcsTab.lua:475-479, PassiveTreeView.lua:783-786). So `wait-power`
+            // always runs at least two frames; a report that was already finished costs one
+            // extra frame. (The committed reports run for dozens of frames: no effect on them.)
             if done && i > 0 {
                 let g = self.cur.as_ref().map_or(0, |c| c.guard_ns) - g0;
                 let d = (t0.elapsed().as_nanos() as u64).saturating_sub(g) as f64 / 1e6;
@@ -1034,12 +1032,11 @@ pub fn init_process(inputs: &Inputs) -> Result<f64> {
     pob_gamedata::init_from_dir(&inputs.dump)
         .map_err(|e| anyhow!("{}: {e}", inputs.dump.join("data.bin").display()))?;
     let data_ms = ms(t0);
-    pob_gamedata::timeless_lut::set_jewel_fs(std::sync::Arc::new(
-        pob_gamedata::timeless_lut::StdJewelFs {
-            script_path: inputs.src.to_string_lossy().into_owned(),
-            writable: false,
-        },
-    ));
+    // the timeless jewel files from the bundle, with the desktop app's decompressed-table cache
+    pob_gamedata::timeless_lut::set_jewel_fs(std::sync::Arc::new(pob_desktop::BundleJewelFs::new(
+        inputs.bundle.clone(),
+        pob_desktop::lut_cache_dir(&inputs.bundle),
+    )));
     pob_gamedata::timeless_lut::set_con_printf(|_| {});
     // Lua errors are caught (`guarded`) and reported by the run; do not print them twice.
     let prev = std::panic::take_hook();

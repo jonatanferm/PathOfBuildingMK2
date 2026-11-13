@@ -13,18 +13,23 @@ frames 3
 wait-idle
 expect-tab CONFIG
 step hover_options
+# each hover must compute its tooltip (cumulative misc calculator calls)
 # Power Charges, Onslaught, Arcane Surge, enemy Shocked, enemy Blinded
 move 573 332
 frames 2
+expect-misc 1
 move 573 442
 frames 2
+expect-misc 2
 move 573 464
 frames 2
+expect-misc 3
 move 1313 262
 frames 2
+expect-misc 4
 move 1313 130
 frames 2
-expect-misc
+expect-misc 5
 expect-no-recalc
 step toggle_onslaught
 move 573 442

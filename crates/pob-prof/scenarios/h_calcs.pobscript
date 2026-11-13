@@ -13,19 +13,26 @@ frames 3
 wait-idle
 expect-tab CALCS
 step hover_cells
-# Life total, Armour total, Strength, Fire Resist, Uses per second, Hit taken (physical)
+# Life total, Armour total, Strength, Fire Resist, Mana Cost, Hit taken (physical); each popup
+# must show (a hover that lands on a cell without a breakdown, or on nothing, fails here)
 move 1210 322
 frames 2
+expect-text "(increased/reduced)"
 move 1450 286
 frames 2
+expect-text "Inc/red"
 move 1210 92
 frames 2
+expect-text "Source Name"
 move 1430 92
 frames 2
-move 480 269
+expect-text "Fire Resist Max"
+move 720 269
 frames 2
+expect-text "(base mana cost)"
 move 600 592
 frames 2
+expect-text "Final Physical Damage taken:"
 expect-no-recalc
 step pin_breakdown
 move 1210 322

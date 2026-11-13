@@ -58,6 +58,13 @@ pub fn take_full_log() -> Vec<u64> {
     FULL_LOG.with(|l| std::mem::take(&mut *l.borrow_mut()))
 }
 
+/// Put back counters and a full-recalc log taken earlier ([`counters`], [`take_full_log`]): the
+/// calc work in between leaves the books (the driver's untimed guards and snapshots).
+pub fn restore(c: CalcCounters, log: Vec<u64>) {
+    COUNTERS.with(|v| v.set(c));
+    FULL_LOG.with(|l| *l.borrow_mut() = log);
+}
+
 fn add(f: impl FnOnce(&mut CalcCounters)) {
     COUNTERS.with(|c| {
         let mut v = c.get();

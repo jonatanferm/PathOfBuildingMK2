@@ -38,6 +38,8 @@ click LEFTBUTTON
 frames 1
 type "Profiling note: level changed, saved twice."
 frames 2
+# the note is in the edit box (a missed click or lost typing fails here)
+expect-text "Profiling note: level changed"
 step save_button
 move 96 14
 click LEFTBUTTON

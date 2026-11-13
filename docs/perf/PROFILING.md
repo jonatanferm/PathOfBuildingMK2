@@ -7,9 +7,11 @@ their dispersion, written as JSON, and compared against a committed baseline. Us
 on performance and to guard the idiomatic refactor against regressions.
 
 It depends on no PoB code, no LuaJIT and no oracle crate (`cargo tree -p pob-prof | grep -c
-"pob-oracle\|pob-ui-oracle\|mlua"` is 0): only on the product crates (pob-app, pob-host, pob-sg,
-pob-sg-wgpu, pob-calc, pob-gamedata, pob-lua) and on the files the product itself reads. Its tests
-add the dev-dependency `pob-testpaths` (dependency-free; it only locates the test inputs).
+"pob-oracle\|pob-ui-oracle\|mlua\|pob-testpaths"` is 0): only on the product crates (pob-app,
+pob-host, pob-sg, pob-sg-wgpu, pob-calc, pob-gamedata, pob-lua, and pob-desktop's start-up library)
+and on the files the product itself reads, from the in-repo asset bundle (`assets/`). It reads no
+PoB checkout and no `data/` directory (see "Inputs"); pob-desktop's `tests/no_pob_checkout.rs`
+scan covers this crate too.
 
 Code: `crates/pob-prof` (library + the `pob-prof` binary), `scripts/perf/prof.sh`,
 `scripts/perf/flamegraph.sh`. Scenarios: `crates/pob-prof/scenarios/*.pobscript`. Fixture user
@@ -39,23 +41,26 @@ holding every child's stderr.
 
 ## Inputs
 
-The app needs the compiled game data (`data.bin`, `trees/`) and its image and font assets. All of
-it is resolved in one place, `crates/pob-prof/src/paths.rs`:
+The app reads what the desktop app reads (VENDOR): the asset bundle `assets/` (`pob_host::bundle`:
+the script and SimpleGraphic runtime files through its `index.json`, the timeless jewel files
+through `pob_desktop::BundleJewelFs`) and the compiled game data in `assets/gamedata` (`data.bin`,
+`trees/`). It is resolved in one place, `crates/pob-prof/src/paths.rs`:
 
-- **Assets**: `--assets DIR`, else `POB_PROF_ASSETS`, else `POB_ASSETS` (the override the VENDOR
-  unit adds), else `POB_ROOT`, else the first `.PathOfBuilding/src` in a search root: the
-  ancestors of the working directory, of the executable and of the crate's source directory, then
-  the main checkout of the linked git worktree any of them is in (its `.git` file names it; the
-  order `pob-testpaths` uses). So a worktree outside the main checkout (`/tmp/...`, where
-  refactor agents run `prof.sh`) finds the gitignored inputs without any environment. A directory with a `src/` subdirectory is read as PoB-shaped (`src/` +
-  `runtime/SimpleGraphic/`); any other directory is used directly as the image root, with the fonts
-  in its `runtime/SimpleGraphic`, `runtime` or itself (whichever holds `Fonts/`). When VENDOR's
-  bundle lands with another layout, only `paths::locate` changes.
-- **Game data**: `--data DIR`, else `POB_DUMP_DIR`, else `data.bin` in the assets directory, else the
-  first `data/dump/data.bin` in a search root (as above).
-- **Tests** (`cargo.sh test -p pob-prof`) find the PoB checkout and `data/dump` through the
-  dev-dependency `pob-testpaths` and pass them to `paths::locate` explicitly: a missing input fails
-  the test unless `POB_ALLOW_SKIP=1` (CCR-0031 B).
+- **Asset bundle** (a directory holding `index.json`): `--assets DIR`, else `POB_PROF_ASSETS`, else
+  `pob_desktop::locate_assets()`, the desktop app's own search: `POB_ASSETS` (the same meaning as
+  for `pob-desktop`: a bundle directory), then `assets/` next to the executable, then this
+  repository's `assets/` (compile-time; in a worktree, the worktree's own committed copy). A
+  directory without `index.json` is refused. As in `pob_desktop::host_config`, the bundle is
+  `GetScriptPath()` and SimpleGraphic's runtime directory (`GetRuntimePath()` its parent), and
+  pob-host's `HeadlessFs` resolves the app's script-relative reads through the index.
+- **Game data**: `--data DIR` (a directory with `data.bin`), else `<bundle>/gamedata`.
+- **Timeless jewel tables**: inflated once and cached where the desktop app caches them
+  (`pob_desktop::lut_cache_dir`, `~/.cache/pob-rust-port/timeless/<snapshot>`); the warm-up
+  repetition of a fresh machine pays for the inflation.
+- **Tests** (`cargo.sh test -p pob-prof`) use the same search with no overrides (the repository's
+  bundle) and check that the inputs are the bundle, not a PoB checkout. Checked with the PoB
+  checkout and `data/` hidden: `bwrap --dev-bind / / --tmpfs <main>/.PathOfBuilding --tmpfs
+  <main>/data cargo.sh test -p pob-prof` passes (PROF1 fix round 2).
 - **User directory**: the scenario's `fixture userdir=../fixtures/user`: `Settings.xml` (opens in
   the build list) and 7 builds of the parity corpus, copied in (committed):
 
@@ -96,28 +101,55 @@ gated.
 
 **Guards.** Every step driven by a click or a key carries a guard that fails the run when the
 input misses: a recalc that must run, a tooltip that must compute stat differences, a tab or mode
-that must be open, a file that must be written, a power report that must finish, or a string that
-must (or must not) be drawn (`expect-text`, for effects that are only visible: the Compare
-sub-views, the pinned Calcs breakdown, the selected socket group, the generated and the pasted
-build code, the power report list, the tree search text). Each of these guards was checked by
-dropping the step's click or key from a copy of the scenario: the run then fails in that step.
+that must be open, a file that must be written, a power report that must finish, a build
+snapshot that must change, or a string that must (or must not) be drawn (`expect-text`, for
+effects that are only visible: the Compare sub-views, the pinned Calcs breakdown, the selected
+socket group, the generated and the pasted build code, the power report list, the tree search
+text, the typed note). Each of these guards was checked by dropping the step's click or key from
+a copy of the scenario: the run then fails in that step.
 
-Steps whose input is only cursor movement, the wheel or idle frames have no guard that can see a
-miss; they carry `expect-no-recalc` / `expect-mode` (or `wait-idle`, which fails when the
-background work does not end), which catch an unexpected recalc or a lost screen but not a wheel
-or a hover that lands on nothing. **A miss there goes undetected**, and the step then measures
-cheaper frames (`compare` reports it as `better`):
+Most hovers, wheels and drags are guarded too (PROF1 fix round 2; each checked the same way, by
+dropping one move, wheel or button press):
 
-| scenario | steps whose miss is not detected | what they do |
+- `d_tree_navigate.hover_nodes`, `e_items.hover_slots`, `g_config.hover_options`: an `expect-misc
+  N` after **each** hover, with the cumulative count of misc calculator calls (each tooltip
+  computes its stat differences), so every single hover must land.
+- `h_calcs.hover_cells`: an `expect-text` of the breakdown popup after each of the six hovers
+  (the fifth hover now points at Mana Cost: the "Uses per second" cell it hovered before has no
+  breakdown, CalcSections.lua:601, so that hover showed nothing and could not be told from a
+  miss).
+- `d_tree_navigate.zoom_in`, `zoom_out`, `drag`: the tree view's zoom and pan are part of the
+  saved build (`PassiveTreeView:Save`: `zoomLevel`, `zoomX`, `zoomY`), so a `snapshot` after
+  each wheel and after the drag must differ from the one before (`expect-differs`); the last
+  zoom-out wheel is clamped at the outermost zoom and is checked to change nothing
+  (`expect-same`).
+- `d_tree_navigate.sweep`: `expect-misc 8`, the tooltips of the nodes it crosses. This one is
+  an aggregate over 20 moves: a single move that lands elsewhere can still pass.
+- `l_save.notes`: `expect-text "Profiling note: level changed"` after the typing (a missed click
+  into the edit box or lost typing fails).
+
+The steps below remain **unguarded**: their input is idle frames, a hover with no visible or
+counted effect, or a wheel whose effect no guard can see (`expect-text` finds a string anywhere
+in the frame's drawn strings, also when it is scrolled out of view, and a scroll position is not
+saved in the build). They carry only `expect-no-recalc` / `expect-mode` (or `wait-idle`, which
+fails when the background work does not end), which catch an unexpected recalc or a lost screen
+but not a wheel or a hover that lands on nothing. **A miss there goes undetected**, and the step
+then measures cheaper frames (`compare` reports it as `better`):
+
+| scenario | unguarded step | what it does, and why no guard sees a miss |
 |---|---|---|
-| `a_startup` | background_load, list_hover, list_idle | `wait-idle`; hover list rows; idle |
-| `d_tree_navigate` | zoom_in, sweep, zoom_out, zoomed_out_idle | wheel and cursor sweeps over the tree; idle |
-| `h_calcs` | scroll | wheel over the sections |
-| `j_compare` | summary (the wheel part; the summary view itself is guarded) | wheel over the summary |
+| `a_startup` | background_load | idle frames until the item database loader is done (`wait-idle`) |
+| `a_startup` | list_hover | hovers build list rows: only a row highlight, no string or count changes |
+| `a_startup` | list_idle | idle frames on the build list |
+| `b_open_build` | idle_tree | idle frames on the tree |
+| `d_tree_navigate` | idle | idle frames on the tree (one move to the centre first) |
+| `d_tree_navigate` | sweep | partly guarded (above): one missed move of the 20 can pass |
+| `d_tree_navigate` | zoomed_out_idle | idle frames on the zoomed-out tree |
+| `g_config` | scroll | wheel over the empty right side; at 1920x1080 the Config tab does not scroll there (`inspect --texts`: identical strings and positions before and after the wheel), so the step measures Config frames with wheel input whether the wheel lands or not |
+| `h_calcs` | scroll | wheel over the sections; the Calcs tab scrolls, but its off-screen strings are still drawn, so no text guard sees the scroll position |
+| `j_compare` | summary (the wheel part; the summary view itself is guarded) | wheel over the summary, as `h_calcs.scroll` |
 
-`d_tree_navigate`'s `hover_nodes`, `e_items`' `hover_slots` and `g_config`'s `hover_options` are
-hovers, but guarded: their tooltips must compute stat differences (`expect-misc`). A `better` on
-one of the unguarded steps above deserves a look at `inspect --png` before it is believed.
+A `better` on one of these steps deserves a look at `inspect --png` before it is believed.
 
 ## What is measured
 
@@ -134,7 +166,7 @@ Per step (`crates/pob-prof/src/driver.rs` `StepResult`; times in ms, memory in M
 | `recalcs`, `recalc_ms`, `recalc_max_ms` | full recalcs (`calcsTab:BuildOutput`) seen through the timing `CalcFacade` (`calc_timing.rs`) |
 | `misc_gets`, `misc_calls`, `misc_ms` | `GetMiscCalculator` and the misc calculator's calls (tooltip stat differences, gem and config previews) |
 | `allocs`, `alloc_mb` | allocations (and reallocations) and bytes requested on the main thread (counting allocator, `alloc.rs`) |
-| `heap_peak_mb` | peak live heap of the main thread during the step |
+| `heap_peak_mb` | peak live heap of the main thread during the step: an approximation, the main thread's net live bytes (allocated minus freed on that thread, `alloc.rs` keeps the counters per thread), so memory the main thread allocates and another thread frees (or the reverse) drifts it; the headless app does nearly all its work on the main thread |
 | `rss_peak_mb` | peak RSS during the step (VmHWM, reset at the step start through `/proc/self/clear_refs`) |
 | `build_load_ms` | a build opened in the step: step start to the end of the first frame that shows it with its first recalc done |
 | `power_ms` | `wait-power`: until the power report finished |
@@ -189,7 +221,9 @@ and a verdict: `REGRESSED` (a gated metric worse by more than its threshold with
 Gated by default: the steps' `wall_ms`, `cpu_ms`, `frame_p95_ms`, `recalc_ms`, `build_load_ms`,
 `power_ms`, `allocs`, `heap_peak_mb`, `rss_peak_mb`, and `startup.to_first_screen_ms`,
 `total.wall_ms`, `total.cpu_ms`, `total.peak_rss_mb`; `_setup` steps never. Options:
-`--threshold PCT` (default 10; the RSS fields default to 20, see Noise),
+`--threshold PCT` (default 10; the RSS fields `rss_peak_mb` and `total.peak_rss_mb` keep their
+default of 20, see Noise: `--threshold` does not change them, only `--field-threshold
+rss_peak_mb=PCT` / `peak_rss_mb=PCT` does),
 `--field-threshold allocs=2` (repeatable), `--alpha 0.05`, `--gate wall_ms,allocs` (replace the gated fields), `--all` (print
 every metric), `--scenarios a,b`. NEW is `INCOMPLETE` when a compared scenario has failed
 repetitions in NEW, when a gated metric of BASE is absent from NEW (a step that no longer runs, a
@@ -233,9 +267,12 @@ the calc stages and app areas) and writes `DIR/flame.svg` when `inferno-flamegra
 install inferno`) or `flamegraph.pl` is on PATH; otherwise feed `DIR/folded.txt` to any
 flamegraph tool or to speedscope. Needs `perf_event_paranoid <= 2`.
 
-**Heap profile**: `scripts/port/cargo.sh build --profile prof -p pob-prof --features dhat-heap`,
-then `target/prof/pob-prof exec <scenario>` writes `dhat-heap.json` (view it with dhat's
-`dh_view.html`). The dhat build replaces the counting allocator (its `allocs` read 0).
+**Heap profile**: `POB_PROF_FEATURES=dhat-heap scripts/perf/prof.sh exec <scenario> > /dev/null`
+builds `pob-prof` with the `dhat-heap` feature (through cargo.sh with `POB_PORT_JOBS=1`, into the
+usual target path, so `/tmp` worktrees work too), runs one repetition in the measuring scope and
+writes `dhat-heap.json` in the repository root (view it with dhat's `dh_view.html`). The dhat build
+replaces the counting allocator (its `allocs` read 0) and overwrites the measuring binary: the next
+plain `prof.sh` call rebuilds it.
 
 **One run, in-process**: `pob-prof inspect <scenario> [--until STEP] [--png FILE] [--texts]
 [--render MODE]` prints the step table; `--png` keeps every texture and writes the last frame
@@ -257,7 +294,8 @@ its position (how coordinates for new scenario steps are found); `--until` stops
    `expect-differs A B`, `expect-same A B`, `expect-calc-func`, `expect-text "S"`,
    `expect-no-text "S"`. `expect-text` draws one extra frame with a trace recorder and looks for S
    in its drawn strings (escapes stripped; a substring match); that frame is not one of the step's
-   frames and its time and allocations leave the step, but the app does run it.
+   frames and its time, allocations, heap peak and calc work leave the step (not its RSS high-water
+   mark), but the app does run it.
 2. Open the build in the set-up and end the set-up with `wait-idle`, so the measured steps do not
    include the background loading that follows every build open (measure that on purpose, as
    `b_open_build` does).
@@ -303,7 +341,7 @@ geometric mean of the step ratios is 1.0058 (wall) and 1.0060 (cpu). So:
   consistent shifts smaller than the threshold (3 of 732 metrics were `better` at p < 0.05 in the
   A/A test: expect a few such false hints, which is why only `> threshold` and `p < alpha` fails).
 - `wall_ms` and `cpu_ms` agree within ~0.5 % here (pinned, 6 cores for one busy thread); under
-  heavier load `cpu_ms` is the one to trust. Allocation counts and heap peaks are exact and are
+  heavier load `cpu_ms` is the one to trust. Allocation counts and (main-thread) heap peaks repeat exactly and are
   the cheapest signal of a change.
 - RSS peaks are bimodal between processes; their gate is 20 % (`field_threshold`), the others
   10 %.
@@ -492,6 +530,15 @@ Recurring themes, in rough order of payoff:
 - Allocations are counted on the main thread only; the wgpu backend's threads are not.
 - The governor cannot be pinned without root (see Noise); results record it.
 - Coordinates in the scenarios are for 1920x1080 at dpi 1 and the current layout. A UI change that
-  moves a clicked control fails the step's guard, and the scenario needs new coordinates (see
-  "Adding a scenario"). A change that moves what a hover, wheel or idle step points at is not
-  detected for the steps listed under "Guards": they then measure cheaper frames.
+  moves a clicked control, a hovered tooltip target, a Calcs cell or the tree view fails the
+  step's guard, and the scenario needs new coordinates (see "Adding a scenario"). A change that
+  moves what one of the unguarded steps points at is not detected: `a_startup` background_load,
+  list_hover and list_idle; `b_open_build` idle_tree; `d_tree_navigate` idle, sweep (partly
+  guarded) and zoomed_out_idle; `g_config` scroll; `h_calcs` scroll; the wheel part of
+  `j_compare` summary (the table under "Guards" says why). They then measure cheaper frames.
+- Guards and snapshots are untimed (`driver.rs` `untimed`): their wall and CPU time, allocations,
+  heap peak and calc work (an `expect-text` frame's recalcs and misc calls) leave the step. Only
+  the RSS high-water mark cannot be put back: a guard frame that raises VmHWM raises the step's
+  `rss_peak_mb`.
+- `heap_peak_mb` is the main thread's net live bytes (see "What is measured"), an approximation
+  of the process heap: memory freed on another thread than the one that allocated it drifts it.

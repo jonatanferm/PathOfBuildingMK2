@@ -16,6 +16,9 @@ dhat-heap = ["dep:dhat"]
 [dependencies]
 pob-app.workspace = true
 pob-host.workspace = true
+# The desktop app's start-up (VENDOR): where the asset bundle is, its game data directory and
+# its timeless jewel files (`BundleJewelFs`), so the suite reads exactly what the desktop reads.
+pob-desktop = { path = "../../app/pob-desktop" }
 # `raster`: the CPU reference rasteriser (render mode `cpu`, `inspect --png`).
 pob-sg = { workspace = true, features = ["raster"] }
 pob-sg-wgpu.workspace = true
@@ -31,11 +34,6 @@ wgpu = { version = "=30.0.1", features = ["webgl"] }
 # Process CPU time (CLOCK_PROCESS_CPUTIME_ID), as pob-calc's INT-2 bench.
 rustix = { version = "1", features = ["time"] }
 dhat = { version = "0.3", optional = true }
-
-[dev-dependencies]
-# The smoke test finds the PoB checkout (assets) and data/dump through it (CCR-0031 B: a missing
-# input fails unless POB_ALLOW_SKIP=1). Dev-only: the suite itself never links it.
-pob-testpaths.workspace = true
 
 [[bin]]
 name = "pob-prof"

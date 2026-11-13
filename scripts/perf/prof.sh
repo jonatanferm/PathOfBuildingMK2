@@ -3,7 +3,8 @@
 #
 # Usage: scripts/perf/prof.sh <pob-prof command> [args...]
 #   scripts/perf/prof.sh run [--scenarios a,b] [--reps 5] [--warmup 1] [--render none|cpu|wgpu] [--out F]
-#   scripts/perf/prof.sh compare BASE.json NEW.json [--threshold 10]
+#   scripts/perf/prof.sh compare BASE.json NEW.json [--threshold 10]   # the RSS peaks keep 20 unless
+#                                                  # --field-threshold rss_peak_mb=PCT
 #   scripts/perf/prof.sh bless NEW.json            # make NEW the committed baseline
 #   scripts/perf/prof.sh check [run args...]       # run, then compare against the baseline
 #   scripts/perf/prof.sh inspect|exec|stages|list|show|hotspots ...
@@ -18,7 +19,8 @@
 #     with the highest max frequency, the Firestorm cores 2-7 on this M1 Pro; "none" = no pinning).
 # The CPU frequency governor cannot be pinned without root: the run records it, and
 # docs/perf/PROFILING.md "Noise" says how to set it when you have root.
-# POB_PROF_NO_BUILD=1 skips the build.
+# POB_PROF_NO_BUILD=1 skips the build. POB_PROF_FEATURES=dhat-heap builds the heap-profiling binary
+# (into the same target path: build again without it before measuring).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
@@ -27,7 +29,9 @@ cmd="$1"; shift
 baseline="$root/crates/pob-prof/baseline/baseline.json"
 
 if [ "${POB_PROF_NO_BUILD:-0}" != 1 ]; then
-    POB_PORT_JOBS="${POB_PORT_JOBS:-1}" scripts/port/cargo.sh build -q --profile prof -p pob-prof >&2
+    feat=()
+    [ -n "${POB_PROF_FEATURES:-}" ] && feat=(--features "$POB_PROF_FEATURES")
+    POB_PORT_JOBS="${POB_PORT_JOBS:-1}" scripts/port/cargo.sh build -q --profile prof -p pob-prof "${feat[@]}" >&2
 fi
 # cargo.sh builds /tmp and /dev/shm worktrees into ~/.cache/pob-port-targets/<name>/
 bin="$root/target/prof/pob-prof"

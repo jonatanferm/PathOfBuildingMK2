@@ -1,97 +1,40 @@
 //! Where the suite finds its inputs. Owner: PROF1.
 //!
-//! The app needs three things at run time: the compiled game data (`data.bin` and `trees/`), the
-//! image and font assets (today PoB's `src/` and `runtime/SimpleGraphic/`), and a user directory
-//! (the suite's own fixture, `crates/pob-prof/fixtures/user`). The asset location is moving (the
-//! VENDOR unit bundles the assets in the repository and adds a `POB_ASSETS` override), so every
-//! location is configurable and resolved in one place, [`locate`]:
+//! The app reads everything from the asset bundle (VENDOR, `assets/`, `pob_host::bundle`), as the
+//! desktop app does: the script and SimpleGraphic runtime files through the bundle's
+//! `index.json`, the timeless jewel files through `pob_desktop::BundleJewelFs`, and the compiled
+//! game data (`data.bin`, `trees/`) from `<bundle>/gamedata`. The user directory is the suite's
+//! own fixture (`crates/pob-prof/fixtures/user`). Every location is resolved here, in [`locate`]:
 //!
-//! **Assets** (first match wins):
-//! 1. `--assets DIR` (or `POB_PROF_ASSETS`, then `POB_ASSETS`): `DIR/src` + `DIR/runtime/SimpleGraphic`
-//!    when `DIR/src` exists (a PoB-shaped tree), otherwise `DIR` itself holds the image paths the
-//!    app asks for and the fonts are in the first of `DIR/runtime/SimpleGraphic`, `DIR/runtime`,
-//!    `DIR/fonts/..`, `DIR`;
-//! 2. `POB_ROOT`: `$POB_ROOT/src` + `$POB_ROOT/runtime/SimpleGraphic`;
-//! 3. the first `.PathOfBuilding/src` in a search root: the ancestors of the working directory, of
-//!    the executable and of this crate's source directory, then the main checkout of the linked
-//!    git worktree any of them is in (its `.git` file names it), the order `pob-testpaths` uses. A
-//!    worktree outside the main checkout (`/tmp/…`) finds the gitignored inputs this way.
+//! **Asset bundle** (first match wins; a directory holding `index.json`):
+//! 1. `--assets DIR`, else `POB_PROF_ASSETS`;
+//! 2. `pob_desktop::locate_assets()`, the desktop app's own search: `POB_ASSETS` (the same
+//!    meaning as for the desktop: a bundle directory), `assets/` next to the executable, then this
+//!    repository's `assets/` (compile-time).
 //!
-//! **Game data**: `--data DIR`, else `POB_DUMP_DIR`, else `<assets>/data.bin`'s directory, else the
-//! first `data/dump/data.bin` in a search root (as above).
+//! **Game data**: `--data DIR` (a directory with `data.bin`), else `<bundle>/gamedata`.
 //!
-//! The suite never reads PoB's Lua: only the files the product reads.
+//! Nothing reads a PoB checkout or the repository's `data/` directory, and no Lua is read but
+//! the files the product itself reads from the bundle.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use pob_host::bundle::{Bundle, INDEX_FILE};
 
 /// The resolved inputs.
 #[derive(Clone, Debug)]
 pub struct Inputs {
-    /// `GetScriptPath()`: relative image paths (`Assets/…`, `TreeData/…`) resolve here; the
-    /// timeless jewel data is read from `Data/TimelessJewelData` below it.
-    pub src: PathBuf,
-    /// SimpleGraphic's runtime directory (`Fonts/` below it).
-    pub runtime: PathBuf,
-    /// The compiled game data (`data.bin`).
+    /// The asset bundle directory: `GetScriptPath()`, and SimpleGraphic's runtime files (fonts)
+    /// through its index, as `pob_desktop::host_config` sets them.
+    pub assets: PathBuf,
+    /// The bundle's index.
+    pub bundle: Arc<Bundle>,
+    /// The compiled game data (`data.bin`, `trees/`).
     pub dump: PathBuf,
-    /// How the assets were found (reported in the results).
+    /// How the bundle was found (reported in the results).
     pub how: String,
-}
-
-/// The directories the search starts from: the working directory, the executable's directory and
-/// this crate's source directory (when it still exists).
-fn starts() -> Vec<PathBuf> {
-    let mut starts = Vec::new();
-    if let Ok(d) = std::env::current_dir() {
-        starts.push(d);
-    }
-    if let Some(d) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-    {
-        starts.push(d);
-    }
-    let built = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    if built.is_dir() {
-        starts.push(built);
-    }
-    starts
-}
-
-/// `<main>` for a linked git worktree whose `.git` file (in `start` or an ancestor) says
-/// `gitdir: <main>/.git/worktrees/<name>` (as `pob-testpaths`).
-fn linked_main_checkout(start: &Path) -> Option<PathBuf> {
-    let dot_git = start
-        .ancestors()
-        .map(|a| a.join(".git"))
-        .find(|p| p.exists())?;
-    let text = std::fs::read_to_string(&dot_git).ok()?; // a directory in the main checkout
-    let gitdir = PathBuf::from(text.strip_prefix("gitdir:")?.trim());
-    Some(gitdir.parent()?.parent()?.parent()?.to_path_buf())
-}
-
-/// The search roots, in order: every ancestor of each start, then the main checkouts of the linked
-/// worktrees the starts are in.
-pub fn search_roots() -> Vec<PathBuf> {
-    let starts = starts();
-    let mut out: Vec<PathBuf> = Vec::new();
-    for s in &starts {
-        out.extend(s.ancestors().map(Path::to_path_buf));
-    }
-    out.extend(starts.iter().filter_map(|s| linked_main_checkout(s)));
-    let mut seen = std::collections::BTreeSet::new();
-    out.retain(|p| seen.insert(p.clone()));
-    out
-}
-
-/// The first `<root>/<rel>` that exists, over [`search_roots`].
-pub fn find_up(rel: &str) -> Option<PathBuf> {
-    search_roots()
-        .into_iter()
-        .map(|r| r.join(rel))
-        .find(|p| p.exists())
 }
 
 fn env_path(k: &str) -> Option<PathBuf> {
@@ -104,74 +47,43 @@ fn canon(p: PathBuf) -> PathBuf {
     std::fs::canonicalize(&p).unwrap_or(p)
 }
 
-fn from_asset_dir(dir: &Path) -> (PathBuf, PathBuf) {
-    if dir.join("src").is_dir() {
-        return (dir.join("src"), dir.join("runtime/SimpleGraphic"));
-    }
-    let runtime = [
-        dir.join("runtime/SimpleGraphic"),
-        dir.join("runtime"),
-        dir.to_path_buf(),
-    ]
-    .into_iter()
-    .find(|d| d.join("Fonts").is_dir())
-    .unwrap_or_else(|| dir.to_path_buf());
-    (dir.to_path_buf(), runtime)
-}
-
 /// Resolve the inputs (module docs).
 pub fn locate(assets: Option<&Path>, data: Option<&Path>) -> Result<Inputs> {
-    let (src, runtime, how) = if let Some(d) = assets
-        .map(Path::to_path_buf)
-        .or_else(|| env_path("POB_PROF_ASSETS"))
-        .or_else(|| env_path("POB_ASSETS"))
-    {
-        let (s, r) = from_asset_dir(&d);
-        (s, r, format!("assets dir {}", d.display()))
-    } else if let Some(root) = env_path("POB_ROOT") {
-        (
-            root.join("src"),
-            root.join("runtime/SimpleGraphic"),
-            format!("POB_ROOT {}", root.display()),
-        )
-    } else if let Some(src) = find_up(".PathOfBuilding/src") {
-        let root = src.parent().map(Path::to_path_buf).unwrap_or_default();
-        (
-            src,
-            root.join("runtime/SimpleGraphic"),
-            format!("found {}", root.display()),
-        )
+    let (dir, how) = if let Some(d) = assets.map(Path::to_path_buf) {
+        let how = format!("--assets {}", d.display());
+        (d, how)
+    } else if let Some(d) = env_path("POB_PROF_ASSETS") {
+        let how = format!("POB_PROF_ASSETS {}", d.display());
+        (d, how)
     } else {
-        return Err(anyhow!(
-            "assets not found: pass --assets DIR or set POB_ASSETS / POB_ROOT (docs/perf/PROFILING.md \"Inputs\")"
-        ));
+        let d = pob_desktop::locate_assets()?;
+        let how = format!("pob_desktop::locate_assets {}", d.display());
+        (d, how)
     };
-    let dump = if let Some(d) = data
-        .map(Path::to_path_buf)
-        .or_else(|| env_path("POB_DUMP_DIR"))
-    {
-        d
-    } else if src.join("data.bin").is_file() {
-        src.clone()
-    } else if let Some(p) = find_up("data/dump/data.bin") {
-        p.parent().map(Path::to_path_buf).unwrap_or_default()
-    } else {
+    if !dir.join(INDEX_FILE).is_file() {
         return Err(anyhow!(
-            "game data not found: pass --data DIR or set POB_DUMP_DIR (a directory with data.bin)"
+            "{}: no asset bundle there (no {INDEX_FILE}; docs/perf/PROFILING.md \"Inputs\")",
+            dir.display()
         ));
-    };
+    }
+    let dir = canon(dir);
+    let bundle = Bundle::detect(&dir)
+        .ok_or_else(|| anyhow!("{}: unreadable asset bundle index", dir.display()))?;
+    let dump = data.map_or_else(|| pob_desktop::gamedata_dir(&dir), Path::to_path_buf);
     if !dump.join("data.bin").is_file() {
         return Err(anyhow!("{}: no data.bin", dump.display()));
     }
     Ok(Inputs {
-        src: canon(src),
-        runtime: canon(runtime),
+        assets: dir,
+        bundle,
         dump: canon(dump),
         how,
     })
 }
 
-/// This crate's directory (scenarios and fixtures), from the build or the working directory.
+/// This crate's directory (scenarios and fixtures): `POB_PROF_DIR`, else the build's
+/// (`CARGO_MANIFEST_DIR`, when it still exists), else the first `crates/pob-prof` above the
+/// working directory or the executable.
 pub fn crate_dir() -> PathBuf {
     if let Some(d) = env_path("POB_PROF_DIR") {
         return d;
@@ -180,7 +92,19 @@ pub fn crate_dir() -> PathBuf {
     if built.join("scenarios").is_dir() {
         return built;
     }
-    find_up("crates/pob-prof").unwrap_or(built)
+    let starts = [
+        std::env::current_dir().ok(),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(Path::to_path_buf)),
+    ];
+    starts
+        .iter()
+        .flatten()
+        .flat_map(|s| s.ancestors())
+        .map(|a| a.join("crates/pob-prof"))
+        .find(|p| p.join("scenarios").is_dir())
+        .unwrap_or(built)
 }
 
 /// `crates/pob-prof/scenarios`.
@@ -192,22 +116,16 @@ pub fn scenario_dir() -> PathBuf {
 mod tests {
     use super::*;
 
-    /// A linked worktree outside the main checkout reaches it through its `.git` file.
+    /// The default inputs are the repository's bundle, and a directory without an index is
+    /// refused.
     #[test]
-    fn linked_worktree_names_its_main_checkout() {
-        let d = std::env::temp_dir().join(format!("pob-prof-paths-{}", std::process::id()));
-        let sub = d.join("crates/x");
-        std::fs::create_dir_all(&sub).unwrap();
-        std::fs::write(d.join(".git"), "gitdir: /some/main/.git/worktrees/wt\n").unwrap();
-        let got = linked_main_checkout(&sub);
-        std::fs::remove_dir_all(&d).unwrap();
-        assert_eq!(got, Some(PathBuf::from("/some/main")));
-        // this crate's source directory is a search start
-        let r = search_roots();
-        assert!(
-            r.iter()
-                .any(|p| p.join("crates/pob-prof/Cargo.toml").is_file()),
-            "{r:?}"
-        );
+    fn locates_the_repository_bundle() {
+        let i = locate(None, None).expect("the repository's asset bundle");
+        assert!(i.assets.join(INDEX_FILE).is_file(), "{i:?}");
+        assert!(i.dump.ends_with("gamedata") && i.dump.join("data.bin").is_file());
+        assert!(!i.bundle.root.is_empty());
+        let e = locate(Some(Path::new(env!("CARGO_MANIFEST_DIR"))), None).unwrap_err();
+        assert!(e.to_string().contains("no asset bundle there"), "{e}");
+        assert!(scenario_dir().is_dir());
     }
 }

@@ -13,17 +13,22 @@ frames 3
 wait-idle
 expect-tab ITEMS
 step hover_slots
+# each hover must compute its tooltip (cumulative misc calculator calls)
 move 560 120
 frames 2
+expect-misc 1
 move 560 164
 frames 2
+expect-misc 2
 move 560 186
 frames 2
+expect-misc 3
 move 560 274
 frames 2
+expect-misc 4
 move 560 478
 frames 2
-expect-misc 4
+expect-misc 5
 expect-no-recalc
 step swap_helmet
 move 560 164

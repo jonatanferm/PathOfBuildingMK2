@@ -141,6 +141,13 @@ pub fn reset_peak() {
     PEAK.with(|p| p.set(l));
 }
 
+/// Put the calling thread's peak back to `peak` (a [`snapshot`]'s), or to the live size now when
+/// that is larger: a transient peak since the snapshot leaves the books.
+pub fn restore_peak(peak: u64) {
+    let l = LIVE.with(Cell::get);
+    PEAK.with(|p| p.set((peak as i64).max(l)));
+}
+
 /// Whether the counters move (false when another allocator is installed).
 pub fn active() -> bool {
     ALLOCS.with(Cell::get) > 0

@@ -11,6 +11,8 @@
 //! pob-prof bless    <results.json> [--out crates/pob-prof/baseline/baseline.json]
 //! pob-prof compare  <base.json> <new.json> [--threshold PCT] [--field-threshold FIELD=PCT]...
 //!                   [--alpha 0.05] [--all] [--scenarios a,b]
+//!                   (--threshold, default 10, is every gated field but the RSS peaks, whose
+//!                   default 20 only --field-threshold rss_peak_mb=PCT / peak_rss_mb=PCT changes)
 //! pob-prof collapse [perf-script.txt|-]                          perf script -> folded stacks
 //! pob-prof hotspots <folded.txt> [--top 5] [--filter FRAME]
 //! common: --assets DIR --data DIR (see crate::paths)
@@ -304,9 +306,8 @@ fn cmd_inspect(a: &Args, t_main: Instant) -> Result<ExitCode> {
     let sc = scenario::Scenario::load(&path)?;
     let inputs = a.inputs()?;
     eprintln!(
-        "inputs: src {} | runtime {} | data {} ({})",
-        inputs.src.display(),
-        inputs.runtime.display(),
+        "inputs: asset bundle {} | data {} ({})",
+        inputs.assets.display(),
         inputs.dump.display(),
         inputs.how
     );

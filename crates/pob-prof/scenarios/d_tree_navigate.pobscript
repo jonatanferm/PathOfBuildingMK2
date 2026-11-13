@@ -9,28 +9,42 @@ step idle
 move 1100 540
 frames 20
 expect-no-recalc
+# the tree view's zoom and pan are part of the saved build (PassiveTreeView:Save: zoomLevel,
+# zoomX, zoomY), so a snapshot after each wheel or drag shows whether it moved the view
+snapshot v0
 step zoom_in
 move 1290 250
 wheel up 1
 frames 2
+snapshot v1
+expect-differs v0 v1
 wheel up 1
 frames 2
+snapshot v2
+expect-differs v1 v2
 wheel up 1
 frames 2
+snapshot v3
+expect-differs v2 v3
 expect-no-recalc
 step hover_nodes
+# each hover must compute its tooltip (cumulative misc calculator calls)
 # Intelligence (unallocated), Pain Attunement, a jewel socket, Solipsism, Dexterity (118 dependants)
 move 1245 313
 frames 3
+expect-misc 1
 move 1340 212
 frames 3
+expect-misc 2
 move 1285 302
 frames 3
+expect-misc 3
 move 1087 540
 frames 3
+expect-misc 5
 move 1213 195
 frames 3
-expect-misc 5
+expect-misc 7
 expect-no-recalc
 step sweep
 move 450 150
@@ -73,15 +87,24 @@ move 750 900
 frames 1
 move 450 900
 frames 1
+# the nodes the sweep crosses show their tooltips (an aggregate: one missed node can pass)
+expect-misc 8
 expect-no-recalc
 step zoom_out
 move 1100 540
 wheel down 3
 frames 3
+snapshot v4
+expect-differs v3 v4
 wheel down 3
 frames 3
+snapshot v5
+expect-differs v4 v5
 wheel down 3
 frames 3
+snapshot v6
+# already zoomed all the way out: the last wheel is clamped (PassiveTreeView zoomLevel >= 0)
+expect-same v5 v6
 expect-no-recalc
 step zoomed_out_idle
 frames 10
@@ -102,6 +125,8 @@ move 880 430
 frames 1
 key-up LEFTBUTTON
 frames 2
+snapshot v7
+expect-differs v6 v7
 expect-no-recalc
 step search
 key-down CTRL
