@@ -250,14 +250,24 @@ mod web {
                     glue_url: None,
                     data_base: Some(data_base),
                 });
+                // The calc runs on the main thread by default (the same path as the desktop app).
+                // The Web Worker pre-flight (`?worker=1`) leaves the live model uncalculated for a
+                // `Pending` frame, and readers such as the main-skill dropdown then find no
+                // `displaySkillList` on a new socket group (a panic when adding a skill).
+                let use_worker = search.contains("worker=1");
                 pob_host::run_web("pob_canvas", cfg, move |parts| {
-                    pob_app::PobApp::with_calc(
-                        parts,
-                        std::rc::Rc::new(move || {
-                            Box::new(WorkerCalc::new(spawn.clone()))
-                                as Box<dyn pob_app::calc::CalcFacade>
-                        }),
-                    )
+                    if use_worker {
+                        let spawn = spawn.clone();
+                        pob_app::PobApp::with_calc(
+                            parts,
+                            std::rc::Rc::new(move || {
+                                Box::new(WorkerCalc::new(spawn.clone()))
+                                    as Box<dyn pob_app::calc::CalcFacade>
+                            }),
+                        )
+                    } else {
+                        pob_app::PobApp::new(parts)
+                    }
                 })
                 .await
             } else {
