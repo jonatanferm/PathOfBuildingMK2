@@ -127,15 +127,23 @@ pub fn find_pob_src() -> Option<PathBuf> {
 }
 
 /// The nearest `.parity` directory (build corpus and oracle dumps), found
-/// the same way as [`find_pob_src`].
+/// the same way as [`find_pob_src`]. `$POB_PARITY_DIR` wins; else, under
+/// `POB_QUICK_CORPUS=1` alone, the nearest `.parity-quick` (the 14-build quick corpus that
+/// `scripts/port/cargo.sh` points `$POB_PARITY_DIR` at in the main checkout; CK2, CCR-0147 §5),
+/// as `pob_testpaths::parity_dir` does.
 #[must_use]
 pub fn find_parity_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_PARITY_DIR").map(PathBuf::from) {
         return p.is_dir().then_some(p);
     }
+    let name = if std::env::var_os("POB_QUICK_CORPUS").is_some_and(|v| v == "1") {
+        ".parity-quick"
+    } else {
+        ".parity"
+    };
     for root in search_roots() {
         for a in root.ancestors() {
-            let c = a.join(".parity");
+            let c = a.join(name);
             if c.join("builds").is_dir() {
                 return Some(c);
             }

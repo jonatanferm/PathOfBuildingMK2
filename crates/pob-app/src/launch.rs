@@ -16,6 +16,12 @@
 //! over `Sys::net` (platform/net.rs) and completions arrive through `App::on_net` (CCR-0026 A),
 //! which is `launch:OnSubFinished` / `launch:OnSubError` here; `launch:OnSubCall` (L201-208, the
 //! sub-script's calls back into the main state) has no caller.
+//! DIVERGENCE(branding): user decision 2026-11-12. The port shows its own date-based version,
+//! [`PORT_VERSION`] (the repo-root `VERSION` file, `YYYY.MM.DD.N`, set by
+//! `scripts/port/bump_version.sh`), in the main-mode `versionLabel` and the About popup.
+//! `launch.versionNumber` stays PoB's manifest.xml number (build/archive compatibility, the error
+//! prompt), and nothing parses or compares `PORT_VERSION` (DIVERGENCE(update-deferred): no update
+//! checker, docs/port/FOLLOWUPS.md).
 
 use std::rc::Rc;
 
@@ -30,6 +36,12 @@ use crate::main_mode::folders::APP_NAME;
 use crate::main_mode;
 use crate::model::XmlChild;
 use crate::platform::net::PageResponse;
+
+/// The port's own version (DIVERGENCE(branding), user decision 2026-11-12): the repo-root `VERSION`
+/// file, `YYYY.MM.DD.N` (N: the release counter of that day, from 1), embedded at compile time so
+/// the wasm32 build needs neither git nor the file system. Display only: nothing parses it.
+pub const PORT_VERSION: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../VERSION")).trim_ascii();
 
 /// A `self.subScripts[id]` entry (`type` and `callback`).
 #[derive(Clone)]

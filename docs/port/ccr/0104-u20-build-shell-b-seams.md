@@ -1,6 +1,8 @@
 # CCR-0104: U20 build shell B seams (ShellHooks, stat-line fields, main.tree peek, T4 notes)
 
-Unit: **U20** (Build shell B: `Build.lua:771-1617`, `2222-2335`). Status: **pending** (code on
+**Status: applied (CCRDOC, 2026-11-12; code `ebf8954` Merge port/U20): §1 `ShellHooks` (ui doc §10.5), §2, §3, §5 and §7. Rejected because they were not built: §4 (the `wipeGlobalCache` re-export, and `main_tree_get`: `class_drop::main_tree` is the as-built lookup) and §6 (`dbFileName` keeps two homes, both written by `io::set_db_file_name`). The §8 nil gem/group attributes were fixed by U53 (CCR-0145 §3-§4).**
+
+Unit: **U20** (Build shell B: `Build.lua:771-1617`, `2222-2335`). Filed status: **pending** (code on
 `port/U20` follows it). First filed as 0101; calc:PWR's `0101-pwr-power-seams.md` merged first
 (74fb78a), so this file was renumbered to 0104 (reserved with `scripts/port/next_ccr.sh`).
 

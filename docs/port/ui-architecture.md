@@ -32,7 +32,7 @@ The calc port (ModParser, CalcSetup/Perform/Offence/Defence, the model classes) 
 
 | # | Decision | Rationale |
 |---|---|---|
-| D1 | **winit 0.30.13 + wgpu directly**, with no egui/eframe. U0 pins the newest wgpu stable exactly (`=x.y.z`, ≥ 27) in the new crates only; the workspace's `wgpu 22` stays for the legacy app. Target WebGL2 first; WebGPU is optional. | eframe 0.29 pins wgpu 22, whose WebGPU path is broken. egui would also own fonts, input and focus, and all three must be PoB's own. |
+| D1 | **winit 0.30.13 + wgpu directly**, with no egui/eframe. U0 pins the newest wgpu stable exactly (`=x.y.z`, ≥ 27) in the new crates only; the workspace's `wgpu 22` stays for the legacy app (*removed with the legacy app, U53/INT-4*). Target WebGL2 first; WebGPU is optional. | eframe 0.29 pins wgpu 22, whose WebGPU path is broken. egui would also own fonts, input and focus, and all three must be PoB's own. |
 | D2 | **`pob-sg` reproduces SimpleGraphic's internal model 1:1.** Each `(layer, subLayer)` gets a persistent queue of `VIEWPORT/BIND/COLOR/QUAD` commands. Queues are sorted by `(layer, subLayer)` at end of frame. Every draw is BIND+COLOR+QUAD. DrawString writes escape colours into the persistent draw colour. DPI uses exactly SG's formulas. Fonts are a line-by-line port of `r_font.cpp`. | Every UI-visible renderer behaviour is copied from SG source (§2), not guessed. A pure, GPU-free crate builds fast, runs headless and compiles to wasm. |
 | D3 | **One context, `Cx`, is passed `&mut` everywhere.** Controls live in a slotmap arena inside `Cx`. Widget behaviour is a set of *associated functions* `fn draw(cx: &mut Cx, me: CtrlId, ..)`, so `self` is an id (Lua's `self` is a reference, not a borrow). Widget state is read in short `cx.w::<W>(me)` scopes. | The borrow checker enforces at compile time what the "literal" design left to runtime `RefCell` panics. Handlers run synchronously at the same point as in Lua, which "state-sync"'s deferred `Fire` did not do. |
 | D4 | **`Prop<T> = Val(T) \| Fn(Rc<dyn Fn(&Cx, CtrlId) -> T>)`**, evaluated lazily on every read, exactly like `GetProperty`. A closure receives the id of the control that owns the property (Lua passes `self`) and can read anything in `Cx`. It may mutate only `Cell`/`RefCell` fields that exist for that purpose (§7.3). | Keeps Lua's "the closure reads live state at call time" semantics: 145 `shown`, 79 `enabled` and about 90 geometry closures port verbatim. `Build.lua:148-157` (the `buildName.width` closure writes `strWidth`/`strLimited`) shows that writes are needed; `Cell` fields cover them. |
@@ -47,7 +47,7 @@ The calc port (ModParser, CalcSetup/Perform/Offence/Defence, the model classes) 
 | D13 | **Verification is trace-first.** Unmodified PoB Lua runs under LuaJIT and draws through **our** `pob-sg`; both sides replay the same script, and per-frame normalised draw traces are diffed. Each op carries a control path marker, a Lua `file:line` and a Rust `#[track_caller]` location. Supporting checks: Tier-0 differential tests of `Control.lua`/`ControlHost.lua`/`UndoHandler.lua` in mlua; `r_font.cpp`-derived font goldens; a real-SG probe under Wine; and CPU-raster vs wgpu pixel checks. | Trace diffs locate bugs at the op level, need no goldens, and are calc-neutral when paired with the Lua calc bridge (D14). |
 | D14 | **The UI reaches the calc only through `CalcFacade`** (§10.4), with three implementations. `RustCalc` (default) delegates to `pob-calc`. `LuaCalcBridge` (dev only) runs PoB's own Lua calc and injects the result into the calc doc's Rust types. `WorkerCalc` is wasm only and optional. Semantics are **blocking on desktop**, as in PoB. The facade returns `Poll` so that the web build (whose calc runs in a Web Worker per calc doc D15) can return `Pending`; on desktop it never does. | UI parity work is not blocked on calc parity. Blocking keeps PoB's frame semantics exactly. Web stays possible without forking call sites. |
 | D15 | **The model is the calc doc's `pob_calc::model::Build` (`BuildRef = Rc<Build>`)**, with PoB field names and `Field`/`Shared` interior mutability. The calc mutates it in place (calc doc D2, D13). The UI holds model `Rc` handles where Lua holds tables. It never keeps a `Field`/`Shared` borrow across a `cx` call. The calc plan owns XML I/O and every calc-input function in the tab files (§10.2). The UI owns controls, layout, popups and display state. | One source of truth; aliasing is identical to Lua's on both sides of the seam. |
-| D16 | **New crates sit beside the old ones.** The new crates are `pob-sg`, `pob-sg-wgpu`, `pob-host`, `pob-ui-core`, `pob-app`, `pob-ui-oracle` and the apps `app/pob-port-{desktop,web}`. The old `crates/pob-ui`, `app/pob-desktop` and `app/pob-web` keep shipping until cut-over (U53). | No shippable-state gap (critic R12). |
+| D16 | **New crates sit beside the old ones.** The new crates are `pob-sg`, `pob-sg-wgpu`, `pob-host`, `pob-ui-core`, `pob-app`, `pob-ui-oracle` and the apps `app/pob-port-{desktop,web}`. The old `crates/pob-ui`, `app/pob-desktop` and `app/pob-web` keep shipping until cut-over (U53). *Done (CCR-0145 §6): U53 deleted the old ones and renamed `app/pob-port-{desktop,web}` to `app/pob-{desktop,web}`; INT-4 deleted `pob-engine`/`pob-data` (AMENDMENTS A13).* | No shippable-state gap (critic R12). |
 | D17 | **A Lua runtime error becomes a Rust panic** (`lua_error!`). The host catches unwinds per callback on native and shows PoB's error prompt, which is what `Launch.lua:109-200` does through `PCall`/`ShowErrMsg`. | Faithful failure behaviour; loud in tests. |
 | D18 | **Ports are literal.** Statement order, evaluation order of props, and the Lua method structure are kept. There are no cleanups and no cross-file dedup. Every file and function carries a provenance header. | Upstream drift can be tracked per function, and trace diffs map 1:1 to Lua lines. |
 
@@ -129,6 +129,12 @@ app/pob-port-desktop/  fn main(): pob_host::run_desktop(cfg, pob_app::PobApp::ne
                        injects LuaCalcBridge for dev
 app/pob-port-web/      wasm entry (Trunk): pob_host::run_web(...)
 ```
+
+As built since U53 (CCR-0145 §6): `app/pob-port-desktop` is `app/pob-desktop` (package and bin
+`pob-desktop`) and `app/pob-port-web` is `app/pob-web` (package `pob-web`, worker glue `./pob-web.js`).
+The non-default desktop feature `lua-calc` is the only path from a shipping package to `mlua`
+(through pob-ui-oracle and pob-oracle); the default `cargo tree -e normal` of `pob-app`,
+`pob-desktop` and `pob-web` has no `mlua` (INT-4, AMENDMENTS A13).
 
 Dependency graph (an arrow points at the dependency):
 
@@ -2296,10 +2302,38 @@ pub struct BuildState {
     pub calc: Box<dyn CalcFacade>,
     pub calc_func: Option<std::rc::Rc<dyn MiscCalc>>,  // configTab.calcFunc (UI-side home; the calc doc's ConfigTab has none)
     pub calc_base: Option<model::Output>,              // configTab.calcBase
-    pub build_flag: bool, pub mod_flag: bool,
-    pub db_file_name: Option<String>, pub db_file_sub_path: Option<String>, pub build_name: String,
-    /* … remaining UI-side buildMode fields (characterLevelAutoMode, …); fields the calc reads live in `model` */
+    // `self.buildFlag` is `model.buildFlag` (one flag: the calc's model halves write it, Launch.lua:115 reads it
+    // through `Mode::build_flag`; CCR-0098 §1). `self.modFlag` stays UI-side; Init copies BM-A's load-time value.
+    pub mod_flag: bool,
+    pub db_file_name: Option<String>,
+    pub db_file_name_is_false: bool,                   // GetArgs / Settings.xml tell `false` from nil (Main.lua:744)
+    pub db_file_sub_path: Option<String>,
+    pub build_name: Option<String>,                    // nil: Init goes on after L74
+    pub import_link: Option<String>, pub save_as_sort_mode: String, pub abort_save: Option<bool>, pub unsaved: bool,
+    /* the other UI-side buildMode fields live in the BuildMode node's split-struct parts; fields the calc reads live in `model` */
 }
+// pob-app/src/main_mode/mod.rs (U16, CCR-0096): `main.modes` and `main:CallMode`. A Rust trait has no by-name
+// method lookup, so each Lua method a caller reaches is a trait method.
+pub enum ModeArg { Nil, Bool(bool), Num(f64), Str(String) }   // Main.lua:546-559, :744-754
+pub trait Mode {
+    fn init(&self, cx: &mut Cx, args: &[ModeArg]);
+    fn shutdown(&self, cx: &mut Cx) {}
+    fn on_frame(&self, cx: &mut Cx, input_events: &mut InputEvents, vp: &ViewPort);
+    fn get_args(&self, cx: &Cx) -> Option<Vec<ModeArg>>;
+    fn can_exit(&self, cx: &mut Cx, reason: &str) -> Option<bool> { None }
+    fn view_mode(&self, cx: &Cx) -> Option<String> { None }
+    fn set_view_mode(&self, cx: &mut Cx, v: &str);
+    fn output_revision(&self, cx: &Cx) -> Option<f64> { None }
+    fn build_flag(&self, cx: &Cx) -> bool { false }
+}
+// MainState: `modes: IndexMap<String, Rc<dyn Mode>>` (`init::default_modes`: U18's `build_list::mode()` for LIST,
+// U20's `build::mode()` for BUILD; `PendingMode` is a test stand-in), `hooks: MainHooks` (§10.5),
+// `input_events: Rc<RefCell<InputEvents>>` (lent to the controls, the mode and the toasts while `cx` is borrowed;
+// a Lua error mid-frame leaves the events in place, as the Lua table survives a failed PCall; CCR-0096 E).
+// `main.modes.LIST.subPath` is `build_list::sub_path(cx)`, `main.modes.LIST:BuildList()` is `build_list::rebuild(cx)`
+// (CCR-0100 B). Main fields only one unit uses stay with it: ImportTab's `main.api`, `lastExportWebsite`,
+// `lastCharacterHash` and the session `historyList` in `tabs::import::core::MainExtra` (CCR-0109 §1);
+// `main.filterBuildList` in `ListMode::filter_build_list` (CCR-0100 D).
 ```
 
 The UI may hold model `Rc` handles (`ItemRef`, `SocketGroupRef`, `PassiveSpecRef`, `NodeRef`) wherever the Lua holds the table, because aliasing is the calc doc's model too. Two rules apply:
@@ -2318,7 +2352,7 @@ All of this is synchronous on desktop (D14).
 
 ### 10.2 Model boundary: who ports which Lua lines
 
-`pob-app` names model and calc types only through `pob-app/src/model.rs` (re-exports of `pob_calc::model::*`, the classes, `pob_gamedata`, and `pob_lua::{LStr, Name, Table}`) and `pob-app/src/calc/`. The calc doc's `unported!` stubs return defaults (calc doc D9), so the UI compiles and runs against the real crate from the calc plan's Wave 1 onward. There is no UI-side placeholder model.
+`pob-app/src/model.rs` (U15) re-exports `pob_calc::model::*`, the core classes, `calcs`, `Env`/`Override`, `pob_gamedata` and `pob_lua::{Field, LjIntMap, Name, Shared}`, and `pob-app/src/calc/` holds the facade. **As built** the re-export list was never extended: about 48 pob-app files also name `pob_calc::…` paths directly (actor and active-skill types, `item_tools`, `power`, `passive_spec::{new_PassiveSpec, main_LoadTree, base64_*}`, `passive_tree` helpers, `modules::common`, `ModStore`, `ModCfg`, …), and pob-app depends on `pob-modparser` for `parseMod`. Each such site carries the CCR that asked for the missing re-export (CCR-0096 C, 0098 §4, 0103 §4, 0104 §4, 0109 §6, 0114 §4, 0115 B, 0117 §5, 0120 §3, 0123 §9, 0125 §5, 0132 §5; all rejected as not built, AMENDMENTS A14). The rule that still binds is the one below: no UI unit invents model types. The calc doc's `unported!` stubs return defaults (calc doc D9), so the UI compiled and ran against the real crate from the calc plan's Wave 1 onward. There is no UI-side placeholder model.
 
 | Lua lines | Owner | UI responsibility |
 |---|---|---|
@@ -2341,7 +2375,7 @@ Any additional model or calc API a UI unit needs is requested through the calc d
 
 | Lua `CreateUndoState` owner | Ported by | Stack location |
 |---|---|---|
-| `PassiveSpec` (`build.spec:AddUndoState`; PassiveSpec.lua is an UndoHandler) | calc:PS-A (state fns); U25 wires `UndoOps` | `BuildMode` state `undo_spec` |
+| `PassiveSpec` (`build.spec:AddUndoState`; PassiveSpec.lua is an UndoHandler) | calc:PS-A (state fns); U25 wires `UndoOps` | TreeTab node state, **one stack per spec** (`tabs/tree/core.rs` `State::spec_undo`, keyed by `PassiveSpecRef` identity; CCR-0123 §1). The first state is the one `PassiveSpec:Load` took at L194, kept in `spec.extra["$loadUndoState"]` (CCR-0145 §8) |
 | `ItemsTab` (`ItemsTab.lua:5021-5055`) | U38 (the restore tail, PopulateSlots etc., is U34's) | `ItemsTab` node state |
 | `SkillsTab` (`SkillsTab.lua:1397-1441`) | U30 | `SkillsTab` node state |
 | `ConfigTab` (`ConfigTab.lua:1242-1269`) | U42 | `ConfigTab` node state |
@@ -2382,10 +2416,78 @@ Implementations:
 | Implementation | Location | Role |
 |---|---|---|
 | `RustCalc` | `calc/rust.rs` (U15) | Delegates to `pob_calc` (`calcs::getMiscCalculator`, the PWR port of `BuildOutput`). Always `Ready`. |
-| `LuaCalcBridge` | `pob-ui-oracle/src/lua_calc.rs` (U15, dev only, desktop) | Serialises the model to XML (calc:BM-A), loads it into a second LuaJIT PoB (`pob-luahost`), runs the Lua calc, then **injects** the resulting env/output/breakdown/modDB into the calc doc's Rust types through calc:ORC-X (`pob-oracle` inject). The UI therefore reads exactly what PoB computed, and UI parity is calc-neutral before the Rust calc is at parity. `MiscCalc::call` re-serialises the live model each call: slow, used only in parity scenarios. |
-| `WorkerCalc` | `calc/worker_web.rs` (U54, optional) | The wasm Web Worker client (calc doc D15). Returns `Pending` until the worker answers. Call sites show PoB-style placeholders, and tooltip memo keys include a result epoch. Not a parity target. |
+| `LuaCalcBridge` | `pob-ui-oracle/src/lua_calc.rs` (U15, dev only, desktop) | Serialises the model to XML (calc:BM-A), loads it into a second LuaJIT PoB (`pob-luahost`), runs the Lua calc, then **injects** the resulting env/output/breakdown/modDB into the calc doc's Rust types through calc:ORC-X (`pob-oracle` inject). The UI therefore reads exactly what PoB computed, and UI parity is calc-neutral before the Rust calc is at parity. `MiscCalc::call` re-serialises the live model each call: slow, used only in parity scenarios. **As built:** `inject` copies socket groups, gem instances and items, so `adopt_build_output` writes the dumped groups/gems back onto the live model and re-points `socketGroup`/`srcInstance`/`isSupporting` keys/items at the live objects (`Rebind`; CCR-0088 §1, CCR-0144 §3); the main env's document is injected last (each `inject` resets the probe registry, CCR-0088 §2). **Since U53** `LuaCalcBridge::new` delegates to `RustCalc` unless `POB_UI_CALC=lua`; `LuaCalcBridge::lua(src)` always runs PoB (u15 and pob-desktop's non-default `lua-calc` feature; CCR-0145 §1). |
+| `WorkerCalc` | `calc/worker_web.rs` (U54; compiled on every target, the browser glue under `cfg(wasm32)`, a thread stand-in `ThreadHub` elsewhere, CCR-0134 §1) | The wasm Web Worker client (calc doc D15), as built a **pre-flight** (CCR-0134 §2-§3): the client posts `build:SaveDB()` XML as JSON (`{"op":"build_output","seq","xml"}`, one request in flight, newest XML wins); the worker loads it, runs `BuildOutput` and answers `{seq, ok, stats}` or the `LuaError` text, then `dead` if it aborted. For XML the worker calculated without error, the client runs the same `power::BuildOutput` on the live model and returns `Ready` (and cross-checks the stats); otherwise it stays `Pending` and the build keeps its last results. The env graph never crosses (the injector is in mlua-linked pob-oracle), so every web recalc runs twice. While `calcsTab.mainEnv` is nil (a build's first calc) it calculates on the main thread (CCR-0134 §4: Init and the stat list cannot take `Pending`). Worker errors go to the console and `WorkerStatus::errors` (no prompt; CCR-0134 §5). After each request the worker breaks the build-level cycles (CCR-0142 §3 A). Not a parity target. |
 
 PowerBuilder (calc:PWR), the GemSelect DPS sort and the ItemDB/NotableDB sorts keep PoB's per-frame stepping. A UI coroutine (§6.13) or the PWR iterator is stepped where the Lua resumes it.
+
+### 10.5 Cross-unit hook tables (as built; CCRs 0096-0145, AMENDMENTS A14)
+
+A Lua method that one unit's lines call and another unit ports is reached through a **hook table**
+in the caller's file: a `#[derive(Clone)]` struct of `Rc<dyn Fn(..)>` entries, a thread-local
+installed set (`<x>_hooks()` / `set_<x>_hooks(..)`) and `default_<x>_hooks()`. The owner of the
+callee replaces its entry in the default table (one line each, in the caller's file). In the
+shipped defaults every entry is a real port; only U51's `ItemsUiHooks::trade_query_price_item` and
+`buy_similar_open_popup` still raise "… is not ported yet (U51)" (U51 Trade is deferred,
+CCR-0145 §5). The tables stay after their owners merged so that the oracle harnesses can replace
+an entry with a stand-in. A harness that replaces a whole closure must keep the default's other
+arms (CCR-0106 §2). Once the callee is ported, other callers call its `pub fn` directly (CCR-0124
+§2, CCR-0130 §2).
+
+| Table (file, owner) | Lua calls it stands for | Filled by | CCR |
+|---|---|---|---|
+| `MainHooks` (`main_mode/mod.rs`, U16) | `main:OpenOptionsPopup/OpenAboutPopup/OpenUpdatePopup`, `main:LoadTree` | U17, U23 | 0096 B, 0115 C |
+| `BuildHooks` (`build/init.rs`, U19) | the buildMode methods of U20/U21, every tab constructor, the tabs' methods Init calls, the sidebar `CalcBreakdownControl`, `load_ui_section` (UI-only sections) | U20, U21, U22, U25, U30, U33/U34, U37, U39, U40, U41/U42, U43, U45, U46, U53 | 0098 §3, 0103 §1, 0104 §3, 0106 §2 |
+| `ShellHooks` (`build/on_frame.rs`, U20) | each tab's `Draw` (`draw_tab`), the tabs' `modFlag` (`tab_flag`/`set_tab_flag` by `TabFlag`), `save_ui_section`, the Calcs and sidebar breakdowns, `RefreshSkillSelectControls`, `GetSidebarBreakdown`, the minion lists, the similar-builds list | every tab owner (one arm each), U21, U31, U39, U40, U43, U52 | 0104 §1, 0106 §1-§2 |
+| `TreeViewHooks` (`tree_view/mod.rs`, U23) | `AddNodeTooltip`, `AddCompareNodeTooltip`, `OpenMasteryPopup`, `ModifyNodePopup`, `BuildPower`, the jewel-socket right click | U24, U25, U26, U53 | 0115 A, 0122 §3 |
+| `TreeTabHooks` (`tabs/tree/core.rs`, U25) | the power report list (U26), `FindTimelessJewel` (U27) | U26, U27 | 0123 §6, 0132 §3 |
+| `TimelessHooks` (`tabs/tree/timeless.rs`, U27) | `viewer:AddNodeTooltip(.., true)` (`returnEarly`) | U24's method | 0132 §2 |
+| traits `TimelessBuild` / `SocketViewer` / `NotableItemsTab` (`tabs/tree/{timeless_list,timeless_socket,notable_db}.rs`, U28) | the `build` / `itemsTab` / `socketViewer` arguments of the timeless and notable lists | `AppTimelessBuild` (U32/U38 entries via U53), U27, U36 | 0112 §1, 0145 §5 |
+| `ItemsTabHooks` (`tabs/items/slot_helper.rs`, U32) | the ItemsTab methods U32's slot/list controls call | U34, U35, U37, U38, U53 | 0107 §1, 0125 §4, 0126 §2 |
+| `ItemsUiHooks` (`tabs/items/ctor.rs`, U33) | the ItemsTab methods the constructor's closures call | U34-U38, U53 (U51's two entries open) | 0120 §1, 0130 §1, 0129 §2 |
+| `CoreHooks` (`tabs/items/core.rs`, U34) | `Undo`/`Redo`/`ResetUndo`, `ToggleDisplayItemModLine` | U35, U38 (U53) | 0126 §1, 0124 §4 |
+| `SkillsHooks` (`tabs/skills/core.rs`, U30) | U31's list/gem-slot constructors, the ItemsTab socket line, tooltip and undo | U31, U38 (U53) | 0118 §1, 0119 §2 |
+| `SkillsTabUiHooks` (`tabs/skills/gem_slots.rs`, U31) | the SkillsTab state and methods U31's controls use | U30's methods | 0119 §1 |
+| `ConfigHooks` (`tabs/config/ctor.rs`, U41) | `UpdateControls`, `AddUndoState`, `OpenConfigSetManagePopup`, `OpenAddModPopup`, `isShowAllExcluded` | U42 | 0110 §1, 0121 §3 |
+| `CalcsHooks` (`tabs/calcs/core.rs`, U39) | the Calcs tab's `CalcBreakdownControl` | U40 | 0111 §2, 0116 §1 |
+| `BreakdownHooks` (`tabs/calcs/breakdown.rs`, U40) | `itemsTab:AddItemTooltip`, the node viewer's `Draw` and `highlightRing` | U38, U23 (U53) | 0116 §4, 0145 §5 |
+| `ImportHooks` (`tabs/import/core.rs`, U43) | U44's ImportTab methods, `compareTab:ImportBuild` | U44, U46 | 0109 §5, 0136 §4 |
+| `TabSeams` (`tabs/import/character.rs`, U44) | the other tabs' UI methods the character import calls | U34, U38, U30, U31 (U53) | 0117 §1, 0145 §5 |
+| `SiteHooks` (`tabs/party.rs`, U45) | `buildSites.websiteList`, `DownloadBuild`, `UrlDecode` | U43's functions | 0114 §2 |
+| `CompareHooks` (`tabs/compare/init.rs`, U46) | CompareEntry's fields and methods, the power report list | U47, U48 (`entry_config_var_control` is always `None`, CCR-0137 §2) | 0136 §1, 0137 §4, 0138 §4 |
+| `CompareDrawHooks` (`tabs/compare/layout.rs`, U47) | `DrawTree`/`DrawSummary`/`DrawItems` (U49), `DrawSkills`/`DrawCalcs`/`DrawConfig` (U50) | U49, U50 | 0137 §3, 0143 §6, 0144 §4 |
+
+Single-entry seams: `stats::set_estimate_player_progress` (U21 → U20's `loadouts::estimate_player_progress`
+when unset, CCR-0103 §2, CCR-0106 §4); the calc-side hooks the UI registers, `build_xml::set_save_stats_hook`
+(U21's `install_save_stats_hook`, CCR-0080 §8) and `passive_spec_cluster::set_window_title_subtext_hook`
+(U19 queues the titles; code that runs model code which may set one flushes with
+`init::flush_window_titles(cx)`, CCR-0098 §7). The model's power callbacks take no `Cx`, so U25 exports
+`tabs::tree::core::{power_builder_progress_callback, power_builder_callback}` for the stepping unit (CCR-0123 §5).
+Test seams the product never sets: `build_list::set_draw_background_override` (CCR-0100 A).
+
+Rules the units built on:
+
+- **Tab nodes.** A tab is created with `cx.add_free(Some(build), Tab::new(build))` and found again
+  through `BuildState::tabs.<tab>`; its `Widget` impl lives with its constructor (§12.1).
+- **Model-held control state.** Where calc:BM-A/BM-B ported a tab's Load/Save over Lua-like
+  control tables, the model tables are canonical and the UI controls mirror them:
+  ConfigTab's `varControls` (`ConfigTab::push_var_control` at the start of a control's callback,
+  `pull_var_controls` after every BuildModList, at the end of the constructor and at the start of
+  Draw; CCR-0110 §3), PartyTab's edits, labels and check boxes (CCR-0114 §1), the Calcs tab's
+  subsection `collapsed` values (the model's `subSection` tables, CCR-0111 §3), a flask slot's
+  `controls.activate.state` (`ItemSlotControl::sync_activate`, CCR-0107 §6).
+- **Load-time UI tails.** `Init_model` runs every section's model Load before any UI constructor,
+  so each tab's `ctor_hook` replays its Load's UI statements afterwards: `ResetUndo` (Calcs,
+  CCR-0111 §5; Config, CCR-0121 §2; Items, DIVERGENCE(load-tail), CCR-0126 §4; Tree, from
+  `spec.extra["$loadUndoState"]`, CCR-0145 §8), PartyTab's control text (CCR-0114 §1), and
+  `TreeTab:SetActiveSpec`'s window title and class dropdowns (CCR-0098 §6, CCR-0123 §8).
+- **Provenance of split functions.** A UI port of lines whose `@pob` marker is a calc unit's
+  carries `/// lua:` notes and no second marker (CCR-0110 §5, CCR-0121 §1, CCR-0129 §1).
+- **Another build's tabs.** A CompareEntry has the model halves only (CCR-0137 §2). Code that
+  must draw or query the comparison build either swaps it in for the call
+  (`compare::draw_a::with_entry_as_build`, CCR-0143 §2) or repeats the UI method on the entry's
+  model (`entry_row_icon`, CCR-0144 §1). Item tooltips and config controls of the comparison build
+  still use the open build (CCR-0122 §2, CCR-0137 §2, CCR-0143 §4; FOLLOWUPS "CCRDOC").
 
 ---
 ## 11. Verification: "looks the same"
@@ -2451,8 +2553,8 @@ The **gallery harness** (for widget units before the app shell exists) works lik
 - Each covers at least: the idle frame, hover with tooltip, every primary interaction, and every popup in the unit's range.
 - Each runs at 1280×800 @1.0 and 1920×1080 @1.5.
 - App scenarios use `crates/pob-ui-oracle/fixtures/user1` (`Settings.xml` plus 6 corpus builds with TotalDPS > 0, taken from `scripts/parity`).
-- Rust-side numbers come from `LuaCalcBridge` until the Rust calc reaches parity.
-- Text masks are allowed **only** after switching to the Rust calc, and each one names an open calc issue.
+- Rust-side numbers came from `LuaCalcBridge` until the Rust calc reached parity. **Since U53** every unit harness runs on the Rust calc (`LuaCalcBridge::new` delegates to `RustCalc`; `POB_UI_CALC=lua` restores the bridge; CCR-0145 §1), and `scenarios/e2e/*.pobscript` run the whole app (`PobApp::new`, no stand-ins on either side) under `tests/u53_e2e.rs` (u20's T4 normalisation, u23's multiset buckets for the tree's sub-layers; `tests/parity.rs` skips `e2e`; CCR-0145 §2).
+- Text masks are allowed **only** after switching to the Rust calc, and each one names an open calc issue. None was needed (U53).
 
 ```
 export CARGO_BUILD_JOBS=3; command -v sccache >/dev/null && export RUSTC_WRAPPER=sccache
@@ -2466,16 +2568,18 @@ cargo check -p pob-app --target wasm32-unknown-unknown     # web stays possible
 
 - At most **3 agents run at once across both plans**.
 - Each agent has its own git worktree and target dir.
-- **Every** cargo and LuaJIT oracle invocation goes through `scripts/port/cargo.sh` / `scripts/port/oracle.sh`, which take the global `flock`, so only one compile and one oracle run at a time.
+- **Every** cargo and LuaJIT oracle invocation goes through `scripts/port/cargo.sh` / `scripts/port/oracle.sh`, which take the global `flock`: one compile at a time, and at most `$POB_ORACLE_SLOTS` (default 1) LuaJIT oracles at a time (calc doc D20, CCR-0127).
 - Prefer `cargo check -p <crate>`. The commands above are shown bare; agents run them through `scripts/port/cargo.sh`.
 
 ---
 ## 12. Work units
 
+Status (2026-11-12, docs/port/STATUS.md): every row below is merged into `rust-port` except **U51** Trade, which the user deferred on 2026-11-12. U53's T6 gate (SSIM against real SimpleGraphic under Wine) is pending because Wine is not installed (AMENDMENTS A5). The update checker is stubbed by the user's decision of 2026-11-12 (FOLLOWUPS "BRAND" 1). U16 does not import a build link given on the command line (Main.lua:71-82, DIVERGENCE(no-cli-args); no host passes one; FOLLOWUPS "CCRDOC" 12).
+
 ### 12.1 Rules
 
 - **Ownership.** One agent per unit. "Owns" lists files that only that unit edits. **U0 creates every listed file as a compiling stub**, including every `lib.rs`, `mod.rs`, `prelude.rs`, `Cargo.toml` and the split-struct declarations, with the signatures from §4-§10 and `todo!()` bodies. Later units never edit `mod`/`pub use` declarations (U0's), even inside a `lib.rs`/`mod.rs` whose remaining content they own. They never edit another unit's files. Files that U0 delivers *complete* pass to the wave-1 unit of that crate: `pob-sg/src/{types.rs,trace.rs}` to U1; `pob-ui-core/src/{ids.rs,prop.rs,widget.rs}` to U4; `pob-app/src/{model.rs,calc/*}` to U15. `pob-ui-oracle/build.rs` (U8) generates the gallery module list from `src/gallery/*.rs`, so gallery files need no `mod` edits.
-- **Split structs.** Where one Lua class spans several units (ItemsTab, SkillsTab, ConfigTab, ImportTab, TreeTab, CalcsTab, CompareTab, BuildMode), U0 declares the struct in `mod.rs` with one `pub <part>: <part>::State` field per owning unit (`#[derive(Default)]`). Each owner defines its `State` and its `impl` blocks in its own file. The `Widget` impl lives with the unit that owns the class's `Draw`.
+- **Split structs.** Where one Lua class spans several units (ItemsTab, SkillsTab, ConfigTab, ImportTab, TreeTab, CalcsTab, CompareTab, BuildMode), U0 declares the struct in `mod.rs` with one `pub <part>: <part>::State` field per owning unit (`#[derive(Default)]`). Each owner defines its `State` and its `impl` blocks in its own file. The `Widget` impl lives with the unit that owns the class's `Draw`, except for a tab that BuildMode draws through `ShellHooks::draw_tab` (§10.5): its `Draw` is an inherent function and its `Widget` impl (`CAPS = empty`) lives with its constructor, which needs it first (ConfigTab U41, ItemsTab U33, CompareTab U46; CCR-0110 §4, CCR-0120 §2, CCR-0136 §2).
 - **Amendments.** A unit that needs a shared type or signature change submits a patch to this document and to the stub. Nobody else changes shared surfaces.
 - **"Accept"** always also means: `cargo check`, `cargo clippy` and `cargo test -p <crate>` pass with the commands of §11.3; provenance headers are present; the file header lists DIVERGENCE/ORDER notes. For UI units, every scenario or gallery in the unit's directory reaches **zero T3 divergences** at both resolutions, and T4 where the unit saves state.
 - **`ext:` dependencies** name calc-plan units (calc doc §11). A UI unit may start once its `ext:` units have merged their **stubs** (calc doc D9: `unported!` returns defaults). It is *accepted* on LuaCalcBridge numbers once the listed units are merged:
@@ -2541,7 +2645,7 @@ cargo check -p pob-app --target wasm32-unknown-unknown     # web stays possible
 | **U26** Power report | `TreeTab.lua:1047-1169` (SetPowerCalc, BuildPowerReportList); `PowerReportListControl` 1-153; the per-frame `calcsTab:BuildPower()` call sites (the PowerBuilder itself, `CalcsTab.lua:441-773`, is calc:PWR) | `tabs/tree/{power.rs,power_report_list.rs}` | U25, U15, calc:PWR | The PWR iterator is stepped exactly where PoB resumes the coroutine; heat map and report list identical through the bridge for 3 fixtures. |
 | **U27** Timeless search | `TreeTab.lua:1170-2888` (FindTimelessJewel) | `tabs/tree/timeless.rs` | U25, U28, ext:model-tree (legion/abyss LUTs) | Popup layout, filters, sliders (with the `tooltip.Draw` overrides at `:1749/1785/1814/1841`), and results identical to Lua for 5 searches. |
 | **U28** Timeless and notable lists | `TimelessJewelListControl` 1-352, `TimelessJewelSocketControl` 1-57, `NotableDBControl` 1-293 | `tabs/tree/{timeless_list.rs,timeless_socket.rs,notable_db.rs}` | U12, U13 | Galleries or scenarios per control; the NotableDB sort coroutine. |
-| **U29** Gem select | `GemSelectControl` 1-854; `GemTooltip.lua` 1-261 | `controls/{gem_select.rs,gem_tooltip.rs}` | U11, U10, U15, ext:model-skills | Filter and sort modes; DPS sort order identical through the bridge (the model is mutated temporarily); gem tooltips. |
+| **U29** Gem select | `GemSelectControl` 1-854; `GemTooltip.lua` 1-261; `Modules/StatDescriber.lua` 1-299 (CCR-0108 §1: `gem_tooltip::stat_describer`, also used by U27); `ItemTools.lua` 385-412 `itemLib.wiki` without `openItem` (CCR-0108 §2) | `controls/{gem_select.rs,gem_tooltip.rs}` | U11, U10, U15, ext:model-skills | Filter and sort modes; DPS sort order identical through the bridge (the model is mutated temporarily); gem tooltips. |
 | **U30** SkillsTab A | `SkillsTab.lua:1-742` (ctor, Draw, copy/paste; the model halves of 441-630 are calc:BM-B), `:1081-1502` (UpdateGemSlots, FindSkillGem, SetDisplayGroup, AddSocketGroupTooltip, undo state, skill-set popups; 1129-1274 and 1478-1502 model halves are calc:BM-B) | `tabs/skills/core.rs` | U29, ext:model-skills | Socket group CRUD; skill sets; copy/paste; undo/redo. |
 | **U31** SkillsTab B | `SkillsTab.lua:743-1080` (CreateGemSlot); `SkillListControl` 1-267, `SkillSetListControl` 1-127, `MinionListControl` 1-107, `MinionSearchListControl` 1-71 | `tabs/skills/{gem_slots.rs,skill_list.rs,skill_set_list.rs,minion_list.rs,minion_search_list.rs}` | U29, U12 | Gem slot rows (rebuilt controls are removed correctly); list drag/reorder; minion lists. |
 | **U32** Item lists and slots | `ItemSlotControl` 1-185, `ItemListControl` 1-387, `ItemDBControl` 1-400, `ItemSetListControl` 1-145, `SharedItemListControl` 1-80, `SharedItemSetListControl` 1-112; `Modules/ItemSlotHelper.lua` 1-40 | `tabs/items/{slot.rs,item_list.rs,item_db.rs,set_list.rs,shared_list.rs,shared_set_list.rs,slot_helper.rs}` | U12, U13, U10, ext:model-items | Drag DB → list → slot; collapse slot stacking; flask toggles; DB filters and the sort coroutine. |
@@ -2554,9 +2658,9 @@ cargo check -p pob-app --target wasm32-unknown-unknown     # web stays possible
 | **U39** CalcsTab | `CalcsTab.lua:1-162, 226-440` (ctor, Draw, NewSection, display stat, CheckFlag, SearchMatch; Load/Save 163-225 and 441-773 are calc:BM-A/calc:PWR); `CalcSectionControl` 1-550; `Modules/CalcSections.lua` as data (from calc:P1's dump schema `calc_sections`) | `tabs/calcs/{core.rs,section.rs,sections_data.rs}` (CalcFormat.lua is calc:CT's `modules/calc_format.rs`; U39 calls it) | U15, U21 | Column packing at 3 widths; skill switch; section collapse; search. Text identical through the bridge. |
 | **U40** CalcBreakdownControl | `CalcBreakdownControl` 1-789 | `tabs/calcs/breakdown.rs` | U39 | Breakdown panes (pinned and overlay), mod tables, radius visual. |
 | **U41** ConfigTab A | `ConfigTab.lua:1-834` (CustomModBlockControl, ctor building every option control) | `tabs/config/{custom_mod_block.rs,ctor.rs}` | U13, U11, ext:model-config | Every option type; ifFlag/ifSkill visibility; custom mod blocks; tooltips with enable compares (bridge). |
-| **U42** ConfigTab B | `ConfigTab.lua:835-1362` (UpdateControls, Draw, sets, undo; the model halves of 839-1204 are calc:BM-B/CO-C); `ConfigSetListControl` 1-114; `Modules/ConfigModBrowser.lua` 1-311; `Modules/ConfigVisibility.lua` 1-160 | `tabs/config/{core.rs,set_list.rs,mod_browser.rs,visibility.rs}` | U41 | Config sets; mod browser; visibility identical through the bridge (`used()` tables). |
-| **U43** ImportTab A | `ImportTab.lua:1-775` (OAuth/account controls, ctor, Load/Save, Draw); `PoEAPI.lua` 1-238; `Modules/BuildSiteTools.lua` 1-129 | `tabs/import/{accounts.rs,core.rs,poe_api.rs,build_sites.rs}` | U16, U7 (Net), ext:model-core | Build-code import/export round-trips with Lua (T4); site URL import with recorded fixtures. |
-| **U44** ImportTab B | `ImportTab.lua:776-1932` (character list, downloads, import tree/items/skills, reimport state) | `tabs/import/character.rs` | U43, ext:model-items/skills/tree | Account import flows against recorded HTTP fixtures produce identical builds (T4). |
+| **U42** ConfigTab B | `ConfigTab.lua:835-1362` (UpdateControls, Draw, sets, undo; the model halves of 839-1204 are calc:BM-B/CO-C; as built U41 ports 835-837 `IsSectionCollapsed` and the UI half of 1302-1334 `UpdateCustomModsControls`, CCR-0110 §2); `ConfigSetListControl` 1-114; `Modules/ConfigModBrowser.lua` 1-311; `Modules/ConfigVisibility.lua` 1-160 | `tabs/config/{core.rs,set_list.rs,mod_browser.rs,visibility.rs}` | U41 | Config sets; mod browser; visibility identical through the bridge (`used()` tables). |
+| **U43** ImportTab A | `ImportTab.lua:1-775` (OAuth/account controls, ctor, Load/Save, Draw), as built also 776-787 (`Draw`) and the globals `HexToChar`/`UrlDecode` 1913-1924 (CCR-0109 §5, §7); `PoEAPI.lua` 1-238; `Modules/BuildSiteTools.lua` 1-129 | `tabs/import/{accounts.rs,core.rs,poe_api.rs,build_sites.rs}` | U16, U7 (Net), ext:model-core | Build-code import/export round-trips with Lua (T4); site URL import with recorded fixtures. |
+| **U44** ImportTab B | `ImportTab.lua:776-1932` (character list, downloads, import tree/items/skills, reimport state; as built 789-1912 and 1926-1932, CCR-0109 §5) | `tabs/import/character.rs` | U43, ext:model-items/skills/tree | Account import flows against recorded HTTP fixtures produce identical builds (T4). |
 | **U45** PartyTab | `PartyTab.lua:16-515, 670-717` (ctor, Draw; Load/Save and ParseBuffs/exports are calc:BM-B) | `tabs/party.rs` | U11, ext:model-party | Paste and parse buffs; enable toggles; layout. |
 
 ### 12.7 Wave 5
@@ -2571,7 +2675,7 @@ cargo check -p pob-app --target wasm32-unknown-unknown     # web stays possible
 | **U51** Trade (optional, deferred) | `TradeQuery` 1415, `TradeQueryGenerator` 1609, `TradeQueryRequests` 515, `TradeQueryRateLimiter` 285, `TradeHelpers` 623, `TradeStatWeightMultiplierListControl` 42, `CompareBuySimilar` 538 | `trade/**` (split into ≥ 3 units when scheduled) | U38, U7 | Recorded-fixture scenarios. |
 | **U52** Network extras (optional) | `ExtBuildListControl` 440, `ExtBuildListProvider` 63, `PoBArchivesProvider` 150 | `ext_build_list/**` | U18, U7 | Recorded-fixture scenarios. |
 | **U54** Web calc client (optional) | — (calc doc D15 worker protocol) | `pob-app/src/calc/worker_web.rs` | U15, calc plan's worker | `cargo check --target wasm32-unknown-unknown`; the web app shows the build with numbers once the worker answers. |
-| **U53** Integration and cut-over | — | `crates/pob-ui-oracle/scenarios/e2e/**`, `tests/golden/**`, app renames | everything, plus the Rust calc at parity | Every scenario green with the **Rust calc** (masks only for open calc issues); T6 SSIM ≥ 0.995 on 15 Wine scenes; wasm loads the build list and tree; perf pass (tree < 4 ms at 1080p). Then: rename `app/pob-port-*` → `app/pob-*` and delete `crates/pob-ui` (`pob-engine`/`pob-data` are deleted by calc:INT-4). |
+| **U53** Integration and cut-over | — | `crates/pob-ui-oracle/scenarios/e2e/**`, `tests/golden/**`, app renames | everything, plus the Rust calc at parity | Every scenario green with the **Rust calc** (masks only for open calc issues); T6 SSIM ≥ 0.995 on 15 Wine scenes; wasm loads the build list and tree; perf pass (tree < 4 ms at 1080p). Then: rename `app/pob-port-*` → `app/pob-*` and delete `crates/pob-ui` (`pob-engine`/`pob-data` are deleted by calc:INT-4). *Renames and deletion done (CCR-0145 §6; INT-4, AMENDMENTS A13).* |
 
 ### 12.8 Parallelism summary
 
@@ -2604,7 +2708,7 @@ Critical path: U0 → U4 → U9 → U11/U12/U13 → U16 → U19 → U20 → U22 
 12. **Placeholder types** (CCR-0013 C). UI-U0 defined these minimally so the stubs compile; each owner may amend them before its wave gate: `ListColumn`, `ColumnProp`, `ScrollDir`, `TextListColumn`, `TextListRow` and the non-§6 constructor signatures of the generic controls (U9/U12); `DropTipMode`, `DropTipArgs`, `DropDownHooks` fields, `SearchHost` fields (U13); `TooltipLine`, `TooltipBlock` (U10); `ArrowDir`, `world_to_screen` (U9); `EditUndoState` (U11); `script::{Script, Step}` (U7). **Amended by their owners** (the tables are in the CCRs, the code is the reference): U9 CheckBox/ScrollBar/Slider/Dragger/RectangleOutline stubs, `ArrowDir::from_lua`, `lua_for_num` (CCR-0069 B); U10 `TooltipLine.separator_image: Option<ImageHandle>`, `handled`, `bounds`, the remaining Tooltip fields, `calculate_columns`, `module_load`/`RECIPE_NAMES` (CCR-0073 E); U11 `EditUndoState.caret: Rc<Cell<usize>>`, `edit::UNDO`, `filter`/`filter_pattern`, the remaining EditControl fields and methods, `ResizableEditControl::new(.., Option<f64> ×4)` (CCR-0081 §2); U12 `PathControl.sub_path: Option<String>`, `TextListRow` fields, `Rc<TextListRow>`, `TextListControl::new(.., Option<columns>, ..)` (CCR-0078 C); U13 `DropItem.detail`, `SelFunc` with `Option<&DropItem>`, `set_sel_num`, the `DropDownControl` fields and super-call methods, `SearchHost.search_infos` (CCR-0086 B, C); U4 `Coroutine::try_resume`, `co::running`, `co::any_alive`, `MainCore::new`, `Cx::headless` (CCR-0034 B); `TreeCache`, `TreeAssets`, `ListMode`, `LaunchState`, `MainState` (U16/U18/U23); the split-struct parts (`State`, §12.1).
 13. **Small frozen additions** (CCR-0013 A5): `Sg::viewport()`, `Sg::current_draw_color()` (inspection), `FontSet::empty()` (no PoB assets: measuring returns 0, drawing applies escapes only), `FontFace::heights()`, `Align::from_lua`/`lua_name`, `Font::index`, `Quad::is_culled` (moved from `DrawCmd::is_culled`), `frame::LayerSink`, `frame::digest`. `Sg::set_draw_color*` check `renderEnable` like `ui_api.cpp:821`.
 14. **Calc tag text with `divVar`** (U40 CalcBreakdownControl, CalcBreakdownControl.lua 481/485). For a Multiplier/PerStat tag with `divVar`, Lua prints the `div` EvalMod last wrote into the shared tag (calc doc §5.3 forbids that write). Port: print `tag.div` or, when `tag.divVar` is set, `actor.modDB:GetMultiplier(tag.divVar, cfg)` of the breakdown's actor/cfg, and record the difference in `known_diffs.toml` (CCR-0015 §1).
-15. **Unowned helpers** (CCR-0033 §2, §6). `lua-utf8` (U5's `luastr::utf8`, a port of luautf8 bdd3d7f) and `formatNumSep` exist twice (U5's `luastr::format_num_sep`, CT's `calc_format`; the calc reads `main.*` separators through CT's `set_num_sep_settings`); A8 lists the merge into pob-lua. Common.lua's `naturalSortCompare` 673-704, `getFormatNumSep` 830-834, `formatRound`/`formatPercent`/`formatSec` 837-871, `urlEncode`/`urlDecode` 1024-1036 and `string:matchOrPattern` 1038-1079 go to the first consuming unit in wave order (U12 for `naturalSortCompare`/`matchOrPattern`, the CalcBreakdownControl unit for the `format*` family, U43 for `url*`) unless U5 takes them first; `math.random`/`randomseed` (LuaJIT `lib_math.c`) are A8 needs-code for U28/U43.
+15. **Unowned helpers** (CCR-0033 §2, §6). `lua-utf8` (U5's `luastr::utf8`, a port of luautf8 bdd3d7f) and `formatNumSep` exist twice (U5's `luastr::format_num_sep`, CT's `calc_format`; the calc reads `main.*` separators through CT's `set_num_sep_settings`); A8 lists the merge into pob-lua. Common.lua's `naturalSortCompare` 673-704, `getFormatNumSep` 830-834, `formatRound`/`formatPercent`/`formatSec` 837-871, `urlEncode`/`urlDecode` 1024-1036 and `string:matchOrPattern` 1038-1079 go to the first consuming unit in wave order (U12 for `naturalSortCompare`/`matchOrPattern`, the CalcBreakdownControl unit for the `format*` family, U43 for `url*`) unless U5 takes them first; `math.random`/`randomseed` (LuaJIT `lib_math.c`) are A8 needs-code for U28/U43. **Where they ended up** (CCRs 0107-0143; one shared copy each was proposed and not built, AMENDMENTS A14): `matchOrPattern` has four ports, `tabs/tree/notable_db.rs::matchOrPattern` (U28), `tabs/items/item_db.rs::match_or_pattern` (U32; also U31's MinionSearchList), `tabs/config/ctor.rs::match_or_pattern` (U41, `Result`), `tree_view/mod.rs::match_or_pattern` (U23); CompareTab's layout wraps one; `math.random` has two, `tabs/tree/timeless_list.rs::math_random` (U28) and `tabs/import/poe_api.rs::lj_random` (U43); zlib `Inflate`/`Deflate`: `tabs/import/core.rs::{inflate, deflate}` (U43, miniz_oxide) and `tabs/party.rs::inflate` (U45, flate2); `url_encode`/`url_decode`, `UrlDecode`/`HexToChar`, `sha1_hex`, the build-code codec in `tabs/import/core.rs` (U43, CCR-0109 §7); `itemLib.wiki` in `controls/gem_select.rs` (U29) and `openItem`/`matchesKey` in `tabs/items/slot.rs` (U32); `TradeQueryRequests:FetchLeagues` in `tabs/tree/timeless.rs` (U27) and the TradeHelpers functions CompareTab draws with in `tabs/compare/draw_a.rs` (U49), both local because U51 is deferred (CCR-0132 §1, CCR-0143 §1).
 16. **SG functions `Sys` lacks** (CCR-0084 §3-§4): `GetCloudProvider` (U14 returns `(nil, nil, nil)`, the value on every target) and Lua `MakeDir`'s results (not recursive; an existing directory gives `nil, "Success"`); A8 needs-code for U1/U7/U8.
 
 ---

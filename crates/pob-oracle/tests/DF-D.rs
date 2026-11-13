@@ -19,11 +19,12 @@
 //! test: the only stub the segment used to reach, DF-A's `calcs.armourReduction`
 //! (CalcDefence.lua:75-77), is ported, so a stub hit now is a regression.
 //!
-//! Dumps are read first from the private `target/tmp/dfd-probe/<stem>/state/` (see
-//! [`private_dir`]), then from the shared locations of `testkit::dump_dirs`; the `:in` and
-//! `:out` of a hit always come from the same directory (CCR-0067 §3). The shared cache is
-//! filled with
-//! `scripts/port/oracle.sh run --build <xml> --stage buildDefenceEstimations:1681,buildDefenceEstimations:2153`. Knobs: `DFD_BUILDS=stem1,stem2`, `DFD_VERBOSE=1` (print
+//! Dumps: one `pob_oracle probe` run per build selecting every hit of
+//! `buildDefenceEstimations:1681,buildDefenceEstimations:2153` under `docs/port/stages.toml`,
+//! from the shared probe cache (`testkit::probe_dumps`, CK2 / CCR-0147 §3 item 3: keyed by the
+//! patched source, the build's bytes, the selection and the probe code; probed here when absent;
+//! this replaced the hand-filled, never invalidated `target/tmp/dfd-probe/<stem>/state/`), so the
+//! `:in` and `:out` of a hit come from the same PoB process (CCR-0067 §3). Knobs: `DFD_BUILDS=stem1,stem2`, `DFD_VERBOSE=1` (print
 //! every mismatch). A corpus without dumps skips with a message; with
 //! `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
 
@@ -175,14 +176,15 @@ fn segment_diff(
     (mm, stubs)
 }
 
-/// The private dump directory of a build: `target/tmp/dfd-probe/<stem>/state/`, filled by
-/// `scripts/port/oracle.sh exec probe <xml> --out-dir target/tmp/dfd-probe/<stem> --stages
-/// docs/port/stages.toml --select buildDefenceEstimations:1681,buildDefenceEstimations:2153`.
-fn private_dir(st: &str) -> PathBuf {
-    Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("dfd-probe")
-        .join(st)
-        .join("state")
+/// The build's dumps: one probe run of every `STAGE_IN` / `STAGE_OUT` hit (module docs). Hold
+/// the result while reading them.
+fn dfd_dumps(xml: &Path) -> Result<testkit::BuildDumps, String> {
+    testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&testkit::default_stages()),
+        &testkit::selection(&[STAGE_IN, STAGE_OUT]),
+    )
 }
 
 /// Run the L4 diff over every hit pair of every build in `builds`.
@@ -190,9 +192,14 @@ fn run_corpus(builds: &[PathBuf]) -> Tally {
     let mut t = Tally::default();
     for xml in builds {
         let st = stem(xml);
-        let mut all_dirs = vec![private_dir(st)];
-        all_dirs.extend(testkit::dump_dirs(st, Some(xml)));
-        all_dirs.retain(|d| d.is_dir());
+        let held = match dfd_dumps(xml) {
+            Ok(d) => d,
+            Err(e) => {
+                t.builds_without.push(format!("{st} (probe failed: {e})"));
+                continue;
+            }
+        };
+        let all_dirs = held.dirs().to_vec();
         let mut any = false;
         for n in 1.. {
             let hin = format!("{STAGE_IN}#{n}");
@@ -232,7 +239,7 @@ fn gate(t: &Tally, name: &str, min_clean: f64) {
     t.report(name);
     if t.hits == 0 {
         return skip(&format!(
-            "{name}: no {STAGE_IN}/{STAGE_OUT} dumps (scripts/port/oracle.sh run --build <xml> --stage {STAGE_IN},{STAGE_OUT})"
+            "{name}: no {STAGE_IN}/{STAGE_OUT} dumps (see the builds without dumps above)"
         ));
     }
     // the only stub this segment reaches (DF-A's `calcs.armourReduction`) is ported: a hit

@@ -1,6 +1,8 @@
 # CCR-0043: `calcRadiusBreakpoints` returns four nils for a zero radius (OF-B)
 
-**Status: needs code (CCR2, 2026-11-10; same change as CCR-0041 §1). See AMENDMENTS A8.**
+**Status: rejected (CCRDOC, 2026-11-12): not built. The frozen OF-A signature was never changed. As built (calc doc §7.2), `calcRadiusBreakpointsOpt` returns the four Lua nils as `None` and OF-A's own callers use it; `calcRadiusBreakpoints` keeps the frozen `(f64, f64, f64, f64)` with NaN for nil, and OF-B's `skill_types::radius_breakpoints` restores the nils with the L201 test. The behaviour equals the Lua, so no follow-up is required (dropping OF-B's wrapper for a direct `calcRadiusBreakpointsOpt` call is optional, FOLLOWUPS "CCRDOC").**
+
+**Previous status: needs code (CCR2, 2026-11-10; same change as CCR-0041 §1). See AMENDMENTS A8.**
 
 Filed status: proposed (worked around locally in `calc_offence/skill_types.rs`, marked `CCR-0043`).
 Unit: OF-B. Affects: the OF-A stub signature in `calc_offence/helpers_setup.rs` (frozen by U0),

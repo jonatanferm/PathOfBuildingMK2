@@ -582,17 +582,20 @@ pub fn default_skills_hooks() -> SkillsHooks {
         skill_list_ctor: Rc::new(super::skill_list::skill_list_ctor),
         create_gem_slot: Rc::new(super::gem_slots::CreateGemSlot),
         skill_set_list_ctor: Rc::new(super::skill_set_list::skill_set_list_ctor),
-        // stand-in: the number of sockets (ItemsTab.lua:4185-4212 is U38's)
-        items_get_socket_description_line: Rc::new(|_cx, item| {
-            format!("{} sockets", item.sockets.get().len())
+        // CCR-0145 §5 (U53 cut-over): the ItemsTab methods SkillsTab calls (U38's
+        // GetSocketDescriptionLine and AddItemTooltip, ItemsTab.lua:4185-4212 and :4214; U38's
+        // `itemsTab:AddUndoState`) instead of the stand-ins U30 shipped before they existed
+        items_get_socket_description_line: Rc::new(|cx, item| {
+            crate::tabs::items::tooltip::GetSocketDescriptionLine(cx, item)
         }),
-        // stand-in: the item's name (ItemsTab.lua:4214 is U38's)
-        items_add_item_tooltip: Rc::new(|cx, tooltip, item, _slot| {
-            let name = item.name.get();
-            tooltip.add_line(cx, 16.0, &format!("^7{name}"));
+        items_add_item_tooltip: Rc::new(|cx, tooltip, item, slot| {
+            let me = crate::tabs::items::slot_helper::items_tab(cx).unwrap_or_else(|| {
+                lua_error!("attempt to index field 'itemsTab' (a nil value)")
+            });
+            let slot = Val::Table(slot.clone());
+            crate::tabs::items::tooltip::AddItemTooltip(cx, me, tooltip, item, &slot, false, None);
         }),
-        // the items tab's UndoHandler is U34's/U38's
-        items_add_undo_state: Rc::new(|_| {}),
+        items_add_undo_state: Rc::new(crate::tabs::items::tooltip::add_undo_state_hook),
     }
 }
 

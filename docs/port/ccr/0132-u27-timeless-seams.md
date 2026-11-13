@@ -1,7 +1,9 @@
 # CCR-0132: U27 timeless jewel search seams (FetchLeagues, the viewer tooltip, fallback-weight nodes, re-exports)
 
+**Status: applied (CCRDOC, 2026-11-12; code `81ad821` Merge port/U27): §1 (local `fetch_leagues`, U51 deferred), §2 `TimelessHooks`, §3, §4 (the NaN-id pseudo node) and §6 (local helpers). Not built: §2's `return_early` parameter on `TreeViewHooks::add_node_tooltip`, §4's bridge support, §5 (the re-exports) and §6's shared helper.**
+
 Unit: **U27** (`TreeTab.lua:1170-2888`, FindTimelessJewel; file `pob-app/src/tabs/tree/timeless.rs`).
-Status: **pending** (code on `port/U27` follows it). Number reserved with `scripts/port/next_ccr.sh`.
+Filed status: **pending** (code on `port/U27` follows it). Number reserved with `scripts/port/next_ccr.sh`.
 
 No frozen contract changes. This CCR records the seams U27 introduced in its own file, the one-line
 hook it installed in U25's file (as CCR-0123 §6 asks), and the gaps of other units it worked around.

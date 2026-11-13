@@ -39,15 +39,17 @@
 //! with `OFB_STRICT=1` every hit must also have zero attributed mismatches (the gate once
 //! OF-A is merged).
 //!
-//! **Inputs.** `.parity/unit/OF-B/<stem>/` (`$OFB_DUMP_DIR/<stem>/`): one `pob_oracle probe`
-//! run per build selecting `offence:1037#*,offence:1692#*`, written by
-//! `crates/pob-oracle/corpus/OF-B/fill.sh` (re-run it after a change to PoB's source, the
-//! patcher or `docs/port/stages.toml`). Only the dumps that run's `hits.json` lists are used,
-//! so the in and out dumps of a pair come from the same PoB process: mod order inside a
-//! store differs between processes, and the shared probe cache mixes the dumps of every
-//! agent's runs under one key, so it is not read. Builds without a run directory, `1037`
+//! **Inputs.** One `pob_oracle probe` run per build selecting `offence:1037#*,offence:1692#*`
+//! (every hit, no dump cap, no provenance) under `docs/port/stages.toml`, from the shared probe
+//! cache (`testkit::probe_dumps` / `runner::SelectionCache`: one entry per probe process, keyed
+//! by the patched source, the build's bytes, the selection and the probe code; probed here when
+//! absent). CK2 (CCR-0147 §3 item 4): this was `.parity/unit/OF-B/<stem>/`, filled by hand with
+//! `corpus/OF-B/fill.sh` and keyed by nothing. `$OFB_DUMP_DIR/<stem>/` (a run directory of
+//! `fill.sh`) is an explicit override. Only the dumps that run's `hits.json` lists are used,
+//! so the in and out dumps of a pair come from the same PoB process (mod order inside a
+//! store differs between processes). Builds without dumps (a failed probe), `1037`
 //! hits without their `1692` dump and runs capped by `maxDumps` are printed and fail the
-//! gate (`POB_ALLOW_SKIP=1` turns a missing run directory into a skip). Also `data/dump`.
+//! gate. Also `data/dump`.
 //! Knobs: `OFB_BUILDS=stem1,stem2`, `OFB_VERBOSE=1` (every mismatch).
 
 use std::collections::{BTreeMap, HashSet};
@@ -356,16 +358,34 @@ fn foreign_skill_mod_list(root: &serde_json::Value) -> bool {
     false
 }
 
-/// The `--select` of `corpus/OF-B/fill.sh` (the run directory must have been made by it).
+/// The probe selection (the `--select` of `corpus/OF-B/fill.sh`; a run directory must have been
+/// made with it).
 const SELECT: &[&str] = &["offence:1037#*", "offence:1692#*"];
 
-/// The directory OF-B's own oracle runs write (`corpus/OF-B/fill.sh`): `$OFB_DUMP_DIR`, else
-/// `.parity/unit/OF-B`.
-fn owned_root() -> Option<PathBuf> {
+/// The run directory of the build's dumps: `$OFB_DUMP_DIR/<stem>/` (explicit override, a
+/// `corpus/OF-B/fill.sh` run), else the shared probe cache's entry of [`SELECT`]
+/// (`testkit::probe_dumps`; the held [`testkit::BuildDumps`] keeps an uncached run alive).
+fn run_dir(xml: &Path, stem: &str) -> Result<(PathBuf, Option<testkit::BuildDumps>), String> {
     if let Some(d) = std::env::var_os("OFB_DUMP_DIR") {
-        return Some(PathBuf::from(d));
+        let dir = PathBuf::from(d).join(stem);
+        return if dir.is_dir() {
+            Ok((dir, None))
+        } else {
+            Err(format!("no {}", dir.display()))
+        };
     }
-    pob_testpaths::parity_dir().map(|p| p.join("unit").join("OF-B"))
+    let held = testkit::probe_dumps(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&testkit::default_stages()),
+        &pob_oracle::runner::ProbeOptions {
+            select: SELECT.iter().map(|s| (*s).to_owned()).collect(),
+            max_dumps: 1_000_000,
+            provenance: false,
+        },
+    )
+    .map_err(|e| format!("probe failed: {e}"))?;
+    Ok((held.run_dir(), Some(held)))
 }
 
 /// A build's dump pairs, all from one oracle process.
@@ -379,14 +399,14 @@ struct BuildPairs {
     capped: u64,
 }
 
-/// The pairs of `<owned_root>/<stem>/`, the run directory of one `pob_oracle probe` process
-/// (`fill.sh`). Only dumps that run's `hits.json` lists are used, so the in and out dumps of
-/// a pair always come from the same process (mod order inside a store differs between
-/// processes). `None`: no run directory, or one not made with [`SELECT`].
+/// The pairs of a run directory of one `pob_oracle probe` process ([`run_dir`]). Only dumps
+/// that run's `hits.json` lists are used, so the in and out dumps of a pair always come from
+/// the same process (mod order inside a store differs between processes). `Err`: no
+/// `hits.json`, or a run not made with [`SELECT`].
 ///
-/// The shared probe cache (`.parity/probe-cache/<sha>/<build>/`) is deliberately not read: it
-/// accumulates the dumps of every agent's runs under one patched-source key, and its
-/// `hits.json` names only the latest run's.
+/// The pre-SelectionCache probe cache (`.parity/probe-cache/<sha>/<build>/`) is not read: it
+/// accumulates the dumps of every run under one patched-source key, and its `hits.json` names
+/// only the latest run's.
 fn hit_pairs(dir: &Path) -> Result<BuildPairs, String> {
     let hits_path = ["hits.json", "hits.json.zst"]
         .iter()
@@ -437,9 +457,12 @@ fn hit_pairs(dir: &Path) -> Result<BuildPairs, String> {
 
 fn run_build(xml: &Path, t: &mut Tally, seen: &mut HashSet<u64>, verbose: bool) {
     let stem = stem(xml).to_owned();
-    let Some(dir) = owned_root().map(|r| r.join(&stem)).filter(|d| d.is_dir()) else {
-        t.no_dumps.push(stem);
-        return;
+    let (dir, _held) = match run_dir(xml, &stem) {
+        Ok(d) => d,
+        Err(e) => {
+            t.no_dumps.push(format!("{stem} ({e})"));
+            return;
+        }
     };
     let bp = match hit_pairs(&dir) {
         Ok(bp) => bp,

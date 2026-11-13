@@ -1,7 +1,9 @@
 # CCR-0140: the exporter's two gaps behind CS2's explained buckets
 
+**Status: rejected (CCRDOC, 2026-11-12): not built. `probe.rs` still exports a bare `LjIntMap<NodeRef>` as `{"$userdata": true}`, and CS2's L4 test excuses both buckets within its measured `EXPLAINED_MAX`. This is test-only; FOLLOWUPS "CCRDOC" 11 names the owner.**
+
 Unit: **FUP3** (oracle hygiene, FOLLOWUPS "CS2" 3; owner of the change: ORC-X / ORC-X2, the
-owners of `crates/pob-calc-core/src/probe.rs`). Status: **pending**. FUP3 is limited to
+owners of `crates/pob-calc-core/src/probe.rs`). Filed status: **pending**. FUP3 is limited to
 `crates/pob-oracle` (no product-code changes), so it could not close these gaps itself; CS2's
 bounds stay where they are (see §3). Number reserved with `scripts/port/next_ccr.sh`.
 

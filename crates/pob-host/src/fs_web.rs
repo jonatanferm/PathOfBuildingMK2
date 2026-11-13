@@ -10,7 +10,12 @@
 //! `build_store_wasm.rs` keeps its payloads.
 //!
 //! Reads of files the tree does not hold fall back to the fetched VFS of PoB's `src/`
-//! (`io.open` of a script-relative path; SG has `chdir`ed into the script directory).
+//! (`io.open` of a script-relative path; SG has `chdir`ed into the script directory), and a
+//! search (`NewFileSearch`) of a directory under `src/` lists the VFS's files there too: on
+//! desktop both see the same disk. (Without the second, the tree view's `LoadImage` probe of
+//! `TreeData/<version>/` found nothing, so every sprite sheet of the version directory was
+//! requested as `TreeData/<sheet>`, which the VFS does not hold: the sync loads failed and the
+//! node icons drew as the default texture's grey, U53.)
 //!
 //! DIVERGENCE(web storage): a write that reaches IndexedDB fails only asynchronously (quota,
 //! private mode); the error is logged and the in-memory tree keeps the change.
@@ -149,6 +154,10 @@ fn now_ticks() -> i64 {
 /// The browser's file system: [`MemFs`] persisted into IndexedDB.
 pub struct WebFs {
     pub tree: MemFs,
+    /// The fetched files of PoB's `src/` (read-only; see the module docs).
+    vfs: Vfs,
+    /// `src/`'s absolute path with a trailing `/` (the VFS keys are relative to it).
+    vfs_prefix: String,
 }
 
 impl WebFs {
@@ -179,12 +188,53 @@ impl WebFs {
             tree.on_change = Box::new(move |c| persist(&db, &c));
         }
         let prefix = format!("{}/", tree.normalize(""));
+        let (fallback_vfs, fallback_prefix) = (vfs.clone(), prefix.clone());
         tree.fallback = Box::new(move |p| {
-            let rel = p.strip_prefix(&prefix)?;
-            vfs.borrow().get(rel).cloned()
+            let rel = p.strip_prefix(&fallback_prefix)?;
+            fallback_vfs.borrow().get(rel).cloned()
         });
         tree.make_dir_all(user_path);
-        WebFs { tree }
+        WebFs {
+            tree,
+            vfs,
+            vfs_prefix: prefix,
+        }
+    }
+
+    /// The VFS entries a search of `spec` lists (files, or the directories the keys imply),
+    /// except those named in `have` (the tree's own entries win).
+    fn vfs_search(&self, spec: &str, find_dirs: bool, have: &[FileEntry]) -> Vec<FileEntry> {
+        let Some((dir, pattern)) = crate::search_split_spec(spec) else {
+            return Vec::new();
+        };
+        let abs = format!("{}/", self.tree.normalize(dir).trim_end_matches('/'));
+        // (`src/` itself gives "")
+        let Some(rel) = abs.strip_prefix(&self.vfs_prefix) else {
+            return Vec::new();
+        };
+        let mut out: Vec<FileEntry> = Vec::new();
+        for (key, data) in self.vfs.borrow().iter() {
+            let Some(rest) = key.strip_prefix(rel) else { continue };
+            let (name, is_dir) = match rest.split_once('/') {
+                Some((d, _)) => (d, true),
+                None => (rest, false),
+            };
+            if name.is_empty()
+                || is_dir != find_dirs
+                || !crate::glob_match(pattern, name)
+                || have.iter().any(|e| e.name == name)
+                || out.iter().any(|e| e.name == name)
+            {
+                continue;
+            }
+            out.push(FileEntry {
+                name: name.to_owned(),
+                is_dir,
+                size: if is_dir { 0 } else { data.len() as u64 },
+                modified: 0,
+            });
+        }
+        out
     }
 }
 
@@ -196,7 +246,13 @@ impl Fs for WebFs {
         self.tree.write(path, data)
     }
     fn search(&self, spec: &str, find_dirs: bool) -> Vec<FileEntry> {
-        self.tree.search(spec, find_dirs)
+        let mut out = self.tree.search(spec, find_dirs);
+        let extra = self.vfs_search(spec, find_dirs, &out);
+        if !extra.is_empty() {
+            out.extend(extra);
+            crate::sort_file_entries(&mut out);
+        }
+        out
     }
     fn make_dir(&mut self, path: &str) -> std::io::Result<()> {
         self.tree.make_dir(path)

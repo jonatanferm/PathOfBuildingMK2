@@ -14,9 +14,10 @@
 //!   state must equal the `:out#n` dump (the env, the GlobalCache and the call's arguments;
 //!   §9.2 tolerance). The builds are `corpus/SK-B/builds/*.xml` (`corpus/SK-B/gen.py`: one
 //!   minimal build per skill and skill part with a weapon the skill can use); each is probed
-//!   with `--select skill:*` into `target/tmp/skb-probe/<stem>/`, which keeps every env's
-//!   hits: MAIN (no breakdown) and CALCS (with a breakdown). A Rust panic (`LuaError`) passes
-//!   only when PoB raised too (an `:in` without its `:out`). A dump whose hook reaches another
+//!   with `--select skill:*` into the shared, content-keyed probe cache
+//!   (`testkit::probe_selection`; CK1, CCR-0146 §4), which keeps every env's hits: MAIN (no
+//!   breakdown) and CALCS (with a breakdown). A Rust panic (`LuaError`) passes only when PoB
+//!   raised too (an `:in` without its `:out`). A dump whose hook reaches another
 //!   unit's `unported!` stub (ExplosiveArrow calls OF-A's `calcSkillDuration`) is reported as
 //!   blocked, not compared; once that body lands it is compared like the others.
 //!
@@ -122,35 +123,30 @@ fn stem(p: &Path) -> &str {
     p.file_stem().and_then(|s| s.to_str()).unwrap_or_default()
 }
 
-/// The `skill:*` dumps of a build (every env), probed when absent.
+/// The `skill:*` dumps of a build (every env): the shared probe cache's entry of that selection
+/// on the unpatched-stages copy, probed in a fresh `pob_oracle probe` process when absent
+/// (`testkit::probe_selection`, `runner::SelectionCache`). CK1 (CCR-0146 §4): the entry is
+/// content-keyed (the patched source's sha, which covers the patcher and the dump/probe Lua; the
+/// build's BLAKE3; the selection and dump cap; the probe's Rust code), so a harness, dump-format
+/// or PoB change probes again. The earlier `target/tmp/skb-probe/<stem>/` directory was reused
+/// whenever it held a `hits.json`, whatever made it. Hold the result while reading the dumps.
 #[cfg(feature = "luajit")]
-fn probe_dumps(xml: &Path, patched: &Path) -> Option<PathBuf> {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("skb-probe")
-        .join(stem(xml));
-    if dir.join("hits.json").is_file() {
-        return Some(dir.join("state"));
-    }
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).ok()?;
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-        .arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(&dir)
-        .arg("--patched")
-        .arg(patched)
-        .args(["--select", "skill:*", "--no-provenance"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::fs::File::create(dir.with_extension("log")).ok()?)
-        .status()
-        .ok()?;
-    status.success().then(|| dir.join("state"))
+fn probe_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    let opts = pob_oracle::runner::ProbeOptions {
+        select: vec!["skill:*".to_owned()],
+        // the `pob_oracle probe` default the earlier private run used
+        max_dumps: 200,
+        provenance: false,
+    };
+    testkit::probe_selection(Path::new(env!("CARGO_BIN_EXE_pob_oracle")), xml, None, &opts)
 }
 
 /// `skill:<skill>:<hook>:in#<n>` → (`data.skills.<skill>.<hook>`, n).
 fn hit_row(file: &str) -> Option<(String, String)> {
-    let name = file.strip_suffix(".json")?;
+    // a cache entry's dumps are `<hit>.json.zst`, an uncached run's (`POB_QUERY_CACHE=off`) plain
+    let name = file
+        .strip_suffix(".json.zst")
+        .or_else(|| file.strip_suffix(".json"))?;
     let rest = name.strip_prefix("skill:")?;
     let (probe, n) = rest.split_once(":in#")?;
     let (skill, hook) = probe.rsplit_once(':')?;
@@ -286,15 +282,16 @@ fn skb_hooks_match_oracle() {
     if !testkit::init_default_data() {
         return skip("no data dump (data/dump)");
     }
-    let Some(src) = pob_oracle::oracle::find_pob_src() else {
+    if pob_oracle::oracle::find_pob_src().is_none() {
         return skip("no PoB checkout");
-    };
+    }
+    if pob_oracle::oracle::find_parity_dir().is_none() {
+        return skip("no .parity directory (the probe cache)");
+    }
     let builds = builds();
     if builds.is_empty() {
         return skip("no corpus/SK-B/builds/*.xml");
     }
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("skb-oracle-src");
-    let patched = pob_oracle::patcher::patch(&src, None, &root).expect("patch PoB");
     let verbose = std::env::var_os("SKB_VERBOSE").is_some();
     let sk_b: BTreeSet<&str> = rows().map(|r| r.id).collect();
     let mut per_hook: BTreeMap<String, Tally> = BTreeMap::new();
@@ -302,9 +299,12 @@ fn skb_hooks_match_oracle() {
     let mut failed = Vec::new();
     for xml in &builds {
         let stem = stem(xml);
-        let Some(state) = probe_dumps(xml, &patched.src) else {
-            probe_failed.push(stem.to_owned());
-            continue;
+        let state = match probe_dumps(xml) {
+            Ok(s) => s,
+            Err(e) => {
+                probe_failed.push(format!("{stem}: {e}"));
+                continue;
+            }
         };
         let mut files: Vec<String> = std::fs::read_dir(&state)
             .map(|r| {

@@ -3,7 +3,8 @@
 //!
 //! For every build of the corpus (all57 `.parity/builds/*.xml`, slice5
 //! `corpus/U0/slice5/*.xml` and the unit corpus `corpus/OF-E/*.xml`, slice5
-//! builds with custom modifiers for the crit branches, see its `derive.py`) and every pass `p` of the main env's offence call
+//! builds with custom modifiers for the crit branches, see its `derive.py`) and every pass `p` of
+//! every `calcs.offence` call the probe run dumped (every env)
 //! that has both dumps, inject `offence:2607#p`, run the Rust segment
 //! (`pob_calc::probe::run_segment`) and diff the env and the ctx / pass locals
 //! against `offence:3346#p` (§9.2 tolerance).
@@ -21,9 +22,12 @@
 //! reproduce, and every other hit that reached no foreign stub matches PoB
 //! exactly (`failed == 0`).
 //!
-//! Inputs: the probe cache (`scripts/port/oracle.sh run --build X.xml --stage
-//! offence:2607@main,offence:3346@main`, plus `offence:2607#<p>,offence:3346#<p>`
-//! for the off-hand pass), `data/dump`. A missing input fails unless
+//! Inputs: one `pob_oracle probe` run per build selecting every hit of
+//! `offence:2607*,offence:3346*,offence:3957*,offence:4155*` under `docs/port/stages.toml` (OF-F's
+//! selection, so the two tests share the entry), from the shared probe cache
+//! (`testkit::probe_dumps`, CK2: keyed by the patched source, the build's bytes, the selection and
+//! the probe code; probed here when absent); every `offence:2607#p` with its `offence:3346#p` is
+//! a case. `data/dump`. A missing input fails unless
 //! `POB_ALLOW_SKIP=1`. Knobs: `OFE_BUILDS=stem1,stem2`, `OFE_VERBOSE=1`.
 
 use std::collections::BTreeMap;
@@ -66,6 +70,9 @@ fn corpus(parity: &Path) -> Vec<PathBuf> {
 }
 
 /// The `n` of every `offence:2607#n` dump present for a build.
+/// The probe selection (OF-F's, module docs).
+const SELECT: &[&str] = &["offence:2607*", "offence:3346*", "offence:3957*", "offence:4155*"];
+
 fn pass_hits(dirs: &[PathBuf]) -> Vec<u64> {
     let mut ns = std::collections::BTreeSet::new();
     for d in dirs {
@@ -226,7 +233,19 @@ fn ofe_l4_pass_crit() {
     let mut missing: Vec<String> = Vec::new();
     for xml in &builds {
         let stem = stem(xml);
-        let dirs = testkit::dump_dirs(stem, Some(xml));
+        let held = match testkit::probe_dumps(
+            Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+            xml,
+            Some(&testkit::default_stages()),
+            &testkit::selection(SELECT),
+        ) {
+            Ok(d) => d,
+            Err(e) => {
+                missing.push(format!("{stem} (probe failed: {e})"));
+                continue;
+            }
+        };
+        let dirs = held.dirs().to_vec();
         let ns = pass_hits(&dirs);
         if ns.is_empty() {
             missing.push(stem.to_owned());

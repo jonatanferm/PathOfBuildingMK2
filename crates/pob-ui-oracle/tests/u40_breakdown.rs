@@ -198,6 +198,10 @@ fn rust_stubs() {
         h.add_item_tooltip = Rc::new(|cx, tooltip, item, _slot| {
             tooltip.add_line(cx, 16.0, &format!("^7{}", item.name.get()));
         });
+        // the Lua side's `nodeViewer = { Draw = function() end }` (no `highlightRing`); the
+        // defaults are U23's viewer since the cut-over (CCR-0145 §5)
+        h.node_viewer_draw = Rc::new(|_, _, _, _, _, _| {});
+        h.node_viewer_highlight_ring = Rc::new(|_, _| None);
     });
 }
 

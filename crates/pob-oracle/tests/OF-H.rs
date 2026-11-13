@@ -13,9 +13,10 @@
 //!
 //! **Dumps.** An in/out pair must come from one PoB process (PoB's `pairs` order differs between
 //! processes, and other units refill the shared probe cache). The test probes every build itself
-//! (`pob_oracle probe`, which takes the machine-wide oracle lock) into
-//! `$CARGO_TARGET_TMPDIR/OF-H/<stem>/` and reuses that directory while it is complete (delete it
-//! to refresh). Selection: the main env's first hit of each of the three probes plus `#1..#12`.
+//! (`pob_oracle probe`, which takes the machine-wide oracle lock) into its own entry of the
+//! content-keyed selection cache (`testkit::probe_selection`: one run per entry, keyed by the
+//! patched source, the build and the selection; CK1, CCR-0147), reused while the key holds
+//! (`POB_QUERY_CACHE=refresh` probes again). Selection: the main env's first hit of each of the three probes plus `#1..#12`.
 //!
 //! **State a dump does not carry** is set by `probe::run_segment` (ORC-X2): the plain `passList`
 //! table is accepted as the ctx field (CCR-0036), `globalOutput`/`globalBreakdown`
@@ -97,19 +98,15 @@ fn stem(p: &Path) -> &str {
     p.file_stem().and_then(|s| s.to_str()).unwrap_or_default()
 }
 
-/// The build's dumps from one `pob_oracle probe` run (made on first use).
-fn ensure_dumps(xml: &Path, stem: &str) -> Result<PathBuf, String> {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("OF-H")
-        .join(stem);
-    let state = dir.join("state");
-    let done = dir.join("complete");
-    if done.is_file() {
-        return Ok(state);
-    }
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let stages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/port/stages.toml");
+/// The build's dumps: the shared probe cache's entry of the selection on the copy patched with
+/// `docs/port/stages.toml`, probed in a fresh `pob_oracle probe` process when absent
+/// (`testkit::probe_selection`, `runner::SelectionCache`). CK1 (CCR-0146 §4, CCR-0147): the
+/// entry is content-keyed (the patched source's sha, which covers the stages file, the patcher
+/// and the dump/probe Lua; the build's BLAKE3; the selection and dump cap; the probe's Rust
+/// code), so a harness, dump-format or PoB change probes again. The earlier
+/// `$CARGO_TARGET_TMPDIR/OF-H/<stem>/` was reused whenever it held a `complete` marker, whatever
+/// made it. Hold the result while reading the dumps.
+fn ensure_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
     let mut sel: Vec<String> = ["4165", "4990", "5650"]
         .iter()
         .map(|l| format!("offence:{l}@main"))
@@ -119,27 +116,19 @@ fn ensure_dumps(xml: &Path, stem: &str) -> Result<PathBuf, String> {
             sel.push(format!("offence:{l}#{k}"));
         }
     }
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"));
-    cmd.arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(&dir)
-        .arg("--stages")
-        .arg(&stages)
-        .arg("--select")
-        .arg(sel.join(","))
-        .arg("--no-provenance")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    if let Some(src) = pob_testpaths::pob_src() {
-        cmd.arg("--pob").arg(src);
-    }
-    let status = cmd.status().map_err(|e| format!("pob_oracle probe: {e}"))?;
-    if !status.success() {
-        return Err(format!("pob_oracle probe {} failed ({status})", xml.display()));
-    }
-    std::fs::write(&done, b"").map_err(|e| format!("{}: {e}", done.display()))?;
-    Ok(state)
+    let opts = pob_oracle::runner::ProbeOptions {
+        select: sel,
+        // the `pob_oracle probe` default the earlier private run used
+        max_dumps: 200,
+        provenance: false,
+    };
+    let stages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/port/stages.toml");
+    pob_oracle::testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&stages),
+        &opts,
+    )
 }
 
 /// Every dump of the three probes in `dir`, keyed by (probe, n).
@@ -341,7 +330,7 @@ fn ofh_l4_ignite_nondamaging_impale() {
     let mut missing = Vec::new();
     for xml in builds() {
         let stem = stem(&xml).to_owned();
-        let state = match ensure_dumps(&xml, &stem) {
+        let state = match ensure_dumps(&xml) {
             Ok(s) => s,
             Err(e) => {
                 missing.push(format!("{stem}: {e}"));

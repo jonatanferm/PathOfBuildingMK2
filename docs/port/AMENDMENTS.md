@@ -80,7 +80,7 @@ gamma box filter §4.5 used to ask for was wrong).
 - **Build env.** `export CARGO_BUILD_JOBS=3 RUSTC_WRAPPER=$HOME/.cargo/bin/sccache`
   (sccache is installed there; it is not on PATH). Per-worktree target dir (the default).
   Use `scripts/port/cargo.sh` / `scripts/port/oracle.sh` (P4; they flock one compile and
-  one LuaJIT oracle machine-wide and export the env above).
+  at most `$POB_ORACLE_SLOTS` LuaJIT oracles machine-wide, default 1, CCR-0127, and export the env above).
 - **Gitignored inputs** are absent from worktrees; use absolute paths into the main
   checkout `/home/ferm/Work/projects/PathOfBuildingMK2/{.PathOfBuilding,data,.parity}`
   (read-only unless the unit owns an output there).
@@ -280,7 +280,9 @@ Each item names the CCRs, the files to change, and the local workarounds to dele
     `grantedEffect.hasGlobalEffect` from data, not `skill_stat_map::hasGlobalEffect` (CCR-0091 §3);
     no reader of `grantedEffectLevel.cost` (`calc_offence/costs_passes.rs`,
     `calc_perform/pools_charges.rs`) consults `skills_tab::levelCostCleared` (CCR-0019 §8). The
-    calc doc §4.4 table states the rule these sites break.
+    calc doc §4.4 table states the rule these sites break. (Closed since: both cost readers consult
+    `levelCostCleared`, INT-1F-A, CCR-0133; `Item:Craft` with a fractional `statOrder` no longer
+    raises, `Key::F`, FUP1, CCR-0102; A14.)
 12. **Unit-owned frozen stub signatures** (callers compile against the delegating frozen fn
     today): `calcRadiusBreakpoints -> (Option<f64>, …)` (CCR-0041 §1, 0043; OF-B drops its
     wrapper); `mergeBuff(src: &Val, …)` (CCR-0085 §1, 0079 §6, 0094 §4; PF-C/E/F drop their copies);
@@ -555,9 +557,10 @@ not `env.player`) alive in `newSkill.extra["summonSkillKeep"]` (`summonSkillKeep
 CCR-0113's `actorKeep`; it closes no cycle (the summoning skill never reaches the copy). Test:
 `crates/pob-calc/tests/leak1_cycles.rs` (a CALCULATOR env, and the envs a recalc replaces, incl.
 every `GlobalCache` entry's: 0 survivors on allflame_exp_039, _007, _001, _000). Two
-build-level cycles remain (CCR-0142, pending: `Env.build`/`MiscCalculator.build` ↔
-`calcsTab`, and `ActiveSkill.socketGroup` ↔ `SocketGroup.displaySkillList(Calcs)`); they leak
-a dropped build or a deleted socket group, not a recalc. The web calc worker, which drops a build
+build-level cycles remain (CCR-0142, decided by CCRDOC in A14: §3 A applied, §3 B open and not built:
+`Env.build`/`MiscCalculator.build` ↔ `calcsTab`, and `ActiveSkill.socketGroup` ↔
+`SocketGroup.displaySkillList(Calcs)`); they leak a dropped build or a deleted socket group, not a
+recalc. The web calc worker, which drops a build
 per request, breaks both locally (`worker_web.rs` `run_request`, CCR-0142 §3 A; gate
 `build_teardown_frees_everything_ccr0142` in the same test file); the general teardown is
 CCR-0142 §3 B. Timing (`perf_bench.sh`, bench profile, 3 rounds, load average 6-12, Rust-only runs of
@@ -566,3 +569,152 @@ rust-port b9888df vs LEAK1, output and power digests identical): power report al
 50.9 ms (+7-9 %): freeing the graphs costs what the leak saved (CCR-0135 §4). RSS after one power
 report 2,770 → 691 MB and 2,033 → 452 MB. With LuaJIT in the same run, LEAK1 stays below it
 (power 0.73 / 0.71, recalc 0.77 / 0.81).
+
+## A13. INT-4: legacy crates retired (2026-11-12)
+
+The last calc row (calc doc §11.1 INT-4), after U53's cut-over (the product UI is `pob-app` on
+`RustCalc`; `crates/pob-ui` and the legacy apps were already deleted, CCR-0145 §6).
+
+**Deleted.** `crates/pob-engine`, `crates/pob-data` and `crates/pob-extract`. Before deleting:
+`cargo tree --workspace -i pob-engine -e normal,dev,build` and `-i pob-data` listed only
+`pob-extract` (and pob-engine for pob-data); `-i pob-extract` listed nothing; a grep for
+`pob_engine`, `pob_data`, `pob-extract` over `crates/`, `app/` and `scripts/` found no other
+user, and no remaining crate reads the files pob-extract wrote (`data/*.json`, `data/trees`,
+`data/skills`, `data/timeless`, the `data/pob/` runtime copy: the app reads `data/dump/` and PoB's
+`src/`; only the lua2rs tests still accept an existing `data/pob/` as a fallback for
+`.PathOfBuilding`). So nothing was ported or redirected; pob-extract went with the two crates
+(A1 already made `pob-dump` the data tool). Also deleted: `scripts/parity/run.sh` (ran
+pob-extract's `pob_diff`; `report.py` stays, `pob_calc_diff` writes its input), CI's engine
+build/test/clippy jobs and its manual `pob_diff` job, and the workspace keys only the deleted
+crates or the deleted egui app used (`pob-engine`, `pob-data`, `thiserror`, `base64`,
+`quick-xml`, `eframe`, `egui`, `rfd`, `wgpu = "22"`). CI's calc job now runs the `mlua` gate below,
+a wasm32 check of the calc crates and the pob-lua / pob-gamedata / pob-modparser tests
+(`POB_ALLOW_SKIP=1`; not run on GitHub by INT-4).
+
+**`pob-luahost` stays, dev-only.** It is `crates/pob-oracle` (A1). The oracle tests need it, and
+so does pob-ui-oracle (`jit::PRELUDE`/`install_natives` in `boot.rs`, `headless` and `jit` in
+`LuaCalcBridge`), so it is kept as a dev-only crate (its manifest description and README say so).
+No shipping package depends on it or on pob-ui-oracle: `cargo tree -e normal` of pob-calc,
+pob-app, pob-desktop and pob-web lists neither. Its `worker` module (the legacy app's calc
+thread) is now used only by `tests/worker_smoke.rs`, and its `mod_parser` module by nothing
+(its input `data/lua/modparser_env.lua` was written by `pob_diff --dump-modparser-env`, now
+deleted; a doc note in `mod_parser.rs` says so). Removing those, and the pure-Rust interpreter
+`lua/` that `headless` boots, is a pob-oracle change left to its owner.
+
+**Gates (measured on port/INT-4).**
+
+| `scripts/port/cargo.sh tree -p <p> -e normal \| grep -c mlua` | count |
+|---|---|
+| pob-calc | **0** |
+| pob-lua, pob-gamedata, pob-modparser, pob-calc-{core,setup,config,defence,offence,perform} | 0 each |
+| pob-sg, pob-sg-wgpu, pob-host, pob-ui-core | 0 each |
+| **pob-app**, **pob-desktop**, **pob-web** (shipped products) | **0, 0, 0** |
+| pob-app, pob-web with `--target wasm32-unknown-unknown` | 0, 0 |
+| pob-desktop `--features lua-calc` (non-default, dev: LuaCalcBridge) | 3 |
+
+So the `POB_UI_CALC=lua` bridge is already behind a non-default feature (pob-desktop's `lua-calc`,
+`dep:pob-ui-oracle`); nothing had to move. `mlua` remains a normal dependency only of the dev and
+build-time crates (pob-oracle under its `luajit` feature, pob-ui-oracle, pob-dump) and a
+dev-dependency of pob-lua, pob-calc and pob-ui-core. `cargo check --target wasm32-unknown-unknown`
+of the 16 runtime packages (pob-lua, pob-gamedata, pob-modparser, the six calc crates and
+pob-calc, pob-sg, pob-sg-wgpu, pob-host, pob-ui-core, pob-app, pob-web) is green (7 dead-code
+warnings in `pob-calc-perform/src/modules/power.rs`, wasm32 only: the parallel power report is
+native-only; pre-existing). docs/port/testing.md "Runtime and dev-only crates" lists the commands.
+
+**Tests.** `scripts/port/cargo.sh check --workspace --tests`: green, 0 warnings. Quick corpus
+(`.parity-quick`, 14 builds), `cargo.sh test -p pob-oracle --test CA`: 5 passed, 0 failed (L6
+headline 182/182, all keys 11,990/11,990, CALCS lists 42/42, used-tracking 126/126, misc
+308/308, 0 Rust errors; L5 used-tracking and CALCS lists 14/14 clean; D13 19/19 fixed points, 0
+Lua errors). `cargo.sh test -p pob-ui-oracle --test u53_e2e`: 1 passed (27 runs, 1,668,755 Lua draw ops, 0 T3
+divergences, T4 33 pairs identical, 0 failed; 317 s, peak RSS 1,450 MB).
+
+**Docs.** calc doc D4, D18, §2 rules 2 and 5, the INT-4 row; ui doc D1, D16, §3 and the U53 row
+(CCR-0145 §6, now applied); STATUS.md (port and root), testing.md, README.md, packaging.md, and
+history notes on docs/divergences.md, docs/parity-plan.md and ADR 0001.
+
+## A14. CCRs 0043-0145 decided by CCRDOC (2026-11-12)
+
+Every planned row of both unit tables is merged (U51 Trade excepted, deferred by the user).
+CCRDOC gave each CCR file that had no final status one, checked against the code on `rust-port`
+`f0ef34a`, and brought the binding docs to the code as built. Each CCR file's first status line
+names the merge commit of the code it describes. The decisions:
+
+- **applied**: the binding text follows the code. For a UI "seams" CCR this means: the hook
+  table, trait or representation it declared exists, and its owners' one-line installs were
+  made (ui doc §10.5 lists the tables).
+- **rejected (not built)**: a proposal nobody implemented. The local workaround the CCR names is
+  the as-built design and stays. Where the difference is visible in the product, FOLLOWUPS
+  "CCRDOC" lists it.
+- **superseded**: a later CCR or unit replaced it.
+- **open**: a fix for a real defect that is not built yet (only CCR-0142 §3 B); FOLLOWUPS
+  "CCRDOC" tracks it.
+
+Most UI CCRs mix the two kinds: the seams were applied, and their requests to other owners (a
+re-export, a `pub fn`, a shared helper) were not built.
+
+| CCR | Unit | Decision | Binding text changed / not built |
+|---|---|---|---|
+| 0043 | OF-B | rejected | calc doc §7.2 (`calcRadiusBreakpointsOpt` + the frozen NaN shape) |
+| 0044 | OF-B | applied in part (A9), rest rejected | calc doc §9.2 (the per-unit seams are the mechanism; no `segment_diff_with_replay`) |
+| 0068 | DF-D | superseded (withdrawn; DF-A) | — |
+| 0088 | U15 | §2 applied (unused), §1 rejected | ui doc §10.4 (`adopt_build_output`/`Rebind`) |
+| 0095 | PF-B | applied (§1 A10, §4, §2 now); §3 rejected | calc doc §3.2 + STYLE.md (trailing `Override`) |
+| 0096 | U16 | applied; §C rejected | ui doc §10.1 (`Mode`, `MainState`), §10.2, §10.5 |
+| 0097 | CA | applied | calc doc §3.2 + STYLE.md (Flag in a table), §5.10, §9.2 |
+| 0098 | U19 | applied; §2, §4, §6 rejected | ui doc §10.1 (`BuildState`), §10.5 |
+| 0099 | U17 | §A applied (U23); §B rejected | FOLLOWUPS "CCRDOC" 1 (LIST not rebuilt after Options Save) |
+| 0100 | U18 | applied; §A deletion superseded (test seam kept) | ui doc §10.1, §10.5 |
+| 0101 | PWR | applied (typed fields not added) | calc doc §5.10; contracts#model-census |
+| 0102 | FUP1 | applied | calc doc §5.1 (`Key::F`); STYLE.md; A8 item 11 note |
+| 0103 | U21 | applied; §3-§5 rejected | ui doc §10.5 |
+| 0104 | U20 | applied; §4, §6 rejected | ui doc §10.5 |
+| 0105 | CS2 | applied as `override.extra` keys; typed field rejected; §2-§3 superseded (A10) | calc doc §5.4; contracts#model-census |
+| 0106 | U22 | applied; §4 clean-ups not done | ui doc §10.5; FOLLOWUPS "CCRDOC" 9 |
+| 0107 | U32 | applied; §2-§5 rejected | ui doc §10.5, §13 item 15 |
+| 0108 | U29 | applied | ui doc U29 row, §13 item 15 (StatDescriber, `itemLib.wiki`) |
+| 0109 | U43 | applied; §1/§3 as frozen changes, §4, §6, §8-§10 rejected | ui doc §10.1, §10.5, U43/U44 rows, §13 item 15; FOLLOWUPS "CCRDOC" 2, 3 |
+| 0110 | U41 | applied | ui doc §10.5 (var-controls rule), §12.1 (tab `Widget` impl), U42 row |
+| 0111 | U39 | applied | ui doc §10.5 |
+| 0112 | U28 | applied; §2 move not done | ui doc §10.5, §13 item 15 |
+| 0113 | INT-1-A | applied as `extra["actorKeep"]`; typed field rejected | calc doc §3.3 rule 4 + STYLE.md; contracts#model-census |
+| 0114 | U45 | applied; shared `Inflate`, §4, §6 not built | ui doc §10.5, §13 item 15 |
+| 0115 | U23 | applied; §B rejected | ui doc §10.2, §10.5 |
+| 0116 | U40 | applied | ui doc §10.5 |
+| 0117 | U44 | applied; §2, §5, §8 rejected | ui doc §10.2, §10.5 |
+| 0118 | U30 | applied | ui doc §10.5 |
+| 0119 | U31 | applied | ui doc §10.5 |
+| 0120 | U33 | applied; §3 rejected | ui doc §10.5, §12.1 |
+| 0121 | U42 | applied; §1 marker fix and §6 patch not done | FOLLOWUPS "CCRDOC" 6 |
+| 0122 | U24 | applied; §1, §2 not built | FOLLOWUPS "CCRDOC" 4 |
+| 0123 | U25 | applied; §3, §4 kept as divergences; §9 rejected | ui doc §10.3 (one undo stack per spec), §10.5 |
+| 0124 | U35 | applied | FOLLOWUPS "CCRDOC" 10 (§5 finding) |
+| 0125 | U38 | applied with its workarounds; §1 fix, §3, §5, §6 not built | contracts#model-census (temp ids); FOLLOWUPS "CCRDOC" 9 |
+| 0126 | U34 | applied; §4 hook not built (DIVERGENCE(load-tail)) | ui doc §10.5 |
+| 0127 | TP1 | slots applied (default 1); default 3 rejected | calc doc D20; A5; ui doc §11.3 |
+| 0128 | TP1 | rejected (not built) | calc doc §9.2; testing.md "Open" |
+| 0129 | U37 | applied; §1, §3 patch not built | ui doc §10.5 |
+| 0130 | U36 | applied | ui doc §10.5 |
+| 0132 | U27 | applied; §2 param, §4 bridge, §5, §6 shared helper not built | calc doc §5.4 (pseudo node); ui doc §10.5, §13 item 15 |
+| 0133 | INT-1F-A | applied (both cost readers) | calc doc §4.4; A8 item 11 note |
+| 0134 | U54 | applied; §3-§5 not built | ui doc §10.4 (`WorkerCalc`) |
+| 0136 | U46 | applied | ui doc §10.5, §12.1 |
+| 0137 | U47 | applied; §1, §2 not built | ui doc §10.5; FOLLOWUPS "CCRDOC" 5 |
+| 0138 | U48 | applied; §1 switch, §3 deletion not done | FOLLOWUPS "CCRDOC" 9 |
+| 0140 | FUP3 | rejected (not built; test-only) | FOLLOWUPS "CCRDOC" 11 |
+| 0141 | FUP2 | applied (amends CCR-0091 §6: a jewel closure prints `function: 0x` + an FNV-1a hash of its spec, `mod_tools::function_text`) | — |
+| 0142 | LEAK1 | §3 A applied; §3 B open (a real desktop leak, not built) | calc doc §3.3 rule 4 + STYLE.md; A12; FOLLOWUPS "CCRDOC" 7 |
+| 0143 | U49 | applied; §2-§4 not built | ui doc §10.5, §13 item 15; FOLLOWUPS "CCRDOC" 4 |
+| 0144 | U50 | applied | ui doc §10.5 |
+| 0145 | U53 | applied (§6 by INT-4); §4 typed field rejected | ui doc §10.3, §10.4, §10.5, §11.3; contracts#model-census |
+
+CCR-0131 (applied by CSPLIT, A11), 0135 (A12), 0139, 0146 and 0147 already had a final status,
+as did the other CCRs of 0001-0094 (A7, A8, A10; 0089 applied by HYG3). Every file in `docs/port/ccr/` now carries one. The A8 "Needs code" list is CCR2's record
+of 2026-11-10. CCRDOC re-checked only the items that belong to the CCRs above (0043, 0044, 0088;
+item 11's two clauses noted there). The other items of CCRs 0014-0094 keep the status CCR2, ORC-X2
+(A9) or RETYPE (A10) gave them.
+
+**The UI boundary as built.** The ui doc §10.2 rule "pob-app names model and calc types only
+through `model.rs`" does not hold: about 48 pob-app files name `pob_calc::…` paths directly, each
+marked with the CCR that asked for the re-export (ui doc §10.2 now says so). No CCR of this batch
+changed a frozen calc type: CCR-0105, 0113 and 0145 §4 kept their Rust-only `extra` keys or
+markers (contracts#model-census lists them).

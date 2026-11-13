@@ -23,12 +23,13 @@
 //! mismatches count. `OFD_STRICT=1` counts blocked and foreign hits as
 //! failures.
 //!
-//! Dumps are probed by this test into `target/tmp/ofd-probe/<stem>/` when
-//! absent (LuaJIT, the machine-wide oracle lock, docs/port/stages.toml):
+//! Dumps come from the shared probe cache (`testkit::probe_selection`), probed by this test
+//! when absent (LuaJIT, the machine-wide oracle lock, docs/port/stages.toml):
 //! every `offence:2174` / `offence:2606` hit of the build load (all envs: the
 //! MAIN env, the CALCS env with breakdowns, the full-DPS and calculator
 //! envs), up to `OFD_MAX_DUMPS` dumps (default 80); with `OFD_MAIN_ONLY=1`
-//! only the main env's pair (`@main`, into `ofd-probe-main/`).
+//! only the main env's pair (`@main`). CK2: only this run's entry is read (no fallback to
+//! the pre-SelectionCache `testkit::dump_dirs`, which served dumps of any patched-source sha).
 //!
 //! Knobs: `OFD_BUILDS=stem1,stem2`, `OFD_LIMIT=n`, `OFD_VERBOSE=1` (every
 //! mismatch). A missing input skips with a message; with
@@ -449,8 +450,8 @@ fn run_corpus(title: &str, builds: &[PathBuf], all_hits: bool) -> Option<Tally> 
         if let Some(d) = &probed {
             dirs.push(d.path().to_path_buf());
         }
-        // dumps from `scripts/port/oracle.sh run` (probe cache) also count
-        dirs.extend(testkit::dump_dirs(stem, Some(xml)));
+        // `$POB_PROBE_DIR/<stem>/state/` (explicit override) also counts
+        dirs.extend(testkit::override_dir(stem));
         let Some(state) = dirs.into_iter().find(|d| !pairs(d).is_empty()) else {
             t.missing.push(format!("{stem}: no {STAGE_IN}/{STAGE_OUT} dumps (probe failed or no hit)"));
             continue;

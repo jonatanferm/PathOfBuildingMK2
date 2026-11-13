@@ -1,7 +1,9 @@
 # CCR-0126: U34 ItemsTab B seams
 
+**Status: applied (CCRDOC, 2026-11-12; code `2167f22` Merge port/U34): §1 `CoreHooks` (filled by U35, U38 and U53) and §2; §3 was resolved by U25 (GetSpecList). §4 DIVERGENCE(load-tail) stays: the model hook at ItemsTab.lua:1326 was not built.**
+
 Unit: **U34** (ItemsTab B, `Classes/ItemsTab.lua:1216-1947`, `pob-app/src/tabs/items/core.rs`).
-Status: **pending** (code on `port/U34` follows it). Number reserved with
+Filed status: **pending** (code on `port/U34` follows it). Number reserved with
 `scripts/port/next_ccr.sh`.
 
 ## 1. `CoreHooks`: the methods of U35/U38 that `Draw` and `Load` call

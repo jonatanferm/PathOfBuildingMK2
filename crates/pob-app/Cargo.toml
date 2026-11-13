@@ -18,6 +18,8 @@ pob-calc.workspace = true
 pob-modparser.workspace = true
 pob-gamedata.workspace = true
 indexmap.workspace = true
+# The tree view's asset and sprite maps (U53 perf pass)
+ahash.workspace = true
 # SimpleGraphic's `Inflate` (PartyTab code import, U45; CCR-0114 §3)
 flate2.workspace = true
 # U43 (ImportTab): dkjson.decode, PoEAPI's sha2, SimpleGraphic's Deflate/Inflate (zlib streams).

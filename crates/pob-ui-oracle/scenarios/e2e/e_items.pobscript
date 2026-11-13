@@ -1,0 +1,33 @@
+# U53 e2e: allflame_exp_001 in the Items tab (Ctrl+3): hover the Helmet slot (the item tooltip), open its dropdown and pick None (a recalc), pick the helmet again, hover a ring and the item list, then the build XML.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 560 164
+frames 2
+click LEFTBUTTON
+frames 2
+move 560 184
+frames 1
+click LEFTBUTTON
+frames 3
+move 560 164
+frames 1
+click LEFTBUTTON
+frames 2
+move 560 200
+frames 1
+click LEFTBUTTON
+frames 3
+move 560 274
+frames 2
+move 900 300
+frames 2
+snapshot items
+#! expect-text ^7Helmet:
+#! expect-src Classes/ItemSlotControl.lua
+#! expect-src Classes/Tooltip.lua

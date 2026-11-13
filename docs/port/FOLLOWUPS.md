@@ -386,7 +386,7 @@ Final-review open issues, both resolved in the merge commit's follow-up (listed 
    but 0091 is CT's on rust-port (AMENDMENTS A8). Renamed to
    `docs/port/ccr/0095-pf-b-minion-fields-and-fn-probes.md`; every `CCR-0091` marker in
    `crates/pob-calc/src/modules/calc_perform/actor_b.rs` (8) and `crates/pob-oracle/tests/PF-B.rs`
-   (2) now reads `CCR-0095`. **Still open (U16 / CA / CCR3):** U16 merged with
+   (2) now reads `CCR-0095`. **Resolved since (CCRDOC check, 2026-11-12):** U16's file is `0096-u16-main-mode-seams.md` and CA's `0097-ca-calcs-seams.md`, so only CT holds 0091. The original note: U16 merged with
    `docs/port/ccr/0096-u16-main-mode-seams.md` without renumbering, so 0091 is still held twice on
    rust-port (CT and U16). Per A8, U16 must take the next free number (0096 now that PF-B holds
    0095) and update its markers; CA's in-flight `0091-ca-calcs-seams.md` takes the one after (renamed to `0097-ca-calcs-seams.md` at the CA merge, leaving 0096 for U16).
@@ -512,6 +512,174 @@ Found while running FUP2's acceptance tests (port/FUP2 on rust-port 4c24bc2, 202
      Rust export leaves it out); INT-3 fixed it in its own harness's `norm`, CA.rs's L5 compare
      does not have that normalisation yet.
 
+   **Closed by FUP4** (port/FUP4 on rust-port ae0dc52, 2026-11-12).
+   - fresh_076 is PoB nondeterminism (§9.5), and Rust's order is one PoB takes. The `pairs` site
+     is CalcSetup.lua:1807, `for _, supportGroup in pairs(supportLists[slotName])`: it adds the
+     supports of the other Gloves socket groups to the item-granted Will of the Lords. The table
+     is keyed by socket-group tables, so PoB visits them in address order. This differs between
+     processes. The port already marks the site LUA-ORDER and uses insertion order
+     (`calc_setup/init_env_skills.rs` L1807). The order decides the order of the four
+     `SupportManaMultiplier` MORE mods (Deadly Ailments 40, Trap and Mine Damage 30, Unbound
+     Ailments 20, Swift Assembly 10). ModList.lua `MoreInternal` multiplies them in list order
+     and floors the product to 4 digits (Data.lua:551 highPrecisionMods), and CalcOffence.lua:1713 floors it
+     again. In the orders 30,40,10,20 and 40,30,10,20 the f64 product is 2.4023999999999996, so
+     the floor gives 2.4023 and `ManaCostRaw` is 2.4023 × 24 / 1.26 = 45.758095…. The other
+     22 orders give 2.4024 or 2.4024000000000005, which floor to 2.4024, so `ManaCostRaw` is
+     45.76. Measured in 14 `POB_ENGINE=jit
+     pob_headless` processes, reading the main skill's `effectList` and
+     `Tabulate("SupportManaMultiplier")`: 7 used Trap and Mine, Deadly, Swift, Unbound (30,40,10,20),
+     which is the socket-group order Rust uses, and gave 45.75809523809523. One used 40,30,10,20
+     and also gave 45.758…. Six used 20,30,10,40 or 20,40,30,10 and gave 45.76. Four earlier processes used
+     40,30,20,10, 30,20,10,40, 20,30,10,40 and 20,40,30,10, and all four gave 45.76.
+     `scripts/port/oracle.sh nondet` takes `--fresh` now (every `.parity/fresh/*.xml`; the records
+     go to `.parity/nondet/fresh_NNN.json`). Its run on fresh_076 (`--verify --max-runs 6`, 6
+     processes) recorded exactly one output key, `ManaCostRaw: [45.76, 45.75809523809523]`.
+     `ca_l6_corpus` now reads the record the way `pob_calc_diff outputs` does. A main-output key
+     counts as exact when PoB's value of this run and Rust's value are both recorded PoB values.
+     Each such key is listed in the summary. No tolerance changed. The other 99 fresh builds
+     have no record, because every one of their values is exact against a single PoB run.
+     `.parity` is gitignored, so a checkout without `.parity/nondet/fresh_076.json` fails
+     `ca_l6_corpus` on the fresh corpus whenever its PoB run gives 45.76. Run
+     `scripts/port/oracle.sh nondet --verify --max-runs 6 .parity/fresh/fresh_076.xml` (about 3
+     minutes) or `oracle.sh nondet --fresh` (not run on all 100 builds here) to rebuild it.
+   - The 4 `SkillBuffs` rows: INT-3's H3 normalisation is now a shared helper,
+     `pob_oracle::mod_json::default_empty_tags`. INT-3's `norm` calls it, and so does CA.rs's
+     `canon`, which every L5 row and used-tracking compare goes through.
+   - Measured on port/FUP4 (`POB_FULL_SUITE=1`). `CA_CORPUS_DIR=.parity/fresh`: `ca_l6_corpus` 100
+     builds, 0 Rust errors, headline 1,300/1,300, all keys 85,603/85,603 (fresh_076 `ManaCostRaw`
+     accepted as nondeterministic: PoB's run gave 45.76, Rust gave 45.758…), CALCS lists 300/300,
+     used-tracking 900/900, misc 2,200/2,200. `ca_l5_post`: cost warnings, used-tracking and CALCS
+     lists each 100/100 clean. `ca_d13_fixed_point`: 100/100 fixed points. all57 (no
+     `CA_CORPUS_DIR`, all 5 CA tests): `ca_l6_corpus` headline 741/741, all keys 45,954/45,954 (0
+     values accepted as nondeterministic), CALCS lists 171/171, used-tracking 513/513, misc
+     1,248/1,248, 0 Rust errors; `ca_l5_post` 56/57/57 clean (1 harness-limited, as before);
+     `ca_d13_fixed_point` 62/62. `INT-3` `int3_breakdown_corpus` on fresh_031/_038/_040/_089 with
+     the shared helper: 1,102/1,102 entries equal.
+
+## U53
+
+1. **T6 (real SimpleGraphic under Wine) not run.** Wine is still not installed (AMENDMENTS A5), so
+   the 15-scene SSIM ≥ 0.995 gate of the U53 row is pending. The e2e scenes to use are
+   `crates/pob-ui-oracle/scenarios/e2e/*.pobscript` (T3/T4 green against PoB's Lua with the Rust
+   calc). Owner: U53 follow-up once Wine exists.
+2. **Tree perf gate (< 4 ms at 1080p): closed by U53 fix round 1.** The memoised cluster
+   subgraph connectors (rebuilt every frame before: most of the draw of cluster-jewel builds),
+   ahash for the tree's asset/sprite maps, keys without `format!`/interning, a sprite memo per
+   icon string, and the hover loop's distance test first (CCR-0145 §9). `tests/u53_perf.rs`
+   (asserted in release builds): p50 1.65-2.41 ms, p95 1.86-3.55 ms on the four builds over two
+   runs on the loaded machine (were 2.6-3.7 / 2.7-4.5). Run: `CARGO_PROFILE_RELEASE_LTO=false
+   CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 scripts/port/cargo.sh test --release -p pob-ui-oracle
+   --test u53_perf -- --nocapture`.
+3. **Web: tree node icons as grey squares: closed by U53 fix round 1.** Cause: `WebFs::search`
+   (`pob-host/src/fs_web.rs`) listed only the IndexedDB tree, not the fetched `src/` VFS, so the
+   tree view's `LoadImage` probe of `TreeData/<version>/` found nothing and asked for
+   `TreeData/skills-3.jpg` etc.; the sync loads failed, SG used its default texture (grey
+   0x7F border) with `ImageSize` (0,0), and the sprites' tc (x / 0) sampled its edge: every
+   node icon and mastery was a 127-grey square (pixel-checked). The JPEG decode itself works on
+   wasm32 (checked under node). The search now lists the VFS's files too (CCR-0145 §10).
+   Headless Chromium (release wasm, button-less `mouseMoved`, wheel and clicks over CDP): icons
+   drawn, wheel zoom, hover tooltips with the worker's stat differences, a click allocates.
+4. **Unit harness nil rule (CCR-0145 §7), review note of fix round 1.** 16 unit harnesses accept
+   a Rust `"nil"` gem/group field as the frozen default (`v == "nil"`, was `lua && v == "nil"`),
+   which also hides a Rust nil where PoB writes `false`. `u53_e2e` compares these fields
+   verbatim, so the full app is covered; tightening the unit harnesses (compare nil verbatim now
+   that the model writes it) needs a re-run of all 16. Owner: U53 follow-up.
+
+## BRAND
+
+1. **Update checker (deferred by user).** User decision 2026-11-12: no update checking for now.
+   `launch:CheckForUpdate` / `ApplyUpdate` / the first-run `UpdateCheck` stay stubbed
+   (`crates/pob-app/src/launch.rs`, DIVERGENCE(update-stub), no network), and the main-mode
+   "Check for Update" button is never shown (`crates/pob-app/src/main_mode/init.rs`,
+   DIVERGENCE(update-deferred); UI oracle patch 9 hides it on the Lua side). The port's version
+   is the repo-root `VERSION` file (`YYYY.MM.DD.N`, `scripts/port/bump_version.sh`,
+   `pob_app::launch::PORT_VERSION`), display only: nothing parses or compares it. Closing this
+   needs a user decision on the release feed (where port releases are published, how
+   `YYYY.MM.DD.N` is compared), then a port of the update flow against it and the removal of
+   the `checkUpdate.shown` divergence and of oracle patch 9's checkUpdate entry. Owner: unassigned
+   (user decision pending).
+
+## CCRDOC
+
+Code and doc differences found while deciding CCRs 0043-0145 (AMENDMENTS A14). CCRDOC changed no
+code. Each item was checked by reading the code on `rust-port` `f0ef34a`; none was reproduced in
+the running app. Items 1-5 and 7 differ from PoB in the product; 6, 8, 9 and 11 are hygiene; 10 is
+a sub-pixel draw difference; 12 cannot be reached until a host passes the command line.
+
+1. **Options Save in the build list does not rebuild the list** (CCR-0099 B). Main.lua:1218-1220
+   calls `self.modes.LIST:BuildList()` after Save when the mode is LIST (a changed build path
+   then shows the new folder). `pob-app/src/main_mode/options_popup.rs:1501-1504` keeps the empty
+   `if` from before U18, although `crate::build_list::rebuild(cx)` exists (CCR-0100 B). Fix: call
+   it there (one line). Owner: U17 (options_popup.rs). `u17_popups` stubs BuildList on the Lua
+   side, so its scenarios do not see the difference.
+2. **Import "to a new build" draws the old build node for one frame** (CCR-0109 §9).
+   `build/on_frame.rs` reads the build node once at the top. After `draw_tab` (ImportTab.lua:
+   665-667 re-initialises the build inside the tab's Draw), the rest of OnFrame (L1321-1351)
+   draws the old node's controls. Fix: re-read `cx.app().build` after the `draw_tab` call
+   (`on_frame.rs:704-706`). Owner: U20. `u43/d_new_build.pobscript` sets frame 30 aside for it.
+3. **POST requests carry no Content-Type** (CCR-0109 §10). curl's `OPT_POSTFIELDS` sends
+   `application/x-www-form-urlencoded`; `pob-host/src/net_native.rs:87` sends the body with
+   ureq's `send_bytes` and no default header. This affects UploadBuild and the OAuth token
+   requests. Owner: U7.
+4. **The comparison build's item and jewel tooltips are built against the open build**
+   (CCR-0122 §2, CCR-0143 §4). `ItemsTabHooks::add_item_tooltip` takes no build, so
+   `compareSpec.build.itemsTab:AddItemTooltip` (PassiveTreeView.lua:1492/1783) and
+   `hoverItemsTab:AddItemTooltip` for an entry item (CompareTab.lua:3988) show the primary
+   build's "Equipping this item" blocks where PoB shows the entry's. Owner: U38 with U46-U49.
+5. **The comparison build's config controls have no tooltip** (CCR-0137 §2).
+   `CompareHooks::entry_config_var_control` is always `None` (`tabs/compare/init.rs:353`), because
+   U41's ConfigTab constructor cannot be built for a second build. Owner: U41 (a constructor for a
+   given model) with U47.
+6. **ConfigTab.lua 1302-1334 is covered by two `@pob` markers** (CCR-0121 §1).
+   `python3 scripts/port/provenance.py coverage --range Classes/ConfigTab.lua:1-1362` reports FAIL
+   with 31 lines covered twice (1302-1315, 1317-1323, 1325-1334): `pob-app/src/tabs/config/ctor.rs:2465`
+   (U41) and `pob-calc-core/src/model/config_tab.rs:810` (BM-B). Fix: U41's marker becomes a
+   `/// lua:` note (ui doc §10.5, "Provenance of split functions").
+7. **A dropped build leaks on desktop** (CCR-0142 §3 B). `build/init.rs:759` drops the previous
+   `BuildState` without breaking `Env.build`/`MiscCalculator.build` ↔ `calcsTab` and
+   `ActiveSkill.socketGroup` ↔ `displaySkillList(Calcs)` (calc doc §3.3 rule 4). Every switch of
+   build therefore keeps the old build and its envs alive (LEAK1 measured 100-252 objects per
+   build, `leak1_cycles.rs`), and deleting a socket group keeps its last display skills. Only
+   the web worker tears down. Fix: a `Build::teardown` (model owner) called before the drop and
+   by the Skills tab on group removal.
+8. **Duplicate helper ports** (CCR-0107 §3, 0109 §4, 0112 §2, 0114 §3; ui doc §13 item 15).
+   `string:matchOrPattern` has four ports (notable_db.rs, item_db.rs, config/ctor.rs,
+   tree_view/mod.rs), LuaJIT `math.random` two (timeless_list.rs, poe_api.rs), and zlib `Inflate`
+   two (import/core.rs on miniz_oxide, party.rs on flate2). pob-oracle's LuaJIT `Inflate`/`Deflate`
+   natives differ from SimpleGraphic (`""` instead of nil, default level), which the u43/u45
+   harnesses work around. Owner: whoever takes the shared helpers (pob-lua for the PRNG).
+9. **Dead or duplicate code left by the seams.** `tabs/items/ctor.rs::flavourLookup` drops every
+   entry and is unused (U38's `tooltip::flavour_lookup` is the one used; CCR-0125 §1);
+   `on_frame::State.last_*` and `on_frame::StatLineInfo` are fallbacks nothing writes (CCR-0106 §4);
+   `compare/init.rs` `State::comparePowerCompareId` is unused (CCR-0138 §3); `compare/power.rs`
+   keeps private copies of U49's `ShouldShowRing3`/`AddAbyssSockets` and U47's group helpers
+   (CCR-0138 §1); `items/craft_b.rs` copies `checkLineForAllocates` (CCR-0129 §1); `entry.rs`
+   repeats three private BM-A helpers (CCR-0137 §1); OF-B's `radius_breakpoints` wrapper could call
+   `calcRadiusBreakpointsOpt` directly (CCR-0043). Two code comments in `pob-app/src/build/mod.rs`
+   (lines 10, 136) still cite `CCR-0091 A`, U16's pre-renumbering number: they mean CCR-0096 A
+   (the CCR files were corrected by CCRDOC). No behaviour change expected.
+10. **The ItemsTab range slider draws its knob from the unrounded value while dragged**
+    (CCR-0124 §5). `ctor.rs` `range_slider_overrides` syncs `val` from `modLine.range` only before
+    the class Draw, so the drag step's unrounded `5/82` is drawn where PoB draws `round(5/82, 6)`
+    (knob x 1163.0 vs 1163.000032). Owner: U33.
+11. **Exporter gaps behind CS2's excused buckets** (CCR-0140, test-only). `probe.rs` exports a
+    bare `LjIntMap<NodeRef>` (`radiusJewelList[i].nodes`) as `{"$userdata": true}`, and a second
+    pass's `override.extraJewelFuncs` actor does not line up path by path. `tests/CS2.rs` excuses
+    both within `EXPLAINED_MAX`. Owner: ORC-X (probe.rs).
+12. **A build link on the command line still raises** (DIVERGENCE(no-cli-args)). Main.lua:71-82
+    imports `arg[1]` through `buildSites.ParseImportLinkFromURI`/`DownloadBuild`, which U43 has
+    ported (`tabs/import/build_sites.rs`). `pob-app/src/main_mode/init.rs:150-153` still raises
+    "needs buildSites ... not ported yet". It cannot be reached in the product, because no host
+    sets `launch.arg` (`pob-app/src/launch.rs:93`). Fix: port L72-81 on U43's functions when a
+    host passes the command line. Owner: U16 (main_mode/init.rs).
+
+Dev-only bridge gaps (no product effect, recorded for completeness): `LuaCalcBridge` cannot carry
+`override.extra["$removeNodeIds"]` (CCR-0122 §1), the jewel-comparison spec (CCR-0125 §6) or a
+NaN-id pseudo node (CCR-0132 §4). It does not use `inject_keep` (CCR-0088 §2) and keeps the
+SaveDB side effects (CCR-0114 §6). `pob-ui-oracle` `sg_bridge::deliver_subscripts` frees a
+sub-script slot before its callback runs (CCR-0117 §8), and `runner::Driver::frame` drops
+`Net::poll` (CCR-0109 §8). Since U53 the unit harnesses run on `RustCalc`, so these gaps matter
+only for `POB_UI_CALC=lua` runs.
 
 ## TP4
 

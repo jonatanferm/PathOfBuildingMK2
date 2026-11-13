@@ -163,12 +163,16 @@ pub fn data_bin() -> Option<PathBuf> {
     find_where("data/dump/data.bin", |p| p.is_file())
 }
 
-/// `.parity` (`builds/` corpus, oracle dumps; `$POB_PARITY_DIR`).
+/// `.parity` (`builds/` corpus, oracle dumps; `$POB_PARITY_DIR`). Under [`quick_corpus`]
+/// (`POB_QUICK_CORPUS=1`) without `$POB_PARITY_DIR`, the quick corpus `.parity-quick`, the
+/// directory `scripts/port/cargo.sh` points `$POB_PARITY_DIR` at for merge-time runs (CK2,
+/// CCR-0147 §5: set alone, the variable used to keep the full corpus).
 pub fn parity_dir() -> Option<PathBuf> {
     if let Some(p) = env_dir("POB_PARITY_DIR") {
         return Some(p).filter(|p| p.join("builds").is_dir());
     }
-    find_where(".parity", |p| p.join("builds").is_dir())
+    let name = if quick_corpus() { ".parity-quick" } else { ".parity" };
+    find_where(name, |p| p.join("builds").is_dir())
 }
 
 /// `.parity/builds/<stem>.xml`.

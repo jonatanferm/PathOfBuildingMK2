@@ -1,8 +1,10 @@
 # CCR-0130: U36 crafting A seams
 
+**Status: applied (CCRDOC, 2026-11-12; code `faf8539` Merge port/U36): §1, §2 and §4; §3 was applied by U53 (CCR-0145 §5).**
+
 Unit: **U36** (ItemsTab crafting A, `Classes/ItemsTab.lua:2609-3120` and
 `Modules/AddImplicitPopup.lua` 1-414; `pob-app/src/tabs/items/{craft_a.rs,add_implicit.rs}`).
-Status: **pending**. Code on `port/U36` follows it. Number reserved with
+Filed status: **pending**. Code on `port/U36` follows it. Number reserved with
 `scripts/port/next_ccr.sh`.
 
 ## 1. U36's hook entries (applied, one line each)

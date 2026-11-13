@@ -1,7 +1,39 @@
 # Testing the port
 
 How the oracle test suites stay fast. Sections by unit: TP1 (pob-oracle, below), TP2
-(pob-ui-oracle), TP3 (runners: `scripts/port/cargo.sh`, `full_suite.sh`).
+(pob-ui-oracle), TP3 (runners: `scripts/port/cargo.sh`, `full_suite.sh`), INT-4 (crates and the
+`mlua` gate, next).
+
+## Runtime and dev-only crates, the `mlua` gate (INT-4)
+
+INT-4 deleted the legacy `pob-engine`, `pob-data` and `pob-extract` (with its `pob_diff` binary
+and `scripts/parity/run.sh`); parity against PoB is only the oracle suites below. AMENDMENTS A13.
+
+- **Runtime crates** (no `mlua` in `cargo tree -e normal`, and `cargo check --target
+  wasm32-unknown-unknown` green): `pob-lua`, `pob-gamedata`, `pob-modparser`, `pob-calc` and its
+  six crates, `pob-sg`, `pob-sg-wgpu`, `pob-host`, `pob-ui-core`, `pob-app`, `pob-web`
+  (`pob-desktop` is native-only, and its default normal tree has no `mlua` either).
+- **Dev-only crates** (LuaJIT through `mlua`; never a normal dependency of a runtime crate):
+  `pob-oracle` (the calc oracle; it is the docs' `pob-luahost`, AMENDMENTS A1), `pob-ui-oracle`
+  (the UI oracle and `LuaCalcBridge`), and the build-time data tool `pob-dump`. `pob-testpaths`
+  (test-input locator) is dev-only too, without `mlua`.
+  `mlua` also appears as a dev-dependency of `pob-lua`, `pob-calc` and `pob-ui-core` (L0/HYG1
+  tests against real LuaJIT).
+- **The one opt-in path** from a shipping package to LuaJIT is `pob-desktop`'s non-default feature
+  `lua-calc` (`pob-ui-oracle`'s `LuaCalcBridge`; `POB_UI_CALC=lua` selects the bridge's Lua side
+  in the UI harnesses, which are dev-only too).
+- **Gates** (CI's calc job runs the first two):
+
+  ```sh
+  for p in pob-calc pob-app pob-desktop pob-web; do
+      echo "$p $(scripts/port/cargo.sh tree -p $p -e normal | grep -c mlua)"   # 0 each
+  done
+  scripts/port/cargo.sh check --target wasm32-unknown-unknown -p pob-lua -p pob-gamedata \
+      -p pob-modparser -p pob-calc-core -p pob-calc-setup -p pob-calc-config -p pob-calc-defence \
+      -p pob-calc-offence -p pob-calc-perform -p pob-calc -p pob-sg -p pob-sg-wgpu -p pob-host \
+      -p pob-ui-core -p pob-app -p pob-web
+  scripts/port/cargo.sh tree -p pob-desktop -e normal --features lua-calc | grep -c mlua   # 3: opt-in
+  ```
 
 ## Runners
 
@@ -185,8 +217,8 @@ not consumed). Adopting it is a one-line change of a `for build in &builds` loop
 returns its per-build tally.
 
 What stays on the test thread: anything reading process-global state, chiefly the `unported!`
-counters (`pob_calc::stub::stub_report`), which are process-wide (CCR-0128 proposes per-thread
-counters). The timeless-jewel LUT table (`pob_gamedata::timeless_lut`) is process-wide too:
+counters (`pob_calc::stub::stub_report`), which are process-wide (per-thread
+counters, CCR-0128, were not built: rejected, AMENDMENTS A14). The timeless-jewel LUT table (`pob_gamedata::timeless_lut`) is process-wide too:
 dropping it between builds (`clear_timeless_jewel_luts`, for RSS) goes through
 `testkit::release_shared`, which runs it only when no multi-worker pool is running (the serial
 path keeps the per-build drop); a pooled test drops it once after the pool. A clear inside `f`
@@ -247,7 +279,7 @@ Full corpus (57 builds; before = `.parity/fullsuite/20261111-1426/pob-oracle.log
 
 ### Open
 
-* Per-thread `unported!` counters (CCR-0128) would let OF-B/D/E/F, CO-C and the other
+* Per-thread `unported!` counters (CCR-0128, rejected as not built) would let OF-B/D/E/F, CO-C and the other
   stub-reading L4 tests pool their Rust side.
 * Not on the shared cache yet: PF-B (three dependent probe runs, the second pruned in place),
   CS3 (edits its patched copy after patching, so the patch sha does not describe it), MI,
@@ -538,7 +570,7 @@ pool, no Lua cache).
   back (invalid type: null, expected f64 ... "SetDrawColor":[null`. u26 warm (156 s) is
   therefore its cold time. FOLLOWUPS "TP4" has the fix.
 
-### Measurements (TP4 fix round 1, port/TP4 23c5910 on rust-port e0e39e5)
+### Measurements (TP4 fix round 1, on rust-port ae0dc52)
 
 The whole pob-ui-oracle crate ran one binary at a time (`POB_PORT_TEST_JOBS=1`) under
 `scripts/port/cargo.sh test -p pob-ui-oracle --no-fail-fast`, with the full suite's environment
@@ -551,7 +583,13 @@ values. The machine is shared with ~10 agents, and a full suite of its own ran d
 first cold run. The "07:27 full suite" column is the last full suite (binary times, no cache: it
 ran before TP2's merge, see above; u37 was killed there). The parenthesised RSS is from the
 first cold run after TP4, before this round's memory fixes. u17/u18 cold and warm come from a
-rerun after their user-dir fix (their earlier entries were keyed without the path).
+rerun after their user-dir fix (their earlier entries were keyed without the path). Two changes
+came after these runs. One is the line-break fix and the `oracle_cache.rs` exclusion from
+`lua_side_code_hash` (verify and keying only, see VERIFY below). The other is the merge of
+rust-port up to e0e39e5 (BRAND's `VERSION` in the hash, U53's `RustCalc` harnesses). After
+the merge, cold, warm and VERIFY passed on a fresh root for u16, u17, u18 and u45: cold 169 /
+72 / 94 / 47 s, warm 41 / 24 / 31 / 21 s, VERIFY 67 entries with 0 mismatches, peak RSS at
+most 1692 MB.
 
 | binary | 07:27 full suite (no cache) | cold | warm | VERIFY | peak RSS cold / warm (first TP4 cold) |
 |---|---|---|---|---|---|
@@ -605,7 +643,7 @@ rerun after their user-dir fix (their earlier entries were keyed without the pat
   for slot waits. The per-crate timeout counts waiting time. If a cold pob-ui-oracle run ever
   shares the machine with a cold pob-oracle run (6585 s serially) and both wait for slots, raise
   the timeout to 21600 s for that run.
-- VERIFY ran on all 34 cached binaries (u15-u49 without u28) on the warm root at 23c5910:
+- VERIFY ran on all 34 cached binaries (u15-u49 without u28) on the warm root:
   26 passed and 8 failed. 27 of about 2,600 verified entries differed (13572 s). Every
   difference is either PoB not reproducing its own output from one process to the next, or one
   more verifier gap. None is a stale or wrong entry:

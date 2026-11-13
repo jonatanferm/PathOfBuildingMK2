@@ -1,5 +1,9 @@
 # Divergences from PoB
 
+> **History only.** This list is about the legacy hand-written `pob-engine`, deleted by INT-4
+> (docs/port/AMENDMENTS.md A13). The port's divergences are the `DIVERGENCE(...)` markers and
+> docs/port/known_diffs.toml.
+
 A running list of places the Rust port computes something differently to the upstream
 Lua codebase. Each divergence is a deliberate shortcut taken to ship a phase; the goal
 is parity with PoB by v1.0.

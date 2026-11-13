@@ -1,7 +1,9 @@
 # CCR-0117: U44 ImportTab B seams (unported tab methods, slot SetSelItemId, override nodes, parseMod, nil group fields)
 
+**Status: applied (CCRDOC, 2026-11-12; code `f06df6f` Merge port/U44): §1 `TabSeams` (U53 filled them, CCR-0145 §5), §3, §4 and §7; §6 was fixed by U53 (CCR-0145 §3). Rejected because they were not built: §2 (`ItemSlot_SetSelItemId` stays private), §5 (pob-app depends on `pob-modparser` directly) and §8 (`sg_bridge::deliver_subscripts` still frees the slot before the callback; the u44 harness keeps its stub).**
+
 Unit: **U44** (ImportTab B: `ImportTab.lua:789-1912`, `1925-1932`; CCR-0109 §5 fixes the range).
-Status: **pending** (code on `port/U44` follows it). Number reserved with
+Filed status: **pending** (code on `port/U44` follows it). Number reserved with
 `scripts/port/next_ccr.sh`.
 
 ## 1. The other tabs' UI methods the import calls: `character::TabSeams`

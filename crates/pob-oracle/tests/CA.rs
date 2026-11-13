@@ -21,7 +21,10 @@
 //!   env's used-tracking and the misc calculator. Reported per build (headline keys) and in total.
 //!   Gate (INT-1): every compared value exact and no Rust error, on any corpus subset; on the
 //!   full corpus (all57, or the whole fresh corpus) the compared totals are pinned as well
-//!   (docs/port/parity/INT-1-triage.md, INT-1-fresh-triage.md).
+//!   (docs/port/parity/INT-1-triage.md, INT-1-fresh-triage.md). A main-output key in the build's
+//!   §9.5 record (`.parity/nondet/<stem>.json` `outputs`, as `pob_calc_diff outputs` reads it)
+//!   counts as exact when both PoB's value of this run and Rust's are values PoB produced there
+//!   (FUP4: fresh_076 `ManaCostRaw`); every such value is listed.
 //! * `ca_d13_fixed_point` (L5 D13, Rust only): build → buildOutput → buildOutput gives identical
 //!   outputs and model state (`Build:SaveDB`), on slice5 and the corpus, in MAIN mode and then
 //!   for two CALCS runs (with `calcsTab.mainEnv` set, as CalcsTab:BuildOutput does). A build PoB
@@ -33,7 +36,8 @@
 //!   same skill in the same process, and `reset_level_cost_cleared` (CCR-0133), which L6 and D13
 //!   above call per build, gives the gem its cost back.
 //!
-//! PoB runs (probe dumps + `ca.lua`) are cached in `target/tmp/ca-probe/<stem>/`. Knobs:
+//! PoB runs (probe dumps + `ca.lua`) are cached in the shared, content-keyed oracle cache
+//! (`testkit::oracle_dir`, CK1; `POB_QUERY_CACHE=off|refresh|verify` as for the other users). Knobs:
 //! `CA_BUILDS=stem1,stem2`, `CA_LIMIT=n`, `CA_VERBOSE=1`; `CA_CORPUS_DIR=dir` takes the corpus
 //! from `dir/*.xml` instead of `.parity/builds` (and D13 then skips slice5; the all57 pins
 //! do not apply), e.g. `.parity/fresh` (INT-1-FRESH, docs/port/parity/fresh-corpus.md; the whole
@@ -249,7 +253,10 @@ fn flat_json(j: &J) -> BTreeMap<String, Leaf> {
 }
 
 /// A JSON value with every number as an f64 (so `1` and `1.0` compare equal) and object keys
-/// sorted, as a string.
+/// sorted, as a string. A mod-shaped object without `tags` gets `"tags": []`, as INT-3's
+/// breakdown norm does (H3, docs/port/parity/INT-3-triage.md §5; FUP4): PoB dumps the inner mod
+/// of a LIST value (`SkillBuffs` `MinionModifier` rows, Calcs.lua:765-770) with an empty
+/// `tags`, and the Rust export leaves the member out.
 fn canon(j: &J) -> String {
     fn norm(j: &J) -> J {
         match j {
@@ -259,11 +266,13 @@ fn canon(j: &J) -> String {
             }
             J::Array(a) => J::Array(a.iter().map(norm).collect()),
             J::Object(m) => {
-                let s: BTreeMap<String, J> = m
+                let mut o: serde_json::Map<String, J> = m
                     .iter()
                     .filter(|(k, _)| k.as_str() != "$id")
                     .map(|(k, v)| (k.clone(), norm(v)))
                     .collect();
+                pob_oracle::mod_json::default_empty_tags(&mut o);
+                let s: BTreeMap<String, J> = o.into_iter().collect();
                 J::Object(s.into_iter().collect())
             }
             other => other.clone(),
@@ -791,70 +800,105 @@ mod oracle_side {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/CA/stages.toml")
     }
 
-    /// PoB's run of a build: the `ca:*` probe dumps and `ca.lua`'s JSON, cached in
-    /// `target/tmp/ca-probe/<stem>/` with the dump format they were written in (`format.txt`): a
-    /// directory of an older encoder is probed again (FUP3: `ca_l5_post` needs pob-state/2's item
-    /// mod lines).
+    // ---- pob-run begin (CK1: this span, from here to its end marker, is part of the cache key)
+
+    /// PoB's run of a build: the `ca:*` probe dumps and `ca.lua`'s JSON. CK1 (CCR-0146 §4): an
+    /// entry of the shared, content-keyed oracle cache (`testkit::oracle_dir`,
+    /// `.parity/probe-cache/<source key>/<build key>/dir-<key>/`), filled by one PoB run when
+    /// absent. The key is the patched tree (its sha covers `corpus/CA/stages.toml`, the patcher
+    /// and the dump/probe Lua; the source key the oracle runtime and the Lua runtime), the build's
+    /// bytes, its name, `ca.lua`, the probe options, `runner.rs` (`probe_prelude`) and this span of
+    /// the test ([`pob_run_code`]), so a harness, dump-format or PoB change runs PoB again. The
+    /// earlier `target/tmp/ca-probe/<stem>/` was keyed only by the dump format string
+    /// (`format.txt`, FUP3), which an encoder change that keeps the string (ORC-X2's
+    /// `inlineForeign`) does not change. An `Err` of the run is not cached.
     pub(super) struct PobRun {
         pub dir: PathBuf,
         pub hits: J,
         pub ca: J,
+        /// The cache entry (or `POB_QUERY_CACHE=off` private run) `dir` names: a private run is
+        /// deleted when this is dropped, so it lives as long as the run is read.
+        _entry: pob_oracle::testkit::OracleDir,
     }
 
-    pub(super) fn pob_run(xml: &Path) -> Result<PobRun, String> {
+    /// The source of this file between the pob-run markers (the code that makes a [`PobRun`]).
+    fn pob_run_code() -> &'static str {
+        const SELF: &str = include_str!("CA.rs");
+        // split literals, so the markers' text does not occur here
+        let begin = concat!("// ---- pob-run ", "begin");
+        let end = concat!("// ---- pob-run ", "end");
+        let a = SELF.find(begin).expect("CA.rs: pob-run begin marker");
+        let b = SELF[a..].find(end).expect("CA.rs: pob-run end marker") + a;
+        &SELF[a..b]
+    }
+
+    /// The Lua run after the build loads (the probes' finish on the kept MAIN env).
+    const FINISH_LUA: &str =
+        "return __probe_finish(__mainObject__.main.modes['BUILD'].calcsTab.mainEnv)";
+
+    fn pob_run_cached(xml: &Path) -> Result<PobRun, String> {
         let stem = stem(xml);
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ca-probe").join(stem);
-        let read = |dir: &Path| -> Result<PobRun, String> {
-            let j = |f: &str| -> Result<J, String> {
-                let t = std::fs::read_to_string(dir.join(f)).map_err(|e| format!("{f}: {e}"))?;
-                serde_json::from_str(&t).map_err(|e| format!("{f}: {e}"))
-            };
-            Ok(PobRun { dir: dir.to_path_buf(), hits: j("hits.json")?, ca: j("ca.json")? })
-        };
-        let current = std::fs::read_to_string(dir.join("format.txt"))
-            .is_ok_and(|f| f.trim() == pob_oracle::schema::STATE_FORMAT);
-        if !current {
-            let _ = std::fs::remove_dir_all(&dir);
-        }
-        if dir.join("ca.json").is_file() && dir.join("hits.json").is_file() {
-            return read(&dir);
-        }
-        if let Ok(e) = std::fs::read_to_string(dir.join("error.txt")) {
-            return Err(e);
-        }
-        let src = find_pob_src().ok_or("no PoB checkout")?;
-        let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-        let patched = pob_oracle::patcher::patch(&src, Some(&stages_file()), &root)
-            .map_err(|e| format!("patch: {e}"))?;
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("state")).map_err(|e| e.to_string())?;
+        let patched = pob_oracle::testkit::shared_patch(Some(&stages_file()))?;
         let xml_text = std::fs::read_to_string(xml).map_err(|e| e.to_string())?;
-        let result = (|| -> Result<(), String> {
-            let _lock = OracleLock::acquire().map_err(|e| format!("oracle lock: {e}"))?;
-            let out_dir = std::fs::canonicalize(&dir).map_err(|e| e.to_string())?;
-            let src_root = std::fs::canonicalize(&patched.src).map_err(|e| e.to_string())?;
-            let mut root_s = src_root.to_string_lossy().replace('\\', "/");
-            if !root_s.ends_with('/') {
-                root_s.push('/');
-            }
-            let opts = ProbeOptions { select: vec!["ca:*".to_owned()], max_dumps: 40, provenance: false };
-            let pre = probe_prelude(&root_s, &out_dir, stem, &opts);
-            let mut pob = JitPob::boot_oracle(&src_root, Some(&pre))?;
-            pob.run(ORACLE_LUA)?;
-            use pob_oracle::headless::Engine;
-            pob.load_build_xml(&xml_text, stem)?;
-            pob.run("return __probe_finish(__mainObject__.main.modes['BUILD'].calcsTab.mainEnv)")?;
-            let ca = pob.run(CA_LUA)?;
-            let text = ca.first().map(|r| r.text().to_owned()).unwrap_or_default();
-            pob_oracle::runner::write_atomic(&out_dir.join("ca.json"), &text).map_err(|e| e.to_string())?;
-            Ok(())
-        })();
-        let _ = std::fs::write(dir.join("format.txt"), pob_oracle::schema::STATE_FORMAT);
-        if let Err(e) = result {
-            let _ = std::fs::write(dir.join("error.txt"), &e);
-            return Err(e);
+        let opts = ProbeOptions { select: vec!["ca:*".to_owned()], max_dumps: 40, provenance: false };
+        let sel = format!("{} max {}", opts.select.join(","), opts.max_dumps);
+        let entry = pob_oracle::testkit::oracle_dir(
+            &patched.src,
+            xml_text.as_bytes(),
+            &[
+                "CA pob_run 1",
+                &patched.sha,
+                stem,
+                &sel,
+                CA_LUA,
+                include_str!("../src/runner.rs"),
+                pob_run_code(),
+            ],
+            |dir| {
+                std::fs::create_dir_all(dir.join("state")).map_err(|e| e.to_string())?;
+                let _lock = OracleLock::acquire().map_err(|e| format!("oracle lock: {e}"))?;
+                let out_dir = std::fs::canonicalize(dir).map_err(|e| e.to_string())?;
+                let src_root = std::fs::canonicalize(&patched.src).map_err(|e| e.to_string())?;
+                let mut root_s = src_root.to_string_lossy().replace('\\', "/");
+                if !root_s.ends_with('/') {
+                    root_s.push('/');
+                }
+                let pre = probe_prelude(&root_s, &out_dir, stem, &opts);
+                let mut pob = JitPob::boot_oracle(&src_root, Some(&pre))?;
+                pob.run(ORACLE_LUA)?;
+                use pob_oracle::headless::Engine;
+                pob.load_build_xml(&xml_text, stem)?;
+                pob.run(FINISH_LUA)?;
+                let ca = pob.run(CA_LUA)?;
+                let text = ca.first().map(|r| r.text().to_owned()).unwrap_or_default();
+                pob_oracle::runner::write_atomic(&out_dir.join("ca.json"), &text)
+                    .map_err(|e| e.to_string())?;
+                Ok(())
+            },
+        )?;
+        let j = |f: &str| -> Result<J, String> {
+            let t = std::fs::read_to_string(entry.join(f)).map_err(|e| format!("{f}: {e}"))?;
+            serde_json::from_str(&t).map_err(|e| format!("{f}: {e}"))
+        };
+        Ok(PobRun { dir: entry.to_path_buf(), hits: j("hits.json")?, ca: j("ca.json")?, _entry: entry })
+    }
+
+    // ---- pob-run end
+
+    /// [`pob_run_cached`], and its outcome written to `target/tmp/ca-probe/<stem>/` (`ca.json`, or
+    /// `error.txt` when PoB failed) for the fresh-corpus scripts (`fresh_corpus_summary.py`,
+    /// `fetch_fresh_corpus.py --probe`). CK1: that directory is a report, never read here.
+    pub(super) fn pob_run(xml: &Path) -> Result<PobRun, String> {
+        let res = pob_run_cached(xml);
+        let report = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ca-probe").join(stem(xml));
+        let _ = std::fs::remove_dir_all(&report);
+        if std::fs::create_dir_all(&report).is_ok() {
+            let _ = match &res {
+                Ok(r) => std::fs::write(report.join("ca.json"), r.ca.to_string()),
+                Err(e) => std::fs::write(report.join("error.txt"), e),
+            };
         }
-        read(&dir)
+        res
     }
 
     /// The `ca:*` dumps of PoB's kept BuildOutput: the MAIN env (`calcsTab.mainEnv`) and the
@@ -1540,6 +1584,48 @@ mod oracle_side {
         used_tables_equal: usize,
         misc: usize,
         misc_exact: usize,
+        /// main-output values counted exact because they are one of PoB's recorded values at a
+        /// §9.5 nondeterministic key ([`Nondet`]), not PoB's value of this run.
+        nondet_accepted: Vec<String>,
+    }
+
+    /// The §9.5 record of a build (`.parity/nondet/<stem>.json`, `scripts/port/oracle.sh nondet`;
+    /// for the fresh corpus `oracle.sh nondet --fresh`), as the other all57 consumers read it
+    /// (`pob_calc_diff outputs`, `testkit`): `outputs` maps a flattened main-output key
+    /// (`env.player.output`, = `calcsTab.mainOutput`) to every value PoB produced there over
+    /// the recorded processes. FUP4: fresh_076 `ManaCostRaw` (CalcSetup.lua:1807 `pairs` over
+    /// group-keyed `supportLists[slotName]`, address order in PoB, LUA-ORDER in the port).
+    struct Nondet(BTreeMap<String, Vec<Leaf>>);
+
+    impl Nondet {
+        fn load(parity: &Path, stem: &str) -> Self {
+            let path = parity.join("nondet").join(format!("{stem}.json"));
+            let rec = path.is_file().then(|| {
+                pob_oracle::nondet::NondetRecord::load(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+            });
+            let mut m = BTreeMap::new();
+            for (k, vals) in rec.map(|r| r.outputs).unwrap_or_default() {
+                let leaves: Vec<Leaf> = vals
+                    .iter()
+                    .filter_map(|v| {
+                        let mut one = serde_json::Map::new();
+                        one.insert("v".to_owned(), v.clone());
+                        pob_oracle::oracle::flatten(&one).remove("v")
+                    })
+                    .collect();
+                m.insert(k, leaves);
+            }
+            Self(m)
+        }
+
+        /// PoB's value `pob` of this run and Rust's `ours` at `key` are both values PoB
+        /// produced there (calc doc §9.5: the diff accepts any of them). A record that does not
+        /// hold this run's PoB value does not describe the run and accepts nothing.
+        fn accepts(&self, key: &str, ours: Option<&Leaf>, pob: &Leaf) -> bool {
+            let Some(vals) = self.0.get(key) else { return false };
+            let Some(ours) = ours else { return false };
+            vals.iter().any(|v| leaf_eq(v, pob)) && vals.iter().any(|v| leaf_eq(v, ours))
+        }
     }
 
     #[test]
@@ -1600,6 +1686,7 @@ mod oracle_side {
             };
             let ours = build.calcsTab.mainOutput.get().map(|o| flat_table(&o)).unwrap_or_default();
             let pob = flat_json(&run.ca["main"]);
+            let nondet = Nondet::load(&parity, stem);
             // headline keys
             let mut line = Vec::new();
             let mut all = true;
@@ -1607,7 +1694,7 @@ mod oracle_side {
                 let (o, p) = (ours.get(k), pob.get(k));
                 t.headline += 1;
                 let eq = match (o, p) {
-                    (Some(a), Some(b)) => leaf_eq(a, b),
+                    (Some(a), Some(b)) => leaf_eq(a, b) || nondet.accepts(k, o, b),
                     (None, None) => true,
                     _ => false,
                 };
@@ -1626,6 +1713,11 @@ mod oracle_side {
             for (k, pv) in &pob {
                 if ours.get(k).is_some_and(|ov| leaf_eq(ov, pv)) {
                     exact += 1;
+                } else if nondet.accepts(k, ours.get(k), pv) {
+                    exact += 1;
+                    let msg = format!("{stem} {k}: Rust {} vs PoB {} (§9.5 nondeterministic)", fmt_leaf(ours.get(k)), fmt_leaf(Some(pv)));
+                    eprintln!("L6 {msg}");
+                    t.nondet_accepted.push(msg);
                 } else {
                     l6_diff(stem, "main", k, &fmt_leaf(ours.get(k)), &fmt_leaf(Some(pv)));
                 }
@@ -1735,6 +1827,11 @@ mod oracle_side {
             let msg = e.split_once(": ").map_or(e.as_str(), |(_, m)| m);
             *messages.entry(msg.to_owned()).or_default() += 1;
         }
+        eprintln!(
+            "CA L6: {} main-output values accepted as one of PoB's recorded nondeterministic values (§9.5): {:#?}",
+            t.nondet_accepted.len(),
+            t.nondet_accepted
+        );
         eprintln!("CA L6 Rust errors by stage: {:?}", t.stage_errors);
         for (m, n) in &messages {
             eprintln!("  {n:>3} x {m}");

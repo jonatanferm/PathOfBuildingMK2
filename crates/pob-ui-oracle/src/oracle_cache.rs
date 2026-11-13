@@ -560,7 +560,8 @@ pub fn third_party_lock(lock: &str) -> String {
 /// recorder), pob-host (scripts, the headless image loader, key delivery) and pob-lua; of
 /// pob-oracle what `boot.rs` takes from it (`jit`: the prelude, the natives, the JIT switch; and
 /// what `jit.rs` uses: `headless.rs`, the `lua/` module, `lib.rs`) and its `Cargo.toml`; and the
-/// third-party packages of `Cargo.lock` ([`third_party_lock`]; mlua/LuaJIT included).
+/// third-party packages of `Cargo.lock` ([`third_party_lock`]; mlua/LuaJIT included); and the
+/// port's `VERSION` (BRAND: patch 9 draws it as `__portVersion`).
 ///
 /// TP4: the TP2 set hashed all of pob-oracle's `src/` and the whole `Cargo.lock`, so every merge
 /// that touched the calc oracle (diff, inject, patcher, a new bin) or added a workspace crate or
@@ -591,6 +592,8 @@ pub fn lua_side_code_hash() -> &'static str {
                 "crates/pob-oracle/src/headless.rs",
                 "crates/pob-oracle/src/lua",
                 "crates/pob-oracle/Cargo.toml",
+                // patch 9's `__portVersion` (pob_app::launch::PORT_VERSION)
+                "VERSION",
             ],
             &[
                 "crates/pob-ui-oracle/src/lua_calc.rs",

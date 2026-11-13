@@ -18,30 +18,44 @@ env:
 
 jobs:
   test:
-    name: cargo test (calc engine)
+    name: cargo test (calc)
     runs-on: ubuntu-latest
+    # The Rust calc (docs/port/calc-architecture.md): pob-lua, pob-gamedata, pob-modparser and the
+    # pob-calc crates. Tests that need the gitignored PoB checkout or data dump skip under
+    # POB_ALLOW_SKIP=1. INT-4 deleted the legacy pob-engine / pob-data / pob-extract this job ran.
+    env:
+      POB_ALLOW_SKIP: 1
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Cache Cargo registry + target
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
 
-      # Headless calc-engine crates (no native UI deps). The UI crate is
-      # gated separately in the `ui` job below, which installs the extra
-      # Linux system libs that `winit` / `wgpu` / `eframe` / `rfd` need.
-      - name: cargo build (engine)
-        run: cargo build -p pob-engine -p pob-data -p pob-extract --all-targets
+      - name: No Lua at runtime (calc doc D4, INT-4 gate)
+        # mlua must not be in the normal dependency tree of the calc or of a shipping product.
+        run: |
+          for p in pob-calc pob-app pob-desktop pob-web; do
+            n=$(cargo tree -p "$p" -e normal | grep -c mlua || true)
+            echo "$p: $n"
+            test "$n" = 0
+          done
 
-      - name: cargo test (engine)
-        # Some integration tests require generated data (under `data/`, which
-        # is gitignored) and self-skip when it's missing. Data-independent
-        # tests (mod_parser, mod_db, parser coverage, validation) still run.
-        run: cargo test -p pob-engine -p pob-data -p pob-extract
+      - name: cargo check (runtime crates, wasm32)
+        run: >-
+          cargo check --target wasm32-unknown-unknown
+          -p pob-lua -p pob-gamedata -p pob-modparser
+          -p pob-calc-core -p pob-calc-setup -p pob-calc-config -p pob-calc-defence
+          -p pob-calc-offence -p pob-calc-perform -p pob-calc
+
+      - name: cargo test (pob-lua, pob-gamedata, pob-modparser)
+        run: cargo test -p pob-lua -p pob-gamedata -p pob-modparser
 
   fmt:
     name: cargo fmt --check
@@ -60,113 +74,51 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --all --check
 
-  clippy:
-    name: cargo clippy
-    runs-on: ubuntu-latest
-    # Issue #49: promoted from advisory to required. The workspace
-    # is now `cargo clippy ... -- -D warnings` clean across the
-    # engine crates, so this gates every PR against new lint
-    # introductions instead of letting warnings drift.
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain (with clippy)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache Cargo registry + target
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-
-      - name: cargo clippy (engine)
-        # Same deal as the test job: limit to the headless calc-engine crates
-        # so we don't need the Linux UI system packages.
-        # Issue #49: `-D warnings` makes clippy fail on lint introductions.
-        run: cargo clippy -p pob-engine -p pob-data -p pob-extract --all-targets -- -D warnings
-
   ui:
-    name: cargo test + clippy (pob-ui)
+    name: cargo test + clippy (UI port)
     runs-on: ubuntu-latest
-    # `pob-ui` was previously excluded from CI because winit / wgpu / eframe /
-    # rfd need extra system libs on Linux. Reversed deliberately: the UI crate
-    # carries ~630 logic tests (pure helpers factored out of the egui render
-    # code) that until now only ran on a maintainer's machine. Installing the
-    # dev libs below lets CI compile the crate and run that suite, so UI logic
-    # regressions are gated like the engine. No GPU is needed at runtime — none
-    # of the tests construct a wgpu device; they only exercise pure logic.
+    # The UI is the port of PoB's own UI (docs/port/ui-architecture.md): pob-sg (the
+    # SimpleGraphic equivalent), pob-sg-wgpu, pob-host, pob-ui-core, pob-app and the apps
+    # app/pob-desktop and app/pob-web (U53's cut-over replaced the egui crate pob-ui). Tests that
+    # need the gitignored PoB checkout or data dump skip under POB_ALLOW_SKIP=1.
+    env:
+      POB_ALLOW_SKIP: 1
     steps:
       - uses: actions/checkout@v4
 
       - name: Install UI system libraries
-        # winit/wgpu need xkbcommon + wayland + xcb dev headers; rfd's file
-        # dialog needs GTK3. keyring uses the pure-Rust secret-service backend,
-        # so no libsecret/dbus dev package is required to build.
+        # winit/wgpu need xkbcommon + wayland + xcb dev headers.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libxkbcommon-dev libwayland-dev \
+            libxkbcommon-dev libwayland-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Install Rust toolchain (with clippy)
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: wasm32-unknown-unknown
 
       - name: Cache Cargo registry + target
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
 
-      - name: cargo build (pob-ui)
-        run: cargo build -p pob-ui --all-targets
+      - name: cargo build (pob-desktop)
+        run: cargo build -p pob-desktop
 
-      - name: cargo clippy (pob-ui)
-        run: cargo clippy -p pob-ui --all-targets -- -D warnings
+      - name: cargo check (pob-web, wasm32)
+        run: cargo check -p pob-web --target wasm32-unknown-unknown
 
-      - name: cargo test (pob-ui)
-        run: cargo test -p pob-ui
+      - name: cargo clippy (UI crates)
+        # --no-deps: lint only these crates; their workspace dependencies (pob-lua, the calc
+        # crates) are not clippy-clean under -D warnings (pob-lua's inline(always) helpers).
+        run: cargo clippy --no-deps -p pob-sg -p pob-host -p pob-ui-core -p pob-app -p pob-desktop --all-targets -- -D warnings
 
-  # Optional: run pob_diff against an upstream PoB checkout. Manual trigger
-  # only — the upstream PoB repo is not redistributable as a CI artifact, so
-  # this job is meant for maintainers who clone PoB locally and want to
-  # publish a regression run on demand.
-  pob-diff:
-    name: pob_diff regression (manual)
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v4
+      - name: cargo test (pob-sg, pob-ui-core)
+        run: cargo test -p pob-sg -p pob-ui-core
 
-      - name: Checkout upstream PoB into .PathOfBuilding
-        uses: actions/checkout@v4
-        with:
-          repository: PathOfBuildingCommunity/PathOfBuilding
-          path: .PathOfBuilding
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo registry + target
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-
-      - name: pob_diff (witch L90 Arc)
-        run: |
-          cargo run --release -p pob-extract --bin pob_diff -- \
-            --build crates/pob-extract/test-builds/witch_l90_arc_with_items.xml
-
-      - name: pob_diff (marauder L90 bleeding cleave)
-        run: |
-          cargo run --release -p pob-extract --bin pob_diff -- \
-            --build crates/pob-extract/test-builds/marauder_l90_bleeding_cleave.xml
-
-      # Issue #197: corrupted cluster jewel build — exercises the full
-      # XML→synth pipeline against PoB's authoritative output, covering
-      # both `+1 socket` and `+50% increased Effect` corruption rolls.
-      - name: pob_diff (marauder L90 corrupted cluster jewel)
-        run: |
-          cargo run --release -p pob-extract --bin pob_diff -- \
-            --build crates/pob-extract/test-builds/marauder_l90_corrupted_cluster.xml
+  # The legacy `pob_diff` job (pob-extract, against the hand-written pob-engine) is gone with
+  # those crates (INT-4). Parity against PoB is the pob-oracle suite (docs/port/testing.md),
+  # which needs the PoB checkout, the data dump and the corpus, so it runs locally.

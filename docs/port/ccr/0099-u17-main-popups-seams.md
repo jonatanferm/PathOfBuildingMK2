@@ -1,6 +1,8 @@
 # CCR-0099: U17 seams to the tree assets and to `listMode:BuildList`
 
-Unit: **U17** (Main popups). Status: **pending** (code on `port/U17` follows it).
+**Status: applied in part (CCRDOC, 2026-11-12; code `a90479b` Merge port/U17): §A was done by U23 (CCR-0115 C). §B is rejected because it was not built: the `Mode` trait has no `build_list`, and Options' Save in LIST mode still skips `main.modes.LIST:BuildList()` (Main.lua:1219), although U18 exports `build_list::rebuild`. This is a code difference from PoB (FOLLOWUPS "CCRDOC" 1).**
+
+Unit: **U17** (Main popups). Filed status: **pending** (code on `port/U17` follows it).
 
 U17's range reads two things later units own and the frozen surface does not expose yet. U17
 works around both locally (marked `// CCR-0099` in its own files) and proposes the seams below.
@@ -12,7 +14,7 @@ Evidence: `Main.lua:1486-1495` (`self.tree[latestTreeVersion].assets.Background2
 (`self:LoadImage(name..".png", ..., data, "ASYNC")`, `:909-935`), which the calc port skips as UI
 (`pob-calc/src/classes/passive_tree.rs:653`, `@pob-skip PassiveTree.lua:234-435`, "U23
 tree_view/assets.rs"). `pob-app/src/tree_view/assets.rs` (U23) declares `TreeAssets {}` with no
-fields, and `MainHooks::load_tree` is a no-op (CCR-0091 B), so `cx.app().trees` is empty when
+fields, and `MainHooks::load_tree` is a no-op (CCR-0096 B), so `cx.app().trees` is empty when
 BuildList.lua:179 and every tab's Draw call `main:DrawBackground`.
 
 Work-around (`pob-app/src/main_mode/background.rs`, `tree_background`): load the image Lua loads
@@ -47,7 +49,7 @@ Proposed: U23 gives `TreeAssets` the asset table and an accessor, and replaces t
 ## B. `self.modes.LIST:BuildList()` (Options' Save, Main.lua:1218-1220)
 
 Evidence: `Main.lua:1218-1220` (`if self.mode == "LIST" then self.modes.LIST:BuildList() end`);
-`BuildList.lua` `listMode:BuildList()` (U18). The `Mode` trait of CCR-0091 A
+`BuildList.lua` `listMode:BuildList()` (U18). The `Mode` trait of CCR-0096 A
 (`pob-app/src/main_mode/mod.rs`, U16) has no such method, and a `Rc<dyn Mode>` cannot be
 downcast to U18's object.
 
@@ -89,5 +91,5 @@ and in `options_popup.rs` (U17):
   `INVERT_SLIDER_SCROLL_DIRECTION` (CCR-0069 A). U16's LoadSettings writes only the former, so a
   value loaded from Settings.xml does not reach SliderControl until something syncs it (U16 /
   CCR-0069 follow-up).
-- `MainHooks` (CCR-0091 B): U17 installed its three entries in `init::default_hooks` (the one-line
-  change CCR-0091 B foresees).
+- `MainHooks` (CCR-0096 B): U17 installed its three entries in `init::default_hooks` (the one-line
+  change CCR-0096 B foresees).

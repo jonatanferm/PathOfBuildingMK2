@@ -18,7 +18,7 @@ Normative words: **MUST**, **MUST NOT**, **SHOULD**. Where this document and a p
 | D1 | **Literal 1:1 mirror.** The port keeps PoB identifiers verbatim (`skillModList`, `calcs::initEnv`, `output.TotalDPS`), uses the same function decomposition, keeps statement order, and keeps Lua comments. | A reviewer can diff Rust against Lua statement by statement, and an upstream change can be re-applied one function at a time. The judges scored this highest on fidelity, and it is the only way to reach "aim for exact". |
 | D2 | **The aliasing model is `Rc` + interior mutability.** Mutable Lua tables that are aliased become `Rc` handles (`Table`, `ModStoreRef`, `ActorRef`, `ActiveSkillRef`, `EnvRef`, `Shared<T>`) whose accessors take short borrows. | PoB's calc relies on live aliasing across envs. Examples: `copyActiveSkill` reuses the cached skill's foreign `actor` (CalcActiveSkill.lua:181), and its new `skillModList` is parented to that foreign actor's modDB (:492). `GlobalCache` entries hold the whole `Env` (Common.lua:924-942), and `calcFullDPS` keeps re-performing the same env object. `override.extraJewelFuncs.actor` points at the env of an aborted initEnv attempt (CalcSetup.lua:1427). Id arenas and snapshots get these cases wrong; `Rc` gets them right without special code. |
 | D3 | **Dynamic tables only where Lua keys are computed.** `output`, `breakdown`, `skillData`, `skillFlags`, `conditions`, `multipliers`, `configInput` and similar are a dynamic `Table`. Fixed-shape objects (Actor, ActiveSkill, SkillEffect, Env, ModCfg, Item, Node, ...) are structs. A struct field is a `Field`/`Cell` exactly when Lua reassigns it after construction. | Gives type safety where shapes are fixed and exact Lua semantics where they are not. `skillFlags[string.lower(ailment)]` (CalcOffence.lua:4158) and `skillFlags[map.skillFlag]` (CalcActiveSkill.lua:354) rule out a generated flag enum. |
-| D4 | **No Lua at runtime.** LuaJIT lives only in `pob-luahost` (today's `pob-calc`, renamed), `pob-oracle` (tests) and `pob-extract` (data dump). | This is the user's decision. `cargo tree -p pob-calc -e normal` MUST NOT contain `mlua`. |
+| D4 | **No Lua at runtime.** LuaJIT lives only in `pob-luahost` (today's `pob-calc`, renamed), `pob-oracle` (tests) and `pob-extract` (data dump). *As built (AMENDMENTS A1, A13): only in the dev-only `pob-oracle` (= `pob-luahost`) and `pob-ui-oracle`, the build-time `pob-dump`, and dev-dependencies; `pob-extract` is deleted (INT-4).* | This is the user's decision. `cargo tree -p pob-calc -e normal` MUST NOT contain `mlua`. |
 | D5 | **Data comes from a LuaJIT dump.** `pob-extract dump` boots PoB, runs `Modules/Data.lua`, and serialises the post-processed `data` table to canonical JSON (diffable) and then postcard (runtime). Enums are generated from `Data/Global.lua`. | This reproduces Generated uniques, Vaal Alt synthesis and `processMod` exactly. It also kills the stale SkillType table (the correct values are Area=8, Aura=39, Pact=135). |
 | D6 | **Giant functions are split into segments.** `initEnv`, `perform`, `defence`, `buildDefenceEstimations` and `offence` are split at the statement boundaries in §7. A U0-owned orchestrator calls the segments in Lua order and passes a context struct whose fields are exactly the **measured** cross-segment locals (§7.1). Segments return `Flow`, which includes `Restart` for initEnv's recursive restarts. | Lets ~40 agents work on disjoint files. The measurement was redone for this document with `scripts/port/locals_audit.py` (§12 lists the corrections). |
 | D7 | **Closures are split by where they live.** A closure stored in data or in a mod becomes an id plus a Rust registry checked against a body-hash manifest. A closure that runs where it is defined becomes a Rust fn, method or closure in the same file. | Upstream changes to closures are detected automatically (`registry_complete` test). |
@@ -32,9 +32,9 @@ Normative words: **MUST**, **MUST NOT**, **SHOULD**. Where this document and a p
 | D15 | **Lua runtime errors are reproduced.** `lua_error!` panics with a `LuaError` payload. On desktop, `try_buildOutput` catches it with `catch_unwind`, as PoB shows a calc error. On wasm32 (`panic=abort`), the calc runs in a dedicated Web Worker that the UI restarts after an abort. | PoB really errors in some cases, for example `pairs(affectedByAura)` on an undeclared global (CalcPerform.lua:3464). `catch_unwind` does not work on `wasm32-unknown-unknown`. |
 | D16 | **Undeclared-global reads are literal `nil`.** For example `dotCfg` at CalcOffence.lua:3527/3538 is the nil global, not the local declared at 4425/5772. `scripts/port/globals_lint.py` lists every such site, and each port carries `// LUA-GLOBAL-NIL`. | Literal fidelity. |
 | D17 | **Module-level mutable upvalues are explicit thread-local state.** Example: `globalOutput`/`globalBreakdown` (CalcOffence.lua:65/67), which persist across `calcs.offence` calls. Module-level scratch tables that do not escape (`tempTable1-3`) become locals. | The judges found that every proposal mishandled this. |
-| D18 | **Crates are `pob-lua`, `pob-gamedata`, `pob-modparser` and `pob-calc` (new), plus `pob-oracle` (dev).** The old `pob-calc` is renamed to `pob-luahost`. The old `pob-data` and `pob-engine` stay untouched until INT-4 deletes them. | Only one rename, so the shipping app keeps working. |
+| D18 | **Crates are `pob-lua`, `pob-gamedata`, `pob-modparser` and `pob-calc` (new), plus `pob-oracle` (dev).** The old `pob-calc` is renamed to `pob-luahost`. The old `pob-data` and `pob-engine` stay untouched until INT-4 deletes them. **Done (INT-4, AMENDMENTS A13):** `pob-engine`, `pob-data` and their only user `pob-extract` are deleted; `pob-luahost` is `pob-oracle` (A1) and stays as a dev-only crate (the oracle tests and pob-ui-oracle's `LuaCalcBridge` need it); no shipping binary depends on it. The calc is the six-crate `pob-calc` (A11). | Only one rename, so the shipping app keeps working. |
 | D19 | **Tooling is Python 3 (stdlib only) under `scripts/port/`.** The locals audit, segment table, provenance, globals lint, pairs inventory and the lua2rs transpiler all live there. | No extra Rust compile load on a 3 GB machine. The analyser already exists and produced §7's measurements. |
-| D20 | **The machine budget is binding.** At most 3 agents run at once. Each agent has its own git worktree and target dir. All cargo and oracle invocations go through `scripts/port/cargo.sh` / `oracle.sh`, which `flock` a global lock (one compile and one LuaJIT oracle at a time). | 3 GB of free RAM: rustc uses about 1 GB per crate and the LuaJIT oracle about 400 MB. A shared target dir across worktrees thrashes fingerprints. |
+| D20 | **The machine budget is binding.** At most 3 agents run at once. Each agent has its own git worktree and target dir. All cargo and oracle invocations go through `scripts/port/cargo.sh` / `oracle.sh`, which `flock` a global lock (one compile at a time; at most `$POB_ORACLE_SLOTS` LuaJIT oracles at a time, default 1: `runner::OracleLock` holds one of N flocks, slot 0 being `oracle.sh`'s; CCR-0127). | 3 GB of free RAM: rustc uses about 1 GB per crate and the LuaJIT oracle about 400 MB. A shared target dir across worktrees thrashes fingerprints. |
 
 ---
 
@@ -72,10 +72,10 @@ scripts/port/   Python tooling (locals_audit, segments, provenance, globals_lint
 **Dependency rules.**
 
 1. Dependencies point one way only: `pob-lua ← pob-gamedata ← pob-modparser ← pob-calc ← pob-ui(new)`.
-2. `pob-oracle` depends on `pob-calc` with `features = ["probe"]` and on `pob-luahost`. **All** oracle and acceptance tests live in `crates/pob-oracle/tests/<unit>.rs`, so there is no dev-dependency cycle and no second copy of pob-calc.
+2. `pob-oracle` depends on `pob-calc` with `features = ["probe"]` and on `pob-luahost` (as built, `pob-luahost` *is* `pob-oracle`, AMENDMENTS A1). **All** oracle and acceptance tests live in `crates/pob-oracle/tests/<unit>.rs`, so there is no dev-dependency cycle and no second copy of pob-calc.
 3. `pob-lua`, `pob-gamedata`, `pob-modparser` and `pob-calc` MUST NOT depend on `mlua` or use `std::fs` outside `cfg(not(target_arch = "wasm32"))` loaders, and MUST pass `cargo check --target wasm32-unknown-unknown`.
 4. `pob-calc` is single-threaded (`Rc`, `!Send`), mirroring PoB's single Lua VM. `pob-gamedata::Data` is immutable, `Send + Sync`, and held in a process global. Its only mutable "globals" are kept in a thread-local `DataSel` (§4.4).
-5. The existing `pob-ui` and `pob-extract` keep compiling against `pob-luahost` through a dependency alias: `pob-calc = { package = "pob-luahost", path = "../pob-luahost" }`.
+5. The existing `pob-ui` and `pob-extract` keep compiling against `pob-luahost` through a dependency alias: `pob-calc = { package = "pob-luahost", path = "../pob-luahost" }`. *Obsolete: U53 deleted `pob-ui`, INT-4 deleted `pob-extract` (AMENDMENTS A13).*
 
 ### 2.1 File tree and owners
 
@@ -203,13 +203,15 @@ No file has two owners. A unit edits only its own files, its `crates/pob-oracle/
 | `error(...)`, or an arithmetic, index or call on nil | `lua_error!("...")` |
 | a read of an undeclared global (`dotCfg` at CalcOffence:3527) | literal `nil` / `None`, marked `// LUA-GLOBAL-NIL` |
 | a string passed where a cfg is expected (`skillModList:More("MORE", cfg, "Accuracy")`, CalcOffence.lua:2194-2195) | `Some(ModCfg::STRING_CFG())` (all fields nil; the table that ends up in the name list matches nothing), marked `// LUA-QUIRK` |
+| `f(a, modDB:Override(nil, "X"))`, the Override a trailing argument (`m_max(sum, modDB:Override(nil, "ChillVal"))`, CalcPerform.lua:870/884/894) | an unmatched `Override` returns **no value** (`OverrideInternal` has no final return, ModDB.lua:229-251, ModList.lua:177-197), so the call has one argument fewer: `m_max(sum)`, not `m_max(sum, nil)` (which raises). Port it as the shorter call when `Override` gives `Value::Nil` (PF-B's `actor_b::lua_max_override`), marked `// LUA-QUIRK` (CCR-0095 §2). `Max`/`Min` always return a value; `Flag` returns `true` or no value |
+| `t.k = modDB:Flag(nil, "X")` (a Flag result stored in a table, e.g. `output.EnergyShieldProtectsMana`, Calcs.lua:406) | assign `true` or nil, never `false`: `t.set(k, if flag { Val::Bool(true) } else { Val::Nil })`. Lua's `Flag` returns `true` or nothing (ModDB.lua:206-227, ModList.lua:155-175), and storing nothing is a nil assignment, which clears any value already at `k`; `if flag { t.set(k, true) }` is wrong because it keeps that value (calcs.rs L406; CCR-0097 §3, FOLLOWUPS "CS0" 1) |
 
 ### 3.3 Borrow rules (they also apply under `Rc`)
 
 1. Never hold a `Ref`/`RefMut` across a call. Public APIs return **owned values or handles**, never references into a `RefCell`. `Field::with`/`Shared::with` closures MUST be leaf code: no calls into calc, ModStore or table methods on the same object. Debug builds report a violation as a panic that cites this rule.
 2. Compute first, then write: `let v = q(...); output.set(k, v);`.
 3. `Field<T>` requires `T: CheapClone`, which is Copy, an `Rc`/`Arc`/`Weak` handle, `Name`, `Table`, `Shared<_>`, or `Option` of these. Collections that Lua mutates in place and aliases are `Shared<Vec<_>>` / `Shared<IndexMap<_,_>>` / `Table`, never a `Field<Vec<_>>`.
-4. `Rc` cycles are forbidden. Back-pointers (`ActiveSkill.actor`, `ActiveSkill.summonSkill`, `ModStore.actor`, `Actor.enemy/parent/player`) are `Weak`. `Env` owns its actors. `GlobalCache` owns cached envs, and wiping it frees them. `ActiveSkill.summonSkill` (CCR-0135): the summoning skill owns its minion (`activeSkill.minion`), which owns the minion's skills; readers use `ActiveSkill::summonSkill()`, which panics on a dead handle (an ownership bug, never a Lua nil); `copyActiveSkill` keeps a summoning skill whose actor is not `env.player` alive in the copy's `extra["summonSkillKeep"]` (the same keep-alive as CCR-0113's `actorKeep`). `crates/pob-calc/tests/leak1_cycles.rs` checks that a dropped env and the envs a recalc replaces free their whole graph.
+4. `Rc` cycles are forbidden. Back-pointers (`ActiveSkill.actor`, `ActiveSkill.summonSkill`, `ModStore.actor`, `Actor.enemy/parent/player`) are `Weak`. `Env` owns its actors. `GlobalCache` owns cached envs, and wiping it frees them. `ActiveSkill.summonSkill` (CCR-0135): the summoning skill owns its minion (`activeSkill.minion`), which owns the minion's skills; readers use `ActiveSkill::summonSkill()`, which panics on a dead handle (an ownership bug, never a Lua nil); `copyActiveSkill` keeps a summoning skill whose actor is not `env.player` alive in the copy's `extra["summonSkillKeep"]` (the same keep-alive as CCR-0113's `actorKeep`). Exception (CCR-0113): a skill made by `copyActiveSkill` whose source actor is not `env.player` (a foreign env's actor, CalcActiveSkill.lua:181) also owns that actor, as `newSkill.extra["actorKeep"]` (`calc_active_skill::actorKeepKey`, a `Val::Obj(ActorRef)`; probe exports show it as an extra key), because the source env can be freed while the copy lives on (CalcPerform.lua:3989); a same-env copy owns nothing. `crates/pob-calc/tests/leak1_cycles.rs` checks that a dropped env and the envs a recalc replaces free their whole graph. Two build-level cycles remain (CCR-0142): `Env.build` / `MiscCalculator.build` ↔ `calcsTab.{mainEnv, calcsEnv, miscCalculator}`, and `ActiveSkill.socketGroup` ↔ `SocketGroup.displaySkillList(Calcs)` are strong (Lua aliases). A recalc replaces both and leaks nothing; whoever drops a whole build or a socket group must clear those edges first. Only the web calc worker does (`worker_web.rs` `run_request`, CCR-0142 §3 A); the desktop app's build switch and socket-group deletion do not (no `Build::teardown`, FOLLOWUPS "CCRDOC" 7).
 
 ### 3.4 Iteration order policy
 
@@ -708,7 +710,7 @@ pub fn reset_stat_map_state();   // a freshly booted PoB process (tests)
 | Lua write | Accessor (owner) | Readers |
 |---|---|---|
 | `grantedEffect.hasGlobalEffect = true` (Data.lua:74-79, via the statMap fallback) | `pob_gamedata::skill_stat_map::hasGlobalEffect(ge)` (CT) | CalcSetup.lua:1755 (CS3), SkillsTab.lua:1015 (BM-B) |
-| `grantedEffect.levels[level].cost = {}` (SkillsTab.lua:1188-1190) | `pob_calc::model::skills_tab::levelCostCleared(id, level)` (BM-B) | every `grantedEffectLevel.cost` reader (CalcActiveSkill/CalcOffence costs, OF-C, CS3) |
+| `grantedEffect.levels[level].cost = {}` (SkillsTab.lua:1188-1190) | `pob_calc::model::skills_tab::levelCostCleared(id, level)` (BM-B; thread-local, process scope as in PoB); `reset_level_cost_cleared()` forgets it as a freshly booted PoB would (tests that run several builds per thread, e.g. CA.rs; the app never calls it; CCR-0133) | every `grantedEffectLevel.cost` reader (CalcActiveSkill/CalcOffence costs, OF-C, CS3); `calc_offence/costs_passes.rs` (CalcOffence.lua:1720) and `calc_perform/pools_charges.rs` (CalcPerform.lua:1985-1991) consult it (CCR-0133) |
 | `grantedEffect.fromItem = true` (CalcSetup.lua:1636-1638) | `calc_setup::init_env_skills::grantedEffect_fromItem(ge)` (CS3; to move to CT, A8 needs-code) | CalcTools.lua:95 (CT), CalcTriggers.lua:34, 37, 448, 1068, 1590 (TR-A/B) |
 | `data.timelessJewelLUTs[type] = …`, `jewelLUT.seedOffsets[…]` (DataAbyssJewelLookUpTableHelper.lua:165-200) | the process-global LUT cache in `timeless_lut.rs` (`loadAbyssJewel`, `clear_timeless_jewel_luts`); file access through `timeless_lut::set_jewel_fs(Arc<dyn JewelFs>)` (`StdJewelFs` on desktop, `NoJewelFs` on wasm) and `set_con_printf` (LUT) | PS-B (`readAbyssJewelLUT` returns an `LjIntMap<Value>`; `parseAbyssJewel` returns an `AbyssJewelLUT`, `repairLUTs` the rebuilt `NodeIdList`) |
 | `data.jewelRadii[…].outerSquared/innerSquared` (Data.lua:593-594) | the thread-local `DataSel` copy (`data.jewelRadius`), PT (CCR-0024 §8) | PT, PS-*, CS0 |
@@ -751,7 +753,12 @@ pub fn lor(a: Val, b: impl FnOnce() -> Val) -> Val { if a.truthy() { a } else { 
 pub fn land(a: Val, b: impl FnOnce() -> Val) -> Val { if a.truthy() { b() } else { a } }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Key { S(Name), I(i64), B(bool) }         // From<Name>, From<i64>, From<usize>, From<f64> (integral → I, else lua_error!)
+pub enum Key { S(Name), I(i64), B(bool), F(FKey) } // From<Name>, From<i64>, From<usize>, From<f64> (CCR-0102: an integer
+                                                   // value, |x| < 2^63, -0 → 0 → I; NaN → lua_error!("table index is NaN");
+                                                   // any other float → F, always a hash-part key, `pairs` in insertion order)
+pub struct FKey(u64);                              // the float's bits (never NaN / ±0); .get() -> f64
+impl Key { pub fn try_num(x: f64) -> Option<Key>;  // a read key: None for NaN (the read is nil)
+           pub fn as_num(self) -> Option<f64>; }   // I / F as a number
 
 /// A mutable Lua table. Clone = new alias (Rc).
 #[derive(Clone, Default)]
@@ -1048,6 +1055,13 @@ pub struct Override {
     pub toggleFlask: Field<Option<ItemRef>>, pub toggleTincture: Field<Option<ItemRef>>,
     pub conditions: Field<Option<Shared<Vec<Name>>>>,
     pub extraJewelFuncs: Field<Option<ModList>>,
+    // Rust-only keys of `extra` (CCR-0105): `"$removeNodeIds"` = the node-id half of PoB's mixed `removeNodes`
+    // set (`{ [node.id] = true }`, PassiveTreeView.lua:1706, anointed/item-granted nodes; read at CalcSetup.lua
+    // 1393/1408 by `init_env_items::removeNodes_byId`, filled by U24's `tree_view::tooltip`; a caller that fills
+    // only it leaves `removeNodes` an empty map, as the Lua table exists); `"$extraJewelFuncsActor"` = the strong
+    // reference that keeps pass 1's `env.player` alive across the CalcSetup.lua:1428-1433 restart (`ModStore.actor`
+    // is `Weak`). The fallback-weight pseudo nodes of TreeTab.lua:1962 go into `addNodes` as `Node`s with a NaN id
+    // (key 0, CCR-0132 §4).
     pub extra: Table,
 }
 /// specEnv argument of initEnv (Calcs.lua:93/192, CalcSetup.lua:478-482).
@@ -1271,17 +1285,34 @@ pub fn calcFullDPS(build: &BuildRef, mode: Mode, r#override: Rc<Override>, specE
 pub fn buildActiveSkill(env: &EnvRef, mode: Mode, skill: &ActiveSkillRef, targetUUID: Option<Name>, limitedProcessingFlags: &[Name]);
 /// Calcs.lua:89-114: returns (closure, base output). The closure calls initEnv(build, "CALCULATOR", override) with no specEnv.
 pub fn getMiscCalculator(build: &BuildRef) -> (Rc<MiscCalculator>, Output);
-pub struct MiscCalculator { build: BuildRef, usedFullDPS: bool }
+pub struct MiscCalculator { pub build: BuildRef, pub usedFullDPS: Cell<bool> }   // late.rs (CCR-0131); Cell (CCR-0097 §3)
 impl MiscCalculator { pub fn call(&self, r#override: Rc<Override>, useFullDPS: Option<bool>) -> Output; }
 pub struct FullDPS { pub combinedDPS: f64, pub TotalDotDPS: f64, pub skills: Table, pub TotalPoisonDPS: f64,
     pub causticGroundDPS: f64, pub impaleDPS: f64, pub igniteDPS: f64, pub burningGroundDPS: f64, pub bleedDPS: f64,
-    pub corruptingBloodDPS: f64, pub decayDPS: f64, pub dotDPS: f64, pub cullingMulti: f64, pub extra: Table }
+    pub corruptingBloodDPS: f64, pub decayDPS: f64, pub dotDPS: f64, pub cullingMulti: f64, pub extra: Table }   // extra["cullingDPS"] (Calcs.lua:348, only when cullingMulti > 0)
+/// `calcs.buildOutput`'s three post-processing blocks, public so CA's L5 test runs each on PoB's injected state
+/// (CCR-0097 §1); `buildOutput` calls them in Lua order, nothing else does.
+pub fn buildOutput_costWarnings(env: &EnvRef, mode: Mode, output: &Output);   // Calcs.lua:400-435
+pub fn buildOutput_main(env: &EnvRef, output: &Output);                      // 437-600
+pub fn buildOutput_calcs(build: &BuildRef, env: &EnvRef, output: &Output);   // 602-866
 /// Desktop wrapper used by the UI (D15).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn try_buildOutput(build: &BuildRef, mode: Mode) -> Result<EnvRef, pob_lua::LuaError>;
 // modules/power.rs [PWR] — CalcsTab.lua 496-773 (PowerBuilder as a resumable iterator, CalculatePowerStat,
 // CalculateCombinedOffDefStat). Sequential by default (D12); `PowerOptions { parallel: bool }`, where parallel
 // builds one Build per worker from the XML text.
+// As built (CCR-0101): BuildOutput(build) (CalcsTab.lua:441-474 without the UI tail 464-467, which is U39's
+// `build_output_ui_tail`), BuildPower(build), PowerBuilder(state, build, options) -> Option<()> (one coroutine resume:
+// Some = yielded), PowerBuilder_run(build, &PowerOptions) (the body outside a coroutine, never yields),
+// CalculatePowerStat, GetFromOutput, powerStatTransform, CalculateCombinedOffDefStat(original, modified) -> (f64, f64)
+// (offence, defence: both Lua results, CalcsTab.lua:757), GetMiscCalculator, CreateUndoState/RestoreUndoState.
+// The calcsTab/build fields the frozen structs lack (powerStat, powerMax, nodePowerMaxDepth, powerBuilderInitialized,
+// miscCalculator's base output, powerBuilderCallback/ProgressCallback, the options) live in BM-A's
+// `build_xml::build_extra(build)` (a `calcsTab` sub-table) behind typed accessors (powerStat/set_powerStat, powerMax,
+// nodePowerMaxDepth/set_…, powerBuilderInitialized, powerBuilderRunning, set_miscCalculator, set_powerOptions,
+// set_powerBuilderCallback, set_powerBuilderProgressCallback). Host hooks: GetTime/set_GetTime (desktop: monotonic
+// ms, wasm: 0), launch_devMode/set_launch_devMode (CalcsTab.lua:483 re-raises only in dev mode). Test seam:
+// `power::calc_replay` (feature `probe`) answers calcFunc inside the body.
 ```
 
 ---
@@ -1407,8 +1438,10 @@ ctx_struct! { pub struct AilmentPassLocals { pass: Table, output: Output, cfg: C
 //                                  skillFlags: &Table, output: &Output, breakdown: Option<&Breakdown>);
 //   pub(super) fn calcResistForType(ctx: &OffenceCtx, damageType: Name, cfg: Option<&ModCfg>) -> f64;
 //   pub(super) fn runSkillFunc(ctx: &OffenceCtx, name: SkillHook);
-//   pub fn calcRadiusBreakpoints(baseRadius, incArea, moreArea, radiusMod: Option<f64>) -> (f64, f64, f64, f64);  // NaN = nil until
-//       CCR-0041 §1 / CCR-0043 (A8 needs-code) makes it (Option<f64>, …); OF-A's callers use calcRadiusBreakpointsOpt
+//   pub fn calcRadiusBreakpoints(baseRadius, incArea, moreArea, radiusMod: Option<f64>) -> (f64, f64, f64, f64);  // NaN = nil
+//       (the frozen shape; CCR-0041 §1 / CCR-0043 rejected, not built): OF-A's callers use
+//       calcRadiusBreakpointsOpt(..) -> (Option<f64>, …) (the four Lua nils), OF-B's `skill_types::radius_breakpoints`
+//       restores them with the L201 `radius > 0` test
 // costs_passes.rs [OF-C]: pub fn combineStat(ctx: &OffenceCtx, stat: Name, mode: Name, extra: Option<Name>);  // the vararg is a chance stat name (CCR-0055)
 // ailments_a.rs [OF-G] (loop-local functions, CCR-0035):
 //   pub(crate) fn checkWeapon1HFlags(ctx: &OffenceCtx, al: &AilmentPassLocals, targetCfg: &ModCfg);                 // sets targetCfg.flags
@@ -1653,7 +1686,7 @@ Function ids are the ids of `data/dump/closures.json` (AMENDMENTS A2, `crates/po
 - `pob_oracle::inject::state(&dump, &BuildRef) -> (EnvRef, Locals)` rebuilds the Rust graph with sharing intact. `ctx_struct!`'s `ProbeState` maps locals to ctx fields by name.
 - `pob_calc::probe` (feature `probe`) exports the same schema from Rust via `probe!(ctx, "<id>")`.
 
-**Replay.** `pob_oracle::replay` swaps a not-yet-ported callee for its recorded `in→out` state delta, keyed by hit id. Examples: PF-G calling `offence`, OF-A calling skill hooks, triggers calling `buildActiveSkill`. As built, `Replay::apply`/`apply_report` applies a delta to a live state **between** Rust calls; a segment that calls a callee in its middle needs a seam the test can answer. Shared today: `pob_calc::probe::set_skill_hook_handler` (feature `probe`; `runSkillFunc` offers each call to it, CCR-0041 §3). Per-unit seams (feature `probe` only, never in the shipped calc): `pools_charges::callee_replay` (PF-D, CCR-0093 §1), `setup_flasks::callee_replay` (PF-C, CCR-0079 §2), `ailments_dispatch::replay_hook` (PF-G, CCR-0077 §1), `calc_mirages::replay_hook` (MI, CCR-0090 §3), `item_parse::replay` (IT-A, CCR-0025 §3), `item_tools::replay` (IT-C, CCR-0061 §6). `unported!` answers a test replay hook (`pob_calc::stub::set_replay_hook`, ORC-X2, CCR-0044). One shared `callee!` seam in `probe.rs` plus `testkit::segment_diff_with_replay` (CCR-0044, CCR-0077 §1) is A8 needs-code. Other harness rules learnt by the units (A8 needs-code where not yet shared): pair a stage's `:in` and `:out` dumps from the same PoB run (CCR-0041 §4, CCR-0067 §3; shared since ORC-X2: `testkit::find_pair`, used by `segment_diff`); `run_segment` sets the state a dump does not carry (ORC-X2: the plain `passList` table, CCR-0036; `globalOutput`/`globalBreakdown` from the actor for offence stages from 2174 on, CCR-0075; the function-level `output`/`breakdown` at `offence:3346`/`4990`, CCR-0049 §2); state_dump.lua writes another env's actors, mod stores and actor outputs in full where the dump reaches them (ORC-X2), so a copied skill's `skillModList.actor`, `baseSkillModList.parent` and `activeSkill.mirage.output` inject with their contents; other envs' envs, active skills and breakdowns stay `{"$foreign": …}` markers (CCR-0041 §5, CCR-0044, CCR-0049 §4, CCR-0064 §1, CCR-0075); the exporter drops a typed field marked absent at injection while it holds a default (CCR-0040 §8, CCR-0055 §2, CCR-0077 §4, CCR-0079 §5, CCR-0082 §3, CCR-0093 §3a).
+**Replay.** `pob_oracle::replay` swaps a not-yet-ported callee for its recorded `in→out` state delta, keyed by hit id. Examples: PF-G calling `offence`, OF-A calling skill hooks, triggers calling `buildActiveSkill`. As built, `Replay::apply`/`apply_report` applies a delta to a live state **between** Rust calls; a segment that calls a callee in its middle needs a seam the test can answer. Shared today: `pob_calc::probe::set_skill_hook_handler` (feature `probe`; `runSkillFunc` offers each call to it, CCR-0041 §3). Per-unit seams (feature `probe` only, never in the shipped calc): `pools_charges::callee_replay` (PF-D, CCR-0093 §1), `setup_flasks::callee_replay` (PF-C, CCR-0079 §2), `ailments_dispatch::replay_hook` (PF-G, CCR-0077 §1), `calc_mirages::replay_hook` (MI, CCR-0090 §3), `item_parse::replay` (IT-A, CCR-0025 §3), `item_tools::replay` (IT-C, CCR-0061 §6), `calcs::replay_hook` (CA: `buildActiveSkill`'s entry, so TR-A/TR-B/PF-A's L4 tests keep their injected cache entries, CCR-0097 §2), `power::calc_replay` (PWR: `calcFunc` inside the PowerBuilder body, CCR-0101 §5). `unported!` answers a test replay hook (`pob_calc::stub::set_replay_hook`, ORC-X2, CCR-0044). These per-unit seams are the as-built mechanism: the one shared `callee!` seam in `probe.rs` and `testkit::segment_diff_with_replay` (CCR-0044, CCR-0077 §1) were not built (CCR-0044 rejected in that part, AMENDMENTS A14). The `unported!` hit counters are process-wide only (per-thread counters, CCR-0128, were not built), so a stub-reading L4 test keeps its Rust side on the test thread. Other harness rules learnt by the units (A8 needs-code where not yet shared): pair a stage's `:in` and `:out` dumps from the same PoB run (CCR-0041 §4, CCR-0067 §3; shared since ORC-X2: `testkit::find_pair`, used by `segment_diff`); `run_segment` sets the state a dump does not carry (ORC-X2: the plain `passList` table, CCR-0036; `globalOutput`/`globalBreakdown` from the actor for offence stages from 2174 on, CCR-0075; the function-level `output`/`breakdown` at `offence:3346`/`4990`, CCR-0049 §2); state_dump.lua writes another env's actors, mod stores and actor outputs in full where the dump reaches them (ORC-X2), so a copied skill's `skillModList.actor`, `baseSkillModList.parent` and `activeSkill.mirage.output` inject with their contents; other envs' envs, active skills and breakdowns stay `{"$foreign": …}` markers (CCR-0041 §5, CCR-0044, CCR-0049 §4, CCR-0064 §1, CCR-0075); the exporter drops a typed field marked absent at injection while it holds a default (CCR-0040 §8, CCR-0055 §2, CCR-0077 §4, CCR-0079 §5, CCR-0082 §3, CCR-0093 §3a).
 
 **Diff.**
 - Numbers must agree within `|a-b| ≤ 1e-9·max(1,|a|)`, so a `±0` sign mismatch passes (a dual-number host artefact, CCR-0002); bools and strings must be identical.
@@ -1741,7 +1774,7 @@ scripts/port/oracle.sh run --build X.xml --stage <id>   # flock-serialised LuaJI
 
 - Frozen files change only through `docs/port/ccr/NNNN-<slug>.md`, which states the problem, the Lua evidence (file:line) and the proposed diff.
 - Until the CCR is merged, the requesting agent works around the gap locally in its own file and marks the workaround `// CCR-NNNN`.
-- The integrator applies CCRs serially between merges and re-runs `cargo.sh check` for all crates. An applied CCR file gets a `Status: applied <date> by <unit>` line and stays in `docs/port/ccr/` as the evidence record; the binding text is the edited doc.
+- The integrator applies CCRs serially between merges and re-runs `cargo.sh check` for all crates. An applied CCR file gets a `Status: applied <date> by <unit>` line and stays in `docs/port/ccr/` as the evidence record; the binding text is the edited doc. Every CCR file now carries a final status, `applied`, `rejected` (not built, with the reason) or `superseded` (AMENDMENTS A7, A8, A10-A14; CCRDOC decided the last 52 on 2026-11-12).
 
 ---
 ## 11. Work units
@@ -1749,6 +1782,8 @@ scripts/port/oracle.sh run --build X.xml --stage <id>   # flock-serialised LuaJI
 A **wave** is a dependency level: it lists what *may* run in parallel. It does not mean everything in it runs at once, since the hard cap is 3 concurrent agents (D20). **Deps** must be merged before a unit starts. Units in Waves 3-4 seed from the oracle and replay their callees, so they depend on U0, ORC-X and their helper units only, never on upstream segments. Every unit also owns `crates/pob-oracle/tests/<id>.rs` and `crates/pob-oracle/corpus/<id>/`. File paths are relative to `crates/` unless they start with `scripts/` or `docs/`.
 
 ### 11.1 Unit table
+
+Every row below is merged into `rust-port` (2026-11-12; docs/port/STATUS.md).
 
 | ID | Lua sources (lines @16de4b82d) | Owned Rust files | Deps | Acceptance test | Wave |
 |---|---|---|---|---|---|
@@ -1814,7 +1849,7 @@ A **wave** is a dependency level: it lists what *may* run in parallel. It does n
 | **INT-1** parity triage | — | fixes land in owner files (reviewed by owner) | Wave 5 | L6 gates on all57 + 100 fresh poe.ninja builds | 6 |
 | **INT-2** performance | — | profiling-driven, no semantic change | CA, PWR | power report ≤ LuaJIT time single-threaded; full recalc ≤ LuaJIT | 6 |
 | **INT-3** breakdown parity | — | owner files | CA | CALCS-mode breakdown tables structurally equal on all57; Tabulate after calc equal | 6 |
-| **INT-4** retire | — | delete `pob-engine`, old `pob-data`; `pob-luahost` kept until the new UI ships | new UI on pob-calc | `cargo tree -p pob-calc -e normal \| grep -c mlua` = 0; wasm32 check of all runtime crates | 6 |
+| **INT-4** retire | — | delete `pob-engine`, old `pob-data`; `pob-luahost` kept until the new UI ships (*done: AMENDMENTS A13*) | new UI on pob-calc | `cargo tree -p pob-calc -e normal \| grep -c mlua` = 0; wasm32 check of all runtime crates | 6 |
 
 ### 11.2 Critical path and scheduling
 

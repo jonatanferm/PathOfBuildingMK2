@@ -235,6 +235,15 @@ fn rust_stubs() {
         h.skill_list_ctor = Rc::new(pob_app::tabs::skills::core::standin_skill_list);
         h.create_gem_slot = Rc::new(pob_app::tabs::skills::core::standin_create_gem_slot);
         h.skill_set_list_ctor = Rc::new(pob_app::tabs::skills::core::standin_skill_set_list);
+        // the ItemsTab stand-ins of LUA_STUBS (module notes); the defaults are U38's methods since
+        // the cut-over (CCR-0145 §5)
+        h.items_get_socket_description_line =
+            Rc::new(|_cx, item| format!("{} sockets", item.sockets.get().len()));
+        h.items_add_item_tooltip = Rc::new(|cx, tooltip, item, _slot| {
+            let name = item.name.get();
+            tooltip.add_line(cx, 16.0, &format!("^7{name}"));
+        });
+        h.items_add_undo_state = Rc::new(|_| {});
     });
 }
 
@@ -645,12 +654,12 @@ fn root_element(text: &str) -> Result<XmlNode, String> {
 fn mask(elem: &str, k: &str, v: &str, lua: bool) -> Option<&'static str> {
     match (elem, k) {
         ("Gem", "enableGlobal1" | "enableGlobal2") | ("Skill", "includeInFullDPS")
-            if lua && v == "nil" =>
+            if v == "nil" =>
         {
             Some("false")
         }
         ("Skill", "mainActiveSkill" | "mainActiveSkillCalcs")
-            if (lua && v == "nil") || (!lua && matches!(v, "0" | "nan" | "-nan")) =>
+            if (v == "nil") || (!lua && matches!(v, "0" | "nan" | "-nan")) =>
         {
             Some("<nil>")
         }

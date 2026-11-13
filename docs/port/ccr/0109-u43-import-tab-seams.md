@@ -1,7 +1,9 @@
 # CCR-0109: U43 ImportTab A seams (main.api, rate limiter, clock, U44/U46 hooks, harness gaps)
 
+**Status: applied (CCRDOC, 2026-11-12; code `144670d` Merge port/U43): §2 (with U51 deferred, `PendingRateLimiter` never delays), §5 `ImportHooks` (ui doc §10.5), §7 and §11; the §1 and §3 workarounds (`MainExtra`, `poe_api::os_time`) are the as-built design. Rejected because they were not built: §1/§3 as frozen-surface changes, §4 (the PRNG stays in pob-app), §6 (the re-export), §8 (the oracle natives; the u43 harness rebinds them), §9 (OnFrame still draws the old build node for one frame after Import to a new build; FOLLOWUPS "CCRDOC" 2) and §10 (POST without a Content-Type; FOLLOWUPS "CCRDOC" 3).**
+
 Unit: **U43** (ImportTab A: `ImportTab.lua:1-787`, `PoEAPI.lua` 1-238, `BuildSiteTools.lua`
-1-129). Status: **pending** (code on `port/U43` follows it). Number reserved with
+1-129). Filed status: **pending** (code on `port/U43` follows it). Number reserved with
 `scripts/port/next_ccr.sh`.
 
 ## 1. `main` fields `MainState` lacks

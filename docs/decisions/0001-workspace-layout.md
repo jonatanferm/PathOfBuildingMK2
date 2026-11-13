@@ -1,6 +1,7 @@
 # ADR 0001 — Workspace layout
 
-**Status:** accepted
+**Status:** superseded by docs/port/calc-architecture.md §2 and docs/port/ui-architecture.md §3;
+`pob-engine`, `pob-data` and `pob-extract` were deleted by INT-4 (docs/port/AMENDMENTS.md A13).
 **Date:** 2026-05-07
 
 ## Context

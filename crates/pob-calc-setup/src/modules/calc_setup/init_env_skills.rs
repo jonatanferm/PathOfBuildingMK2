@@ -573,6 +573,9 @@ pub fn seg(ctx: &mut InitEnvCtx) -> Flow {
                         g.nameSpec.set(grantedSkill.str(n!("nameSpec")).unwrap_or_else(|| LStr::from("")));
                         g.quality.set(0.0);
                         g.enabled.set(true);
+                        // CCR-0145 §4: the literal's nil enableGlobal1/2 (L1497 sets the first)
+                        g.extra.set(n!("$enableGlobal1Nil"), true);
+                        g.extra.set(n!("$enableGlobal2Nil"), true);
                         g
                     }
                 };
@@ -584,6 +587,7 @@ pub fn seg(ctx: &mut InitEnvCtx) -> Flow {
                 activeGemInstance.level.set(grantedSkill.opt_num(n!("level")).unwrap_or(f64::NAN));
                 // L1497
                 activeGemInstance.enableGlobal1.set(true);
+                activeGemInstance.extra.set(n!("$enableGlobal1Nil"), Val::Nil); // CCR-0145 §4
                 // L1498
                 activeGemInstance.noSupports.set(grantedSkill.truthy(n!("noSupports")));
                 // L1499
@@ -673,6 +677,9 @@ pub fn seg(ctx: &mut InitEnvCtx) -> Flow {
                         g.level.set(1.0);
                         g.triggered.set(true);
                         g.extra.set(n!("explodeSource"), explodeSource.clone());
+                        // CCR-0145 §4: the literal has no enableGlobal1/2 (nil)
+                        g.extra.set(n!("$enableGlobal1Nil"), true);
+                        g.extra.set(n!("$enableGlobal2Nil"), true);
                         activeGemInstance = g;
                     }
                     // L1544

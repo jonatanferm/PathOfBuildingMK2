@@ -1,7 +1,9 @@
 # CCR-0107: U32 item lists and slots seams
 
+**Status: applied (CCRDOC, 2026-11-12; code `12e0e27` Merge port/U32): §1 `ItemsTabHooks` (ui doc §10.5) and §6. Rejected because they were not built: §2 (`ItemSlot_SetSelItemId` stays private; U32's copy `tabs::items::slot::set_sel_item_id` is the one the UI uses), §3 (no single shared `matchOrPattern`; ui doc §13 item 15 lists the copies), §4 (the wiki helpers stay in `tabs/items/slot.rs` and `controls/gem_select.rs`) and §5 (the identity tokens of `shared_set_list.rs` stay).**
+
 Unit: **U32** (ItemSlotControl, ItemListControl, ItemDBControl, ItemSetListControl,
-SharedItemListControl, SharedItemSetListControl, ItemSlotHelper). Status: **pending** (code on
+SharedItemListControl, SharedItemSetListControl, ItemSlotHelper). Filed status: **pending** (code on
 `port/U32` follows it, with the local workarounds marked `// CCR-0107`). Number reserved with
 `scripts/port/next_ccr.sh`.
 

@@ -1,8 +1,10 @@
 # CCR-0138: U48 CompareTab C seams (copies of U47/U49 helpers, the abyssal slot `shown`, the compare id)
 
+**Status: applied (CCRDOC, 2026-11-12; code `b9888df` Merge port/U48): §2 (`abyssal_slot_shown`), §3, §4 and §5. Not built: §1's switch to U49's now-public methods (`power.rs` keeps its five private copies) and §3's deletion of U46's unused `init::State::comparePowerCompareId`.**
+
 Unit: **U48** (`Classes/CompareTab.lua:2516-3161`, `Classes/ComparePowerReportListControl.lua`,
 `Classes/CompareCalcsHelpers.lua`; files `pob-app/src/tabs/compare/{power.rs,power_list.rs,calcs_helpers.rs}`).
-Status: **pending** (code on `port/U48` follows it, with the local workarounds marked `// CCR-0138`).
+Filed status: **pending** (code on `port/U48` follows it, with the local workarounds marked `// CCR-0138`).
 Number reserved with `scripts/port/next_ccr.sh`.
 
 No frozen contract changes. Three local workarounds for methods and fields that other units own,

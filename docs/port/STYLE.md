@@ -46,13 +46,15 @@ listed here; then the verbatim text.
 | `error(...)`, or an arithmetic, index or call on nil | `lua_error!("...")` |
 | a read of an undeclared global (`dotCfg` at CalcOffence:3527) | literal `nil` / `None`, marked `// LUA-GLOBAL-NIL` |
 | a string passed where a cfg is expected (`skillModList:More("MORE", cfg, "Accuracy")`, CalcOffence.lua:2194-2195) | `Some(ModCfg::STRING_CFG())` (all fields nil; the table that ends up in the name list matches nothing), marked `// LUA-QUIRK` |
+| `f(a, modDB:Override(nil, "X"))`, the Override a trailing argument (`m_max(sum, modDB:Override(nil, "ChillVal"))`, CalcPerform.lua:870/884/894) | an unmatched `Override` returns **no value** (`OverrideInternal` has no final return, ModDB.lua:229-251, ModList.lua:177-197), so the call has one argument fewer: `m_max(sum)`, not `m_max(sum, nil)` (which raises). Port it as the shorter call when `Override` gives `Value::Nil` (PF-B's `actor_b::lua_max_override`), marked `// LUA-QUIRK` (CCR-0095 §2). `Max`/`Min` always return a value; `Flag` returns `true` or no value |
+| `t.k = modDB:Flag(nil, "X")` (a Flag result stored in a table, e.g. `output.EnergyShieldProtectsMana`, Calcs.lua:406) | assign `true` or nil, never `false`: `t.set(k, if flag { Val::Bool(true) } else { Val::Nil })`. Lua's `Flag` returns `true` or nothing (ModDB.lua:206-227, ModList.lua:155-175), and storing nothing is a nil assignment, which clears any value already at `k`; `if flag { t.set(k, true) }` is wrong because it keeps that value (calcs.rs L406; CCR-0097 §3, FOLLOWUPS "CS0" 1) |
 
 ### 3.3 Borrow rules (they also apply under `Rc`)
 
 1. Never hold a `Ref`/`RefMut` across a call. Public APIs return **owned values or handles**, never references into a `RefCell`. `Field::with`/`Shared::with` closures MUST be leaf code: no calls into calc, ModStore or table methods on the same object. Debug builds report a violation as a panic that cites this rule.
 2. Compute first, then write: `let v = q(...); output.set(k, v);`.
 3. `Field<T>` requires `T: CheapClone`, which is Copy, an `Rc`/`Arc`/`Weak` handle, `Name`, `Table`, `Shared<_>`, or `Option` of these. Collections that Lua mutates in place and aliases are `Shared<Vec<_>>` / `Shared<IndexMap<_,_>>` / `Table`, never a `Field<Vec<_>>`.
-4. `Rc` cycles are forbidden. Back-pointers (`ActiveSkill.actor`, `ActiveSkill.summonSkill`, `ModStore.actor`, `Actor.enemy/parent/player`) are `Weak`. `Env` owns its actors. `GlobalCache` owns cached envs, and wiping it frees them. `ActiveSkill.summonSkill` (CCR-0135): the summoning skill owns its minion (`activeSkill.minion`), which owns the minion's skills; readers use `ActiveSkill::summonSkill()`, which panics on a dead handle (an ownership bug, never a Lua nil); `copyActiveSkill` keeps a summoning skill whose actor is not `env.player` alive in the copy's `extra["summonSkillKeep"]` (the same keep-alive as CCR-0113's `actorKeep`). `crates/pob-calc/tests/leak1_cycles.rs` checks that a dropped env and the envs a recalc replaces free their whole graph.
+4. `Rc` cycles are forbidden. Back-pointers (`ActiveSkill.actor`, `ActiveSkill.summonSkill`, `ModStore.actor`, `Actor.enemy/parent/player`) are `Weak`. `Env` owns its actors. `GlobalCache` owns cached envs, and wiping it frees them. `ActiveSkill.summonSkill` (CCR-0135): the summoning skill owns its minion (`activeSkill.minion`), which owns the minion's skills; readers use `ActiveSkill::summonSkill()`, which panics on a dead handle (an ownership bug, never a Lua nil); `copyActiveSkill` keeps a summoning skill whose actor is not `env.player` alive in the copy's `extra["summonSkillKeep"]` (the same keep-alive as CCR-0113's `actorKeep`). Exception (CCR-0113): a skill made by `copyActiveSkill` whose source actor is not `env.player` (a foreign env's actor, CalcActiveSkill.lua:181) also owns that actor, as `newSkill.extra["actorKeep"]` (`calc_active_skill::actorKeepKey`, a `Val::Obj(ActorRef)`; probe exports show it as an extra key), because the source env can be freed while the copy lives on (CalcPerform.lua:3989); a same-env copy owns nothing. `crates/pob-calc/tests/leak1_cycles.rs` checks that a dropped env and the envs a recalc replaces free their whole graph. Two build-level cycles remain (CCR-0142): `Env.build` / `MiscCalculator.build` ↔ `calcsTab.{mainEnv, calcsEnv, miscCalculator}`, and `ActiveSkill.socketGroup` ↔ `SocketGroup.displaySkillList(Calcs)` are strong (Lua aliases). A recalc replaces both and leaks nothing; whoever drops a whole build or a socket group must clear those edges first. Only the web calc worker does (`worker_web.rs` `run_request`, CCR-0142 §3 A); the desktop app's build switch and socket-group deletion do not (no `Build::teardown`, FOLLOWUPS "CCRDOC" 7).
 
 ### 3.4 Iteration order policy
 
@@ -131,6 +133,18 @@ that bite every porting unit:
 - **Test seams.** A seam that lets a test answer a callee or a hook (`*::replay`, `callee_replay`,
   `replay_hook`, `set_skill_hook_handler`, `SpecStubs`, `PscCalls`) compiles only under the `probe`
   feature (or is never set by the product) and changes nothing when unset.
+
+CCRs 0043-0145 were decided by unit CCRDOC (2026-11-12; AMENDMENTS A14). The rules that bite:
+
+- **Zero-value returns (CCR-0095 §2, CCR-0097 §3).** An unmatched `Override` returns no value, so as
+  a trailing argument it shortens the call (§3.2); a `Flag` result stored in a table is `true` or
+  nil, never `false`.
+- **Keep-alives instead of cycles (CCR-0113, CCR-0135, CCR-0142).** A strong reference that Lua
+  needs but that would close an `Rc` cycle goes into a Rust-only `extra` key (`actorKeep`,
+  `summonSkillKeep`, `override.extra["$extraJewelFuncsActor"]`) or an explicit teardown, as §3.3
+  rule 4 says.
+- **Float keys (CCR-0102).** `Table` keys may be non-integral numbers (`Key::F`); match `Key`
+  exhaustively.
 
 ### Conventions of the skeleton
 

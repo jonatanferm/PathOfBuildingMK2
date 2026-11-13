@@ -1,9 +1,11 @@
 # CCR-0119: U31 SkillsTab B seams (the SkillsTab UI calls, wiring with U30, the New group's nil numbers, a bridge finding)
 
+**Status: applied (CCRDOC, 2026-11-12; code `ffe0c91` Merge port/U31): §1 `SkillsTabUiHooks` (ui doc §10.5), §2, §3 and §5. §4 was applied by U53 (CCR-0145 §3) and §6 by U50 (CCR-0144 §3).**
+
 Unit: **U31** (SkillsTab.lua:743-1080 `CreateGemSlot`; `SkillListControl` 1-267,
 `SkillSetListControl` 1-127, `MinionListControl` 1-107, `MinionSearchListControl` 1-71; files
 `pob-app/src/tabs/skills/{gem_slots,skill_list,skill_set_list,minion_list,minion_search_list}.rs`).
-Status: **pending** (code on `port/U31` follows it; §2 is applied there). Number
+Filed status: **pending** (code on `port/U31` follows it; §2 is applied there). Number
 reserved with `scripts/port/next_ccr.sh`.
 
 No frozen contract changes. This CCR records the seams U31 introduced in its own files, how they

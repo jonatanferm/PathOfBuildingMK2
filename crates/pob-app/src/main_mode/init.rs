@@ -14,6 +14,15 @@
 //! DIVERGENCE(no-cli-args): the hosts pass no command line (`arg` is empty), so the `arg[1]`
 //! protocol-handler import (L71-84, `buildSites`, U43) never runs; `launch.arg` exists for a host
 //! that supplies one, and a non-empty `arg[1]` raises until U43 ports `buildSites`.
+//! DIVERGENCE(branding): user decision 2026-11-12. `forkLabel` (L253-255) reads
+//! `^8PoB Rust Port` instead of `^8PoB Community Fork`, and `versionLabel` (L257-259) shows the
+//! port's own version (`launch::PORT_VERSION`, `YYYY.MM.DD.N`) in place of
+//! `launch.versionNumber`; the Beta/Dev decorations still follow `launch.versionBranch`.
+//! The UI oracle's patch 9 (pob-ui-oracle patches.rs) makes the Lua draw the same.
+//! DIVERGENCE(update-deferred): user decision 2026-11-12. The update checker is deferred
+//! (docs/port/FOLLOWUPS.md "Update checker (deferred by user)"; `launch:CheckForUpdate` is
+//! DIVERGENCE(update-stub)), so `checkUpdate` (L243-245) is never shown rather than offering a
+//! no-op button. Oracle patch 9 hides it on the Lua side too.
 //! ORDER: `main.onFrameFuncs` (string keys, `pairs` at L490) runs in insertion order; neither
 //! function draws or reads the other's effects (FirstFrame prints, LoadItems fills the item DBs),
 //! so the order is not observable (§8 rule 6 (c)).
@@ -90,6 +99,23 @@ pub fn load_module(cx: &mut Cx) -> CtrlId {
         .id();
     cx.main.node = node;
     node
+}
+
+/// `forkLabel`'s text. DIVERGENCE(branding): user decision 2026-11-12 (PoB L254:
+/// `"^8PoB Community Fork"`).
+pub const FORK_LABEL: &str = "^8PoB Rust Port";
+
+/// `versionLabel`'s text (L258) for `launch.versionBranch`.
+/// DIVERGENCE(branding): user decision 2026-11-12: the number is the port's own
+/// (`launch::PORT_VERSION`), not `launch.versionNumber`, so PoB's nil-concatenation error on a
+/// manifest `<Version>` without `number` cannot occur.
+pub fn version_label_text(branch: Option<&str>) -> String {
+    format!(
+        "^8{}{}{}",
+        if branch == Some("beta") { "Beta: " } else { "Version: " },
+        crate::launch::PORT_VERSION,
+        if branch == Some("dev") { " (Dev)" } else { "" }
+    )
 }
 
 /// The first `new("Tooltip")` of the process loads Classes/Tooltip.lua, whose module code
@@ -354,11 +380,9 @@ pub fn main_init(cx: &mut Cx) {
             },
         ),
     );
-    // L243-245
-    cx.base_mut(check_update).shown = Prop::f(|cx, _| {
-        let l = &cx.app().launch;
-        !l.dev_mode && (l.update_available.is_none() || l.update_available.as_deref() == Some("none"))
-    });
+    // L243-245 `not launch.devMode and (not launch.updateAvailable or ... == "none")`
+    // DIVERGENCE(update-deferred): user decision 2026-11-12: never shown (no update checker).
+    cx.base_mut(check_update).shown = Prop::f(|_, _| false);
     // L246-248
     cx.get_mut(check_update).label = Prop::f(|cx, _| {
         let l = &cx.app().launch;
@@ -380,7 +404,8 @@ pub fn main_init(cx: &mut Cx) {
         ),
     );
     // L253-255
-    cx.get_mut(fork_label).label = Prop::f(|_, _| "^8PoB Community Fork".to_owned());
+    // DIVERGENCE(branding): user decision 2026-11-12 (PoB: "^8PoB Community Fork").
+    cx.get_mut(fork_label).label = Prop::f(|_, _| FORK_LABEL.to_owned());
     // L256
     let version_label = cx.add(
         node,
@@ -392,21 +417,8 @@ pub fn main_init(cx: &mut Cx) {
         ),
     );
     // L257-259
-    cx.get_mut(version_label).label = Prop::f(|cx, _| {
-        let l = &cx.app().launch;
-        let branch = l.version_branch.as_deref();
-        // `.. launch.versionNumber ..`: a nil versionNumber is a concatenation error
-        let number = l
-            .version_number
-            .as_deref()
-            .unwrap_or_else(|| lua_error!("attempt to concatenate field 'versionNumber' (a nil value)"));
-        format!(
-            "^8{}{}{}",
-            if branch == Some("beta") { "Beta: " } else { "Version: " },
-            number,
-            if branch == Some("dev") { " (Dev)" } else { "" }
-        )
-    });
+    cx.get_mut(version_label).label =
+        Prop::f(|cx, _| version_label_text(cx.app().launch.version_branch.as_deref()));
     // L260
     let neg = cx.main.cc.NEGATIVE.clone();
     let dev = cx.add(
@@ -677,4 +689,39 @@ pub fn shutdown(cx: &mut Cx) {
     }
     // L376
     super::settings::save_settings(cx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// DIVERGENCE(branding): the checked-in VERSION is embedded trimmed and is `YYYY.MM.DD.N`.
+    #[test]
+    fn port_version_is_dated_release() {
+        let v = crate::launch::PORT_VERSION;
+        let file = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../VERSION"))
+            .unwrap();
+        assert_eq!(v, file.trim());
+        let parts: Vec<&str> = v.split('.').collect();
+        assert_eq!(parts.len(), 4, "{v:?}");
+        assert_eq!(parts.iter().take(3).map(|p| p.len()).collect::<Vec<_>>(), [4, 2, 2], "{v:?}");
+        assert!(parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())));
+        let m: u32 = parts[1].parse().unwrap();
+        let d: u32 = parts[2].parse().unwrap();
+        let n: u32 = parts[3].parse().unwrap();
+        assert!((1..=12).contains(&m) && (1..=31).contains(&d) && n >= 1, "{v:?}");
+        assert!(!parts[3].starts_with('0'), "{v:?}");
+    }
+
+    /// DIVERGENCE(branding): forkLabel and versionLabel (Main.lua L253-259) on the port.
+    #[test]
+    fn branding_label_text() {
+        let v = crate::launch::PORT_VERSION;
+        assert_eq!(FORK_LABEL, "^8PoB Rust Port");
+        assert_eq!(version_label_text(None), format!("^8Version: {v}"));
+        assert_eq!(version_label_text(Some("master")), format!("^8Version: {v}"));
+        assert_eq!(version_label_text(Some("beta")), format!("^8Beta: {v}"));
+        assert_eq!(version_label_text(Some("dev")), format!("^8Version: {v} (Dev)"));
+        assert!(!version_label_text(None).contains("2.67"));
+    }
 }

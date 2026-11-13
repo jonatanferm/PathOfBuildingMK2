@@ -276,8 +276,15 @@ pub fn spec_reset_undo(cx: &mut Cx, me: CtrlId, spec: &PassiveSpecRef) {
         st.undo.clear();
         st.redo.clear();
     }
-    // L28
-    let s = spec.CreateUndoState();
+    // L28 (CCR-0145 §8: the state `PassiveSpec:Load` took at its L194 `ResetUndo`, when there
+    // is one; it is used once)
+    let s = match spec.extra.get(n!("$loadUndoState")) {
+        Val::Table(t) => {
+            spec.extra.set(n!("$loadUndoState"), Val::Nil);
+            t
+        }
+        _ => spec.CreateUndoState(),
+    };
     cx.w_mut::<TreeTab>(me).core.spec_undo[i].1.undo.push_front(s);
 }
 
@@ -1962,7 +1969,9 @@ fn tab_or_err(cx: &Cx) -> CtrlId {
 }
 
 /// `BuildHooks::tree_tab`: `self.treeTab = new("TreeTab"):TreeTab(self)` (Build.lua:613), then
-/// the `ResetUndo` tail of the spec loads that already ran (DIVERGENCE(reset-undo)).
+/// the `ResetUndo` tail of the spec loads that already ran (DIVERGENCE(reset-undo): the stacks
+/// are built here, after PostLoad; the first state is the one each `PassiveSpec:Load` took at
+/// its L194, as PoB's, CCR-0145 §8).
 pub fn ctor_hook(cx: &mut Cx, build: CtrlId) -> CtrlId {
     let me = cx.add_free(Some(build), TreeTab::new(build)).id();
     let m = cx.build().model.clone();
