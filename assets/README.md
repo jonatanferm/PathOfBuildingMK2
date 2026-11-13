@@ -13,7 +13,7 @@ sources: `THIRD_PARTY_NOTICES.md`.
 | `tree/` | passive tree art, one directory per tree version, `tree/legion/` | `src/TreeData/` (images only) |
 | `timeless/` | timeless and abyss jewel lookup tables (`.zip`, `.zip.partN`) | `src/Data/TimelessJewelData/` |
 | `fonts/` | SimpleGraphic's bitmap fonts (`.tgf` + `.tga` atlases) | `runtime/SimpleGraphic/Fonts/` |
-| `text/` | `changelog.txt`, `help.txt` (the About popup) | the checkout root |
+| `text/` | `changelog.txt`, `help.txt` (the About popup); `manifest.xml` (below) | the checkout root; the manifest is written by `tools/pob-vendor` |
 | `licenses/` | PoB's `LICENSE.md` | the checkout root |
 | `web-prefetch.txt` | what the web app fetches before it starts | (written by `tools/pob-vendor`) |
 
@@ -29,6 +29,12 @@ index does not list do not exist for the app.
   executable, else this directory (compile-time default). The decompressed timeless tables are
   cached outside the bundle (`pob_desktop::lut_cache_dir`); user data goes to the platform's user
   folder, never here.
+- `manifest.xml` (in `text/`) is a release-style PoB manifest, `<Version number="2.67.2"
+  branch="master" platform="win32"/>`: `launch:OnInit` takes `launch.versionNumber` (PoB's
+  version: the HTTP user agent, build-site and archive requests, the error prompt) from it, and
+  with a branch and a platform set the app runs as an installed release, so dev mode is off
+  (Launch.lua:59-62; PoB's checkout manifest has neither, which would turn dev mode on and put
+  the user data into the bundle, Main.lua:89-91).
 - Web: the page serves this directory as `assets/` (`app/pob-web/index.html` copies the parts the
   web needs into `dist/assets/`).
 

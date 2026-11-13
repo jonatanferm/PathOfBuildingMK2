@@ -56,6 +56,21 @@ pub fn locate_assets() -> anyhow::Result<PathBuf> {
     Ok(std::fs::canonicalize(&found).unwrap_or(found))
 }
 
+/// The desktop app's host configuration on the bundle at `assets`: the bundle is both the script
+/// and SimpleGraphic's runtime directory, so `GetScriptPath()` is the bundle and
+/// `GetRuntimePath()` its parent. The bundle's release-style `manifest.xml` keeps dev mode off,
+/// so the user data goes to the platform's user folder (Main.lua:89-98), never into the bundle.
+pub fn host_config(assets: &Path) -> pob_host::HostConfig {
+    let dir = assets.to_string_lossy().into_owned();
+    pob_host::HostConfig {
+        title: "Path of Building".into(),
+        size: (1280, 800),
+        min_size: (800, 600),
+        script_dir: dir.clone(),
+        sg_runtime: dir,
+    }
+}
+
 /// The bundle's game data directory (`data.bin`, `trees/`).
 pub fn gamedata_dir(assets: &Path) -> PathBuf {
     assets.join("gamedata")

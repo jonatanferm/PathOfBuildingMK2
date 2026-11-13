@@ -14,8 +14,12 @@
 //! * `timeless_jewel_tables_load_from_the_bundle`: a `.zip`, a split `.zip.partN` and an abyss
 //!   table load through `BundleJewelFs`, with the `.bin` cache written outside the bundle and read
 //!   back.
+//! * `launch_runs_as_a_release_on_the_bundle`: `launch:OnInit` on the desktop app's host
+//!   configuration ([`pob_desktop::host_config`], the native platform) reads the bundle's
+//!   `manifest.xml`: `launch.versionNumber` is PoB's 2.67.2, dev mode is off, and the user data
+//!   goes to the platform's user folder, outside the bundle.
 //! * `bundle_matches_its_index` and `text_files_and_listings_resolve`: the index and the files
-//!   agree; `NativeFs` reads and lists the logical tree.
+//!   agree (sizes and sha256); `NativeFs` reads and lists the logical tree.
 //!
 //! Run with `--test-threads=1` (the scenario test holds an app with decoded images). The proof
 //! that nothing else is read: run this binary with the PoB checkout hidden (VENDOR's report).
@@ -353,14 +357,57 @@ fn timeless_jewel_tables_load_from_the_bundle() {
 }
 
 #[test]
+fn launch_runs_as_a_release_on_the_bundle() {
+    let cfg = pob_desktop::host_config(&assets());
+    // the desktop app's platform (script and runtime paths, the user folder), with the headless
+    // copy-on-write file system: nothing main:Init writes reaches the disk
+    let platform =
+        pob_host::platform_native::NativePlatform::new(cfg.script_dir.clone(), cfg.sg_runtime);
+    let platform_user = pob_sg::Platform::user_path(&platform).expect("a user folder");
+    let state = pob_host::headless::HeadlessState::new(&cfg.script_dir, "");
+    let (_, fs, net) = pob_host::headless::services(&state);
+    let mut parts = pob_host::headless::parts_without_assets();
+    parts.sys = pob_sg::Sys::new(Box::new(platform), fs, net);
+    let mut app = pob_app::PobApp::new(parts);
+    // `launch:OnInit` as the desktop host calls it (`run_headless` would swap in the headless
+    // platform and its user folder)
+    let r = pob_host::guarded(&mut app, <pob_app::PobApp as pob_host::App>::on_init);
+    assert!(r.is_ok(), "{r:?}");
+    let l = &app.cx.app().launch;
+    assert!(l.prompt_msg.is_none(), "{:?}", l.prompt_msg);
+    assert_eq!(l.version_number.as_deref(), Some("2.67.2"), "PoB's version");
+    assert_eq!(l.version_branch.as_deref(), Some("master"));
+    assert_eq!(l.version_platform.as_deref(), Some("win32"));
+    assert!(!l.dev_mode, "a release manifest: no dev mode");
+    assert!(!l.installed_mode);
+    let user = app.cx.app().main.user_path.clone().expect("main.userPath");
+    assert_eq!(user, format!("{platform_user}/Path of Building/"));
+    let bundle_root = bundle().root.clone();
+    assert!(
+        !user.starts_with(&bundle_root) && !user.starts_with(&cfg.script_dir),
+        "the user data is outside the bundle: {user} (bundle {bundle_root})"
+    );
+}
+
+#[test]
 fn bundle_matches_its_index() {
     let a = assets();
     let index: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(a.join("index.json")).unwrap()).unwrap();
     let files = index["files"].as_object().unwrap();
     for (f, e) in files {
-        let len = std::fs::metadata(a.join(f)).map(|m| m.len()).ok();
-        assert_eq!(len, e["bytes"].as_u64(), "{f}");
+        use sha2::Digest as _;
+        // one file in memory at a time (the largest is a few tens of MB)
+        let bytes = std::fs::read(a.join(f)).unwrap_or_else(|e| panic!("{f}: {e}"));
+        assert_eq!(Some(bytes.len() as u64), e["bytes"].as_u64(), "{f}: size");
+        let sha = sha2::Sha256::digest(&bytes)
+            .iter()
+            .fold(String::new(), |mut s, b| {
+                use std::fmt::Write as _;
+                let _ = write!(s, "{b:02x}");
+                s
+            });
+        assert_eq!(Some(sha.as_str()), e["sha256"].as_str(), "{f}: sha256");
     }
     let b = bundle();
     for (l, f) in b.script_files().chain(b.runtime_files()) {
@@ -416,7 +463,16 @@ fn text_files_and_listings_resolve() {
         fs.read("Launch.lua").is_err(),
         "no PoB source in the bundle"
     );
-    assert!(fs.read("manifest.xml").is_err());
+    let manifest = String::from_utf8(fs.read("manifest.xml").unwrap()).unwrap();
+    assert!(
+        manifest.contains(r#"<Version number="2.67.2" branch="master" platform="win32" />"#),
+        "{manifest}"
+    );
+    assert_eq!(
+        fs.read("../manifest.xml").ok(),
+        fs.read("manifest.xml").ok(),
+        "the dev-mode path names the same file"
+    );
     let names = |v: Vec<pob_sg::FileEntry>| v.into_iter().map(|e| e.name).collect::<Vec<_>>();
     let latest = pob_gamedata::data()
         .gameVersions

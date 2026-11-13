@@ -11,8 +11,10 @@
 //! `NewFileSearch` listings and image loads see the logical tree, nothing else changes. A
 //! directory without an index (a PoB checkout, the oracle tests) is used as it is.
 //!
-//! Paths the index does not know (`manifest.xml`, `installed.cfg`, `first.run`) resolve against
-//! the bundle root as before, so they are simply absent.
+//! `manifest.xml` is in the index (a release-style manifest that tools/pob-vendor writes:
+//! PoB's version number, with a branch and a platform so that the app does not run in dev
+//! mode). Paths the index does not know (`installed.cfg`, `first.run`) resolve against the
+//! bundle root as before, so they are simply absent.
 
 use std::collections::BTreeMap;
 

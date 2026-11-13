@@ -610,10 +610,11 @@ deleted; a doc note in `mod_parser.rs` says so). Removing those, and the pure-Ru
 | pob-sg, pob-sg-wgpu, pob-host, pob-ui-core | 0 each |
 | **pob-app**, **pob-desktop**, **pob-web** (shipped products) | **0, 0, 0** |
 | pob-app, pob-web with `--target wasm32-unknown-unknown` | 0, 0 |
-| pob-desktop `--features lua-calc` (non-default, dev: LuaCalcBridge) | 3 |
+| pob-desktop `--features lua-calc` (non-default, dev: LuaCalcBridge) | 3 (feature removed by VENDOR, 2026-11-13) |
 
 So the `POB_UI_CALC=lua` bridge is already behind a non-default feature (pob-desktop's `lua-calc`,
-`dep:pob-ui-oracle`); nothing had to move. `mlua` remains a normal dependency only of the dev and
+`dep:pob-ui-oracle`); nothing had to move. (VENDOR, 2026-11-13, removed the `lua-calc` feature
+with the PoB checkout discovery: no shipping package reaches `mlua` any more.) `mlua` remains a normal dependency only of the dev and
 build-time crates (pob-oracle under its `luajit` feature, pob-ui-oracle, pob-dump) and a
 dev-dependency of pob-lua, pob-calc and pob-ui-core. `cargo check --target wasm32-unknown-unknown`
 of the 16 runtime packages (pob-lua, pob-gamedata, pob-modparser, the six calc crates and

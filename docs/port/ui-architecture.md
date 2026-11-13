@@ -126,15 +126,15 @@ crates/
                     determinism and order patches, gallery harness, ui-parity CLI, trace-render,
                     pob-lua-gui reference viewer, LuaCalcBridge (implements pob_app::calc::CalcFacade)
 app/pob-port-desktop/  fn main(): pob_host::run_desktop(cfg, pob_app::PobApp::new); feature `lua-calc`
-                       injects LuaCalcBridge for dev
+                       injects LuaCalcBridge for dev (removed by VENDOR)
 app/pob-port-web/      wasm entry (Trunk): pob_host::run_web(...)
 ```
 
 As built since U53 (CCR-0145 §6): `app/pob-port-desktop` is `app/pob-desktop` (package and bin
 `pob-desktop`) and `app/pob-port-web` is `app/pob-web` (package `pob-web`, worker glue `./pob-web.js`).
-The non-default desktop feature `lua-calc` is the only path from a shipping package to `mlua`
-(through pob-ui-oracle and pob-oracle); the default `cargo tree -e normal` of `pob-app`,
-`pob-desktop` and `pob-web` has no `mlua` (INT-4, AMENDMENTS A13).
+The non-default desktop feature `lua-calc` was the only path from a shipping package to `mlua`
+(through pob-ui-oracle and pob-oracle) until VENDOR removed it (2026-11-13); the `cargo tree -e
+normal` of `pob-app`, `pob-desktop` and `pob-web` has no `mlua` (INT-4, AMENDMENTS A13).
 
 Dependency graph (an arrow points at the dependency):
 
@@ -2416,7 +2416,7 @@ Implementations:
 | Implementation | Location | Role |
 |---|---|---|
 | `RustCalc` | `calc/rust.rs` (U15) | Delegates to `pob_calc` (`calcs::getMiscCalculator`, the PWR port of `BuildOutput`). Always `Ready`. |
-| `LuaCalcBridge` | `pob-ui-oracle/src/lua_calc.rs` (U15, dev only, desktop) | Serialises the model to XML (calc:BM-A), loads it into a second LuaJIT PoB (`pob-luahost`), runs the Lua calc, then **injects** the resulting env/output/breakdown/modDB into the calc doc's Rust types through calc:ORC-X (`pob-oracle` inject). The UI therefore reads exactly what PoB computed, and UI parity is calc-neutral before the Rust calc is at parity. `MiscCalc::call` re-serialises the live model each call: slow, used only in parity scenarios. **As built:** `inject` copies socket groups, gem instances and items, so `adopt_build_output` writes the dumped groups/gems back onto the live model and re-points `socketGroup`/`srcInstance`/`isSupporting` keys/items at the live objects (`Rebind`; CCR-0088 §1, CCR-0144 §3); the main env's document is injected last (each `inject` resets the probe registry, CCR-0088 §2). **Since U53** `LuaCalcBridge::new` delegates to `RustCalc` unless `POB_UI_CALC=lua`; `LuaCalcBridge::lua(src)` always runs PoB (u15 and pob-desktop's non-default `lua-calc` feature; CCR-0145 §1). |
+| `LuaCalcBridge` | `pob-ui-oracle/src/lua_calc.rs` (U15, dev only, desktop) | Serialises the model to XML (calc:BM-A), loads it into a second LuaJIT PoB (`pob-luahost`), runs the Lua calc, then **injects** the resulting env/output/breakdown/modDB into the calc doc's Rust types through calc:ORC-X (`pob-oracle` inject). The UI therefore reads exactly what PoB computed, and UI parity is calc-neutral before the Rust calc is at parity. `MiscCalc::call` re-serialises the live model each call: slow, used only in parity scenarios. **As built:** `inject` copies socket groups, gem instances and items, so `adopt_build_output` writes the dumped groups/gems back onto the live model and re-points `socketGroup`/`srcInstance`/`isSupporting` keys/items at the live objects (`Rebind`; CCR-0088 §1, CCR-0144 §3); the main env's document is injected last (each `inject` resets the probe registry, CCR-0088 §2). **Since U53** `LuaCalcBridge::new` delegates to `RustCalc` unless `POB_UI_CALC=lua`; `LuaCalcBridge::lua(src)` always runs PoB (u15, and pob-desktop's non-default `lua-calc` feature until VENDOR removed it; CCR-0145 §1). |
 | `WorkerCalc` | `calc/worker_web.rs` (U54; compiled on every target, the browser glue under `cfg(wasm32)`, a thread stand-in `ThreadHub` elsewhere, CCR-0134 §1) | The wasm Web Worker client (calc doc D15), as built a **pre-flight** (CCR-0134 §2-§3): the client posts `build:SaveDB()` XML as JSON (`{"op":"build_output","seq","xml"}`, one request in flight, newest XML wins); the worker loads it, runs `BuildOutput` and answers `{seq, ok, stats}` or the `LuaError` text, then `dead` if it aborted. For XML the worker calculated without error, the client runs the same `power::BuildOutput` on the live model and returns `Ready` (and cross-checks the stats); otherwise it stays `Pending` and the build keeps its last results. The env graph never crosses (the injector is in mlua-linked pob-oracle), so every web recalc runs twice. While `calcsTab.mainEnv` is nil (a build's first calc) it calculates on the main thread (CCR-0134 §4: Init and the stat list cannot take `Pending`). Worker errors go to the console and `WorkerStatus::errors` (no prompt; CCR-0134 §5). After each request the worker breaks the build-level cycles (CCR-0142 §3 A). Not a parity target. |
 
 PowerBuilder (calc:PWR), the GemSelect DPS sort and the ItemDB/NotableDB sorts keep PoB's per-frame stepping. A UI coroutine (§6.13) or the PWR iterator is stepped where the Lua resumes it.

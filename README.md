@@ -32,18 +32,25 @@ binding design documents are [docs/port/AMENDMENTS.md](docs/port/AMENDMENTS.md) 
 | `crates/pob-testpaths` | Dev only: locates the gitignored test inputs. |
 
 No shipping crate depends on `mlua`: `cargo tree -p <crate> -e normal | grep -c mlua` is 0 for
-`pob-calc`, `pob-app`, `pob-desktop` and `pob-web`. The non-default desktop feature `lua-calc`
-(PoB's Lua calc through `LuaCalcBridge`, for development) is the only exception.
+`pob-calc`, `pob-app`, `pob-desktop` and `pob-web`, with no exception (the former dev-only
+desktop feature `lua-calc` was removed by VENDOR; `LuaCalcBridge` lives on in the oracle crates).
 
 ## Building
 
 ```bash
-# One-time: the upstream PoB checkout (gitignored) and the data dump.
+cargo run -p pob-desktop --release
+```
+
+The apps need no PoB checkout: everything they read at run time (the frozen game data, the UI and
+tree art, fonts, timeless jewel tables, PoB's version manifest) is the in-repo asset bundle
+[`assets/`](assets/README.md). Only the oracle tests and refreshing the bundle need the upstream
+checkout (gitignored) and the data dump:
+
+```bash
 git clone https://github.com/PathOfBuildingCommunity/PathOfBuilding .PathOfBuilding
 cargo run -p pob-dump --release -- --pob .PathOfBuilding/src --out data/dump
 cargo run -p pob-dump --release -- --compile --out data/dump   # writes data/dump/data.bin
-
-cargo run -p pob-desktop --release
+cargo run -p pob-vendor --release -- --pob .PathOfBuilding --dump data/dump --out assets
 ```
 
 `data/dump/` is gitignored. Tests that need it, the PoB checkout or the parity corpus fail with a

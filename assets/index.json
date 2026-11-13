@@ -736,6 +736,10 @@
       "bytes": 12912,
       "sha256": "5f8f1329502dfa29881b2167b28fda684afe6710bf05d4ba4bab6f1763806834"
     },
+    "text/manifest.xml": {
+      "bytes": 128,
+      "sha256": "a75a44939c86ebb4208689f3c7cb6c59a1922bc4d1f76c9ec7080e2be8dc362a"
+    },
     "timeless/AbyssAmanamu.zip.part0": {
       "bytes": 5242880,
       "sha256": "d6a90bed379e59b159bf2c24a7833c79b8a0e407e5947c23d151d7e174338d66"
@@ -2605,8 +2609,8 @@
       "sha256": "279d0ef0ff7b9af954b0ca2ae75190930c50c5e368e65fdce0e9c13c3e9c336b"
     },
     "web-prefetch.txt": {
-      "bytes": 9615,
-      "sha256": "3d2f710135a49e8b581191ca41ffac482b7cfcc5511414af6ef83eab0223c4a3"
+      "bytes": 9673,
+      "sha256": "b158b1e161792e2bb39126629f9e04c0b10bff630443cb9f0ba52ae0da6f63f4"
     }
   },
   "format": 1,
@@ -3550,7 +3554,8 @@
     "TreeData/legion/legion-art.png": "tree/legion/legion-art.png",
     "TreeData/legion/legion-inactive.png": "tree/legion/legion-inactive.png",
     "changelog.txt": "text/changelog.txt",
-    "help.txt": "text/help.txt"
+    "help.txt": "text/help.txt",
+    "manifest.xml": "text/manifest.xml"
   },
   "source": {
     "pobCommit": "16de4b82d57f1c0de6eb40f37143c32d4da36a02",

@@ -1,5 +1,8 @@
 # The files the web host fetches before OnInit (VENDOR, pob_host::web): bundle paths.
-# ui/, the top-level and legion tree images, tree version 3_29. Written by pob-vendor.
+# ui/, the top-level and legion tree images, tree version 3_29, text/. Written by pob-vendor.
+text/changelog.txt
+text/help.txt
+text/manifest.xml
 tree/3_21/background-3.png
 tree/3_21/frame-3.png
 tree/3_21/group-background-3.png

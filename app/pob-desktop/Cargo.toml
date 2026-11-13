@@ -20,8 +20,9 @@ pollster.workspace = true
 wgpu = { version = "=30.0.1", features = ["webgl"] }
 
 [dev-dependencies]
-# VENDOR's standalone tests read the bundle's index.json.
+# VENDOR's standalone tests read the bundle's index.json and check its sha256s.
 serde_json.workspace = true
+sha2 = "0.10"
 
 # VENDOR: the start-up shared by the binaries and the standalone tests (asset bundle, game data).
 [lib]

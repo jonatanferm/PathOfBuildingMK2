@@ -16,12 +16,22 @@
 //! * `gamedata/`: the dump's compiled `data.bin` and `trees/<ver>.bin`, plus the tree UI files
 //!   (`trees/<ver>.sprites.json`, `trees/3_19.assets.json`) compiled the same way
 //!   (`pob_gamedata::data::compile_tree_json`);
+//! * `text/manifest.xml`, the logical `manifest.xml` (written, not copied): a release-style PoB
+//!   manifest, `<Version number="<pobVersion>" branch="master" platform="win32"/>`, which
+//!   `launch:OnInit` (Launch.lua:46-63) reads for `launch.versionNumber` (the HTTP user agent, the
+//!   build-site and archive requests, the error prompt). PoB's checkout manifest is not copied:
+//!   it has no branch or platform, which makes Launch.lua:59-62 turn on dev mode, and dev mode
+//!   puts the user data in the script path (Main.lua:89-91), the read-only bundle. With branch
+//!   and platform set the app runs as an installed release (dev mode off, user data in the
+//!   user's data directory). Nothing reads `branch` and `platform` but the update check, which
+//!   the port does not have (DIVERGENCE(update-deferred));
 //! * `licenses/PathOfBuilding-LICENSE.md` (PoB's `LICENSE.md`);
 //! * `index.json`: format 1, the snapshot (`source`: PoB version and commit from the dump's
 //!   manifest), the logical → bundle maps (`script`, `runtime`; `pob_host::bundle`) and every
 //!   written file with its size and sha256 (`files`);
 //! * `web-prefetch.txt`: what the web host fetches before `OnInit` (bundle paths): `ui/`, the
-//!   top-level and legion tree images and the latest tree version's images.
+//!   top-level and legion tree images, the latest tree version's images and `text/` (the manifest
+//!   `launch:OnInit` reads, the About popup's changelog and help).
 //!
 //! The hand-written `README.md` and `THIRD_PARTY_NOTICES.md` are left as they are; everything
 //! else the tool owns is replaced.
@@ -75,6 +85,23 @@ fn place(kind: Kind, logical: &str) -> Result<String> {
         }
     }
     bail!("no bundle place for {logical}")
+}
+
+/// The logical path of the manifest `launch:OnInit` reads (Launch.lua:46).
+const MANIFEST_LOGICAL: &str = "manifest.xml";
+/// Where the bundle holds it.
+const MANIFEST_FILE: &str = "text/manifest.xml";
+
+/// A release-style PoB manifest (module docs): what PoB's `UpdateCheck.lua:291` writes for an
+/// installed release, without the `Source`/`File` entries only the update check reads (and
+/// without an XML comment, which PoB's `xml.lua` would not take for the root's first node).
+fn release_manifest(pob_version: &str) -> String {
+    format!(
+        "<?xml version='1.0' encoding='UTF-8'?>\n\
+         <PoBVersion>\n\
+         \t<Version number=\"{pob_version}\" branch=\"master\" platform=\"win32\" />\n\
+         </PoBVersion>\n"
+    )
 }
 
 fn read_inventory(path: &Path, pob: &Path) -> Result<Vec<Entry>> {
@@ -232,6 +259,15 @@ fn main() -> Result<()> {
             out.write(&format!("gamedata/trees/{name}.bin"), &bytes)?;
         }
     }
+    // the release-style manifest (module docs)
+    ensure!(!pob_version.is_empty(), "dump manifest without pobVersion");
+    ensure!(
+        !script.contains_key(MANIFEST_LOGICAL),
+        "the inventory must not list {MANIFEST_LOGICAL}: pob-vendor writes it"
+    );
+    out.write(MANIFEST_FILE, release_manifest(&pob_version).as_bytes())?;
+    script.insert(MANIFEST_LOGICAL.to_owned(), MANIFEST_FILE.to_owned());
+
     out.write(
         "licenses/PathOfBuilding-LICENSE.md",
         &std::fs::read(pob.join("LICENSE.md")).context("PoB LICENSE.md")?,
@@ -245,8 +281,9 @@ fn main() -> Result<()> {
         .to_string();
     let mut prefetch: Vec<&str> = script
         .iter()
-        .filter(|(l, _)| {
-            l.starts_with("Assets/")
+        .filter(|(l, f)| {
+            f.starts_with("text/")
+                || l.starts_with("Assets/")
                 || l.starts_with("TreeData/legion/")
                 || l.starts_with(&format!("TreeData/{latest}/"))
                 || (l.starts_with("TreeData/") && l.matches('/').count() == 1)
@@ -257,7 +294,7 @@ fn main() -> Result<()> {
     prefetch.dedup();
     let mut list = format!(
         "# The files the web host fetches before OnInit (VENDOR, pob_host::web): bundle paths.\n\
-         # ui/, the top-level and legion tree images, tree version {latest}. Written by pob-vendor.\n"
+         # ui/, the top-level and legion tree images, tree version {latest}, text/. Written by pob-vendor.\n"
     );
     for f in &prefetch {
         list.push_str(f);

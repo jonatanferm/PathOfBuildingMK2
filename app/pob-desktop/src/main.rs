@@ -11,14 +11,7 @@
 fn main() -> anyhow::Result<()> {
     let assets = pob_desktop::locate_assets()?;
     pob_desktop::init_bundle(&assets)?;
-    let dir = assets.to_string_lossy().into_owned();
-    let cfg = pob_host::HostConfig {
-        title: "Path of Building".into(),
-        size: (1280, 800),
-        min_size: (800, 600),
-        script_dir: dir.clone(),
-        sg_runtime: dir,
-    };
+    let cfg = pob_desktop::host_config(&assets);
     // SimpleGraphic's `arg` global: the command line after the program name, e.g. the
     // `pob://pobbin/<id>` link a protocol handler passes (Main.lua:41-49, :71-83)
     let arg: Vec<String> = std::env::args().skip(1).collect();
